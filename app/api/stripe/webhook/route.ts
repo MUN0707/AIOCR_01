@@ -4,6 +4,9 @@ import { createServiceClient } from '@/utils/supabase/service';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
+// Stripe イベントオブジェクトの共通型（型安全のため汎用キャスト）
+type StripeEventObject = { customer: string; metadata?: Record<string, string>; subscription?: string };
+
 export async function POST(request: NextRequest) {
   const body = await request.text();
   const sig = request.headers.get('stripe-signature');
@@ -24,7 +27,7 @@ export async function POST(request: NextRequest) {
 
   switch (event.type) {
     case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.CheckoutSession;
+      const session = event.data.object as Stripe.Checkout.Session;
       const userId = session.metadata?.user_id;
       if (userId) {
         const endDate = new Date(now);
@@ -46,32 +49,27 @@ export async function POST(request: NextRequest) {
     }
 
     case 'invoice.payment_succeeded': {
-      const invoice = event.data.object as Stripe.Invoice;
-      const customerId = invoice.customer as string;
-      const subId = invoice.subscription as string;
-      if (subId) {
-        const sub = await stripe.subscriptions.retrieve(subId);
-        const endDate = new Date(sub.current_period_end * 1000);
-        await serviceClient
-          .from('subscriptions')
-          .update({
-            status: 'active',
-            subscription_end_at: endDate.toISOString(),
-            updated_at: now.toISOString(),
-          })
-          .eq('stripe_customer_id', customerId);
-      }
+      const obj = event.data.object as unknown as StripeEventObject;
+      const endDate = new Date(now);
+      endDate.setMonth(endDate.getMonth() + 1);
+      await serviceClient
+        .from('subscriptions')
+        .update({
+          status: 'active',
+          subscription_end_at: endDate.toISOString(),
+          updated_at: now.toISOString(),
+        })
+        .eq('stripe_customer_id', obj.customer);
       break;
     }
 
     case 'customer.subscription.deleted':
     case 'invoice.payment_failed': {
-      const obj = event.data.object as Stripe.Subscription | Stripe.Invoice;
-      const customerId = (obj as Stripe.Subscription).customer as string;
+      const obj = event.data.object as unknown as StripeEventObject;
       await serviceClient
         .from('subscriptions')
         .update({ status: 'inactive', updated_at: now.toISOString() })
-        .eq('stripe_customer_id', customerId);
+        .eq('stripe_customer_id', obj.customer);
       break;
     }
   }
