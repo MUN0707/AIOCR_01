@@ -4,6 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Stripe webhookはSupabase認証不要（Stripeサーバーからのリクエスト）
+  if (pathname.startsWith('/api/stripe/webhook')) {
+    return NextResponse.next({ request });
+  }
+
   // セッションクッキーのリフレッシュ用レスポンス（Supabase SSR 必須パターン）
   let supabaseResponse = NextResponse.next({ request });
 
@@ -31,8 +36,13 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // /login と /auth/callback は認証不要
-  if (pathname.startsWith('/login') || pathname.startsWith('/auth')) {
+  // 認証不要の公開ページ（/login, /auth/*, /pricing, /subscribe）
+  if (
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/pricing') ||
+    pathname.startsWith('/subscribe')
+  ) {
     return supabaseResponse;
   }
 
@@ -44,6 +54,44 @@ export async function proxy(request: NextRequest) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = '/login';
     return NextResponse.redirect(loginUrl);
+  }
+
+  // 管理者は全アクセス可（サブスク不要）
+  if (user.email === process.env.ADMIN_EMAIL) {
+    return supabaseResponse;
+  }
+
+  // /admin は管理者メールのみ
+  if (pathname.startsWith('/admin')) {
+    const homeUrl = request.nextUrl.clone();
+    homeUrl.pathname = '/';
+    return NextResponse.redirect(homeUrl);
+  }
+
+  // サブスクリプションチェック（メインアプリと /api/ ルート）
+  const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select('status, trial_end_at, subscription_end_at')
+    .eq('user_id', user.id)
+    .single();
+
+  const now = new Date();
+  const isAllowed =
+    subscription &&
+    ((subscription.status === 'trial' &&
+      subscription.trial_end_at &&
+      new Date(subscription.trial_end_at) > now) ||
+      (subscription.status === 'active' &&
+        (!subscription.subscription_end_at ||
+          new Date(subscription.subscription_end_at) > now)));
+
+  if (!isAllowed) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Subscription required' }, { status: 403 });
+    }
+    const pricingUrl = request.nextUrl.clone();
+    pricingUrl.pathname = '/pricing';
+    return NextResponse.redirect(pricingUrl);
   }
 
   return supabaseResponse;
