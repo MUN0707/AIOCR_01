@@ -1,0 +1,21 @@
+========================================
+  請求書PDF分割ツール — サービスURL一覧
+========================================
+
+【本番サービス URL】
+  https://（未記入 — 確認してここに追記してください）
+  ※ Vercel ダッシュボード → プロジェクト → Domains で確認
+
+【Supabase URL】
+  https://lonmddwpcfalgtddaksg.supabase.co
+
+【管理画面リンク】
+  Vercel:    https://vercel.com/dashboard
+  Supabase:  https://supabase.com/dashboard
+  Anthropic: https://console.anthropic.com/
+
+【ローカル開発】
+  http://localhost:3000
+  起動コマンド: npm run dev
+
+========================================
