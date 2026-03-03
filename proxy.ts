@@ -48,6 +48,10 @@ export async function proxy(request: NextRequest) {
 
   // 未認証の場合
   if (!user) {
+    // ゲスト初回お試し：トップページとPDF処理APIは認証不要
+    if (pathname === '/' || pathname.startsWith('/api/process-pdf')) {
+      return supabaseResponse;
+    }
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
