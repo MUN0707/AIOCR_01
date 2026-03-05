@@ -45,6 +45,13 @@ export default function LoginPage({
           </svg>
           Googleでサインイン
         </button>
+
+        <a
+          href="/"
+          className="block text-sm text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          ゲストとして利用する（無料5回まで）
+        </a>
       </div>
     </div>
   );
