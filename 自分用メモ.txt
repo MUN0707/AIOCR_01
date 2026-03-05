@@ -1,0 +1,19 @@
+請求書PDF自動分割ツール（税理士向け）
+
+複数の請求書がまとまったPDFをアップロードすると、Claude AI が各請求書を識別・分割し、日付_会社名_金額.pdf という名前で個別ダウンロードできるWebサービス。
+
+構築状況
+機能	状態
+PDF アップロード + Claude OCR による分割	✅ 完成
+個別DL / ZIP一括DL	✅ 完成
+Supabase 認証（Google OAuth）	✅ 完成
+ゲスト5回制限	✅ 完成
+Stripe クレカ決済（月額3,000円）	⚠️ 実装済みだが未完成
+銀行振込申込	✅ ロジック実装済み
+Vercel デプロイ	❌ 未実施（ローカル動作のみ）
+Stripe が未完成な理由： .env.local を見ると
+
+
+STRIPE_WEBHOOK_SECRET=whsec_xx   ← ダミー値
+STRIPE_PRICE_ID=price_xxx        ← ダミー値
+実際の Stripe ダッシュボードで商品/価格を作成してIDを設定する作業が残っています。
