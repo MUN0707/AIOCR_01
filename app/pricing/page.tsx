@@ -78,7 +78,7 @@ export default function PricingPage() {
                 'AIによる請求書自動解析',
                 'PDF分割・ファイル命名',
                 'ZIPダウンロード対応',
-                'クレジットカード / 銀行振込',
+                '銀行振込',
                 '優先サポート',
               ].map((item) => (
                 <li key={item} className="flex items-center gap-2">
@@ -99,21 +99,7 @@ export default function PricingPage() {
         {/* 支払い方法 */}
         <div className="bg-white rounded-3xl shadow-sm border border-sky-100 p-8 space-y-6">
           <h3 className="text-xl font-bold text-sky-900 text-center">お支払い方法</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="border border-sky-100 rounded-2xl p-6 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-sky-100 rounded-full flex items-center justify-center text-xl">💳</div>
-                <p className="font-bold text-sky-900">クレジットカード</p>
-              </div>
-              <p className="text-sky-600 text-sm leading-relaxed">
-                Stripeによる安全な決済。月額自動更新。いつでもキャンセル可能です。
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                {['VISA', 'Mastercard', 'JCB', 'AMEX'].map((c) => (
-                  <span key={c} className="text-xs bg-sky-50 text-sky-600 px-2 py-1 rounded-full border border-sky-200">{c}</span>
-                ))}
-              </div>
-            </div>
+          <div className="max-w-sm mx-auto">
             <div className="border border-sky-100 rounded-2xl p-6 space-y-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-sky-100 rounded-full flex items-center justify-center text-xl">🏦</div>
