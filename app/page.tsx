@@ -1029,9 +1029,17 @@ export default function Home() {
       </main>
 
       {/* ─── フッター ─────────────────────────────────────────────────────── */}
-      <footer className="relative max-w-[900px] mx-auto px-4 sm:px-6 py-8">
+      <footer className="relative max-w-[900px] mx-auto px-4 sm:px-6 py-8 space-y-2">
         <p className="text-center text-[10px] text-slate-300 tracking-widest uppercase">
           Invoice OCR · Powered by Claude AI · © {new Date().getFullYear()}
+        </p>
+        <p className="text-center">
+          <a
+            href="/tokusho"
+            className="text-[10px] text-slate-300 hover:text-sky-400 transition-colors underline underline-offset-2"
+          >
+            特定商取引法に基づく表記
+          </a>
         </p>
       </footer>
     </div>
