@@ -36,12 +36,13 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // 認証不要の公開ページ（/login, /auth/*, /pricing, /subscribe）
+  // 認証不要の公開ページ（/login, /auth/*, /pricing, /subscribe, /tokusho）
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/pricing') ||
-    pathname.startsWith('/subscribe')
+    pathname.startsWith('/subscribe') ||
+    pathname.startsWith('/tokusho')
   ) {
     return supabaseResponse;
   }
