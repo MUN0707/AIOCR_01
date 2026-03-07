@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 
 const rows: { label: string; value: string }[] = [
   { label: '販売事業者名', value: '請求があった場合には速やかに開示いたします' },
-  { label: '運営責任者', value: '請求があった場合には速やかに開示いたします' },
+  { label: '運営責任者', value: '村田尚優' },
   { label: '所在地', value: '請求があった場合には速やかに開示いたします' },
   { label: '電話番号', value: '請求があった場合には速やかに開示いたします' },
   { label: '営業時間', value: '平日 10:00〜18:00（土日祝を除く）' },
