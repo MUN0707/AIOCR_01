@@ -4,16 +4,25 @@ import { useState, useRef, useCallback, useEffect, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import type { User } from '@supabase/supabase-js';
+import type { OcrMode } from '@/lib/ocr/types';
 
-// ─── 型定義（既存ロジックと同じ） ────────────────────────────────────────────
+// ─── 型定義 ────────────────────────────────────────────────────────────────
 
 interface InvoiceResult {
   index: number;
   pageStart: number;
   pageEnd: number;
-  date: string;
-  requesterName: string;
-  taxIncludedAmount: number | null;
+  // 法人請求書フィールド
+  date?: string;
+  requesterName?: string;
+  taxIncludedAmount?: number | null;
+  // 確定申告フィールド
+  year?: string;
+  taxpayerName?: string;
+  documentType?: string;
+  totalIncome?: number | null;
+  taxPayable?: number | null;
+  // 共通
   fileName: string;
   pdfBase64: string;
   sourceFile: string;
@@ -23,6 +32,7 @@ interface ProcessResult {
   invoices: InvoiceResult[];
   totalPages: number;
   processedFiles: number;
+  mode: OcrMode;
 }
 
 // ─── ユーティリティ（既存ロジックと同じ） ──────────────────────────────────
@@ -188,7 +198,7 @@ const IconArchive = ({ className = 'w-3.5 h-3.5' }: { className?: string }) => (
   </svg>
 );
 
-// ─── 請求書テーブル行 ─────────────────────────────────────────────────────────
+// ─── テーブル行（法人請求書） ─────────────────────────────────────────────────
 
 function InvoiceRow({
   invoice,
@@ -202,12 +212,9 @@ function InvoiceRow({
 
   return (
     <tr className="group hover:bg-sky-50/40 transition-colors duration-150">
-      {/* # */}
       <td className="px-5 py-4 text-slate-300 font-mono text-xs tabular-nums">
         {String(invoice.index).padStart(2, '0')}
       </td>
-
-      {/* ページ */}
       <td className="px-5 py-4">
         <span className="text-[11px] font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded-md tracking-wide">
           {invoice.pageStart === invoice.pageEnd
@@ -215,30 +222,16 @@ function InvoiceRow({
             : `p${invoice.pageStart}–${invoice.pageEnd}`}
         </span>
       </td>
-
-      {/* 日付 */}
       <td className="px-5 py-4">
-        <span
-          className={`text-sm font-medium tracking-wide ${
-            isUnknownDate ? 'text-amber-400' : 'text-slate-700'
-          }`}
-        >
+        <span className={`text-sm font-medium tracking-wide ${isUnknownDate ? 'text-amber-400' : 'text-slate-700'}`}>
           {isUnknownDate ? '—' : invoice.date}
         </span>
       </td>
-
-      {/* 請求者名 */}
       <td className="px-5 py-4 max-w-[200px]">
-        <span
-          className={`text-sm block truncate ${
-            isUnknownName ? 'text-amber-400' : 'text-slate-800 font-medium'
-          }`}
-        >
+        <span className={`text-sm block truncate ${isUnknownName ? 'text-amber-400' : 'text-slate-800 font-medium'}`}>
           {isUnknownName ? '—' : invoice.requesterName}
         </span>
       </td>
-
-      {/* 税込金額 */}
       <td className="px-5 py-4 text-right">
         {invoice.taxIncludedAmount != null ? (
           <span className="text-base font-semibold text-slate-900 tabular-nums tracking-tight">
@@ -248,15 +241,81 @@ function InvoiceRow({
           <span className="text-amber-400 text-sm">—</span>
         )}
       </td>
-
-      {/* ファイル名（lg以上で表示） */}
       <td className="px-5 py-4 hidden lg:table-cell">
         <span className="text-[11px] text-slate-300 font-mono truncate block max-w-[180px]">
           {invoice.fileName}
         </span>
       </td>
+      <td className="px-5 py-4 text-center">
+        <button
+          onClick={onDownload}
+          aria-label={`${invoice.fileName} をダウンロード`}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+            bg-sky-400 text-white text-xs font-medium
+            hover:bg-sky-500 hover:-translate-y-px active:translate-y-0
+            transition-all duration-150 shadow-sm shadow-sky-200/60"
+        >
+          <IconDownload />
+          <span className="hidden sm:inline">DL</span>
+        </button>
+      </td>
+    </tr>
+  );
+}
 
-      {/* DLボタン */}
+// ─── テーブル行（確定申告） ─────────────────────────────────────────────────────
+
+function TaxReturnRow({
+  invoice,
+  onDownload,
+}: {
+  invoice: InvoiceResult;
+  onDownload: () => void;
+}) {
+  const isUnknownYear = !invoice.year || invoice.year === '不明';
+  const isUnknownName = !invoice.taxpayerName || invoice.taxpayerName === '不明';
+
+  return (
+    <tr className="group hover:bg-sky-50/40 transition-colors duration-150">
+      <td className="px-5 py-4 text-slate-300 font-mono text-xs tabular-nums">
+        {String(invoice.index).padStart(2, '0')}
+      </td>
+      <td className="px-5 py-4">
+        <span className="text-[11px] font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded-md tracking-wide">
+          {invoice.pageStart === invoice.pageEnd
+            ? `p${invoice.pageStart}`
+            : `p${invoice.pageStart}–${invoice.pageEnd}`}
+        </span>
+      </td>
+      <td className="px-5 py-4">
+        <span className={`text-sm font-medium ${isUnknownYear ? 'text-amber-400' : 'text-slate-700'}`}>
+          {isUnknownYear ? '—' : invoice.year}
+        </span>
+      </td>
+      <td className="px-5 py-4 max-w-[140px]">
+        <span className={`text-sm block truncate ${isUnknownName ? 'text-amber-400' : 'text-slate-800 font-medium'}`}>
+          {isUnknownName ? '—' : invoice.taxpayerName}
+        </span>
+      </td>
+      <td className="px-5 py-4">
+        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
+          {invoice.documentType || '—'}
+        </span>
+      </td>
+      <td className="px-5 py-4 text-right">
+        {invoice.totalIncome != null ? (
+          <span className="text-sm font-semibold text-slate-900 tabular-nums">
+            ¥{invoice.totalIncome.toLocaleString()}
+          </span>
+        ) : (
+          <span className="text-amber-400 text-sm">—</span>
+        )}
+      </td>
+      <td className="px-5 py-4 hidden lg:table-cell">
+        <span className="text-[11px] text-slate-300 font-mono truncate block max-w-[180px]">
+          {invoice.fileName}
+        </span>
+      </td>
       <td className="px-5 py-4 text-center">
         <button
           onClick={onDownload}
@@ -280,7 +339,8 @@ export default function Home() {
   const router = useRouter();
   const supabase = createClient();
 
-  // ─── State（既存ロジックと同じ） ───────────────────────────────────────────
+  // ─── State ───────────────────────────────────────────────────────────────
+  const [mode, setMode] = useState<OcrMode>('invoice');
   const [files, setFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -381,6 +441,7 @@ export default function Home() {
 
         const formData = new FormData();
         formData.append('pdf', file);
+        formData.append('mode', mode);
 
         const res = await fetch('/api/process-pdf', {
           method: 'POST',
@@ -409,7 +470,7 @@ export default function Home() {
         if (count + 1 >= GUEST_MAX_USES) setGuestLimitReached(true);
       }
 
-      setResult({ invoices: allInvoices, totalPages, processedFiles: files.length });
+      setResult({ invoices: allInvoices, totalPages, processedFiles: files.length, mode });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'エラーが発生しました');
     } finally {
@@ -535,17 +596,60 @@ export default function Home() {
       {/* ─── メインコンテンツ ──────────────────────────────────────────────── */}
       <main className="max-w-[900px] mx-auto px-4 sm:px-6 py-10 sm:py-14 relative space-y-6">
 
+        {/* ─── モード切替タブ ──────────────────────────────────────────────── */}
+        {!result && !loading && (
+          <div className="flex justify-center">
+            <div className="inline-flex bg-slate-100 rounded-2xl p-1 gap-1">
+              <button
+                onClick={() => { setMode('invoice'); setFiles([]); setError(null); }}
+                className={`px-5 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  mode === 'invoice'
+                    ? 'bg-white text-sky-500 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                法人請求書
+              </button>
+              <button
+                onClick={() => { setMode('tax-return'); setFiles([]); setError(null); }}
+                className={`px-5 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  mode === 'tax-return'
+                    ? 'bg-white text-sky-500 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                確定申告
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* キャッチコピー（初期表示のみ） */}
         {files.length === 0 && !result && !loading && (
           <div className="text-center pb-4">
-            <h2 className="text-2xl sm:text-[2rem] font-light text-slate-800 tracking-tight leading-snug">
-              複数の請求書PDFを
-              <span className="text-sky-400 font-semibold"> AI </span>
-              で自動整理
-            </h2>
-            <p className="text-sm text-slate-400 mt-2 tracking-wider">
-              アップロードするだけで、1件1ファイルに分割・命名まで完了
-            </p>
+            {mode === 'invoice' ? (
+              <>
+                <h2 className="text-2xl sm:text-[2rem] font-light text-slate-800 tracking-tight leading-snug">
+                  複数の請求書PDFを
+                  <span className="text-sky-400 font-semibold"> AI </span>
+                  で自動整理
+                </h2>
+                <p className="text-sm text-slate-400 mt-2 tracking-wider">
+                  アップロードするだけで、1件1ファイルに分割・命名まで完了
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-2xl sm:text-[2rem] font-light text-slate-800 tracking-tight leading-snug">
+                  確定申告書類を
+                  <span className="text-sky-400 font-semibold"> AI </span>
+                  で自動整理
+                </h2>
+                <p className="text-sm text-slate-400 mt-2 tracking-wider">
+                  申告書・決算書・明細書をまとめてアップロード → 1書類1ファイルに分割
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -840,7 +944,7 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="text-base font-semibold text-slate-900 tracking-tight">
-                    {result.invoices.length} 件の請求書を検出
+                    {result.invoices.length} 件の{result.mode === 'tax-return' ? '書類' : '請求書'}を検出
                   </p>
                   <p className="text-xs text-slate-400 mt-0.5 tracking-wide">
                     {result.processedFiles > 1
@@ -903,79 +1007,65 @@ export default function Home() {
                 <table className="w-full text-sm min-w-[560px]">
                   <thead>
                     <tr className="border-b border-slate-100">
-                      <th className="px-5 py-4 text-left text-[10px] font-semibold
-                        text-slate-300 uppercase tracking-widest w-10">
-                        #
-                      </th>
-                      <th className="px-5 py-4 text-left text-[10px] font-semibold
-                        text-slate-300 uppercase tracking-widest">
-                        Page
-                      </th>
-                      <th className="px-5 py-4 text-left text-[10px] font-semibold
-                        text-slate-300 uppercase tracking-widest">
-                        Date
-                      </th>
-                      <th className="px-5 py-4 text-left text-[10px] font-semibold
-                        text-slate-300 uppercase tracking-widest">
-                        Requester
-                      </th>
-                      <th className="px-5 py-4 text-right text-[10px] font-semibold
-                        text-slate-300 uppercase tracking-widest">
-                        Amount
-                      </th>
-                      <th className="px-5 py-4 text-left text-[10px] font-semibold
-                        text-slate-300 uppercase tracking-widest hidden lg:table-cell">
-                        File
-                      </th>
-                      <th className="px-5 py-4 text-center text-[10px] font-semibold
-                        text-slate-300 uppercase tracking-widest w-16">
-                        DL
-                      </th>
+                      <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-10">#</th>
+                      <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Page</th>
+                      {result.mode === 'tax-return' ? (
+                        <>
+                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Year</th>
+                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Name</th>
+                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Type</th>
+                          <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Income</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Date</th>
+                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Requester</th>
+                          <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Amount</th>
+                        </>
+                      )}
+                      <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest hidden lg:table-cell">File</th>
+                      <th className="px-5 py-4 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-16">DL</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {result.processedFiles > 1
                       ? Object.entries(invoicesByFile).map(([sourceFile, invoices]) => (
                           <Fragment key={sourceFile}>
-                            {/* ソースファイル区切り行 */}
                             <tr className="bg-slate-50/50">
-                              <td
-                                colSpan={7}
-                                className="px-5 py-2.5 text-xs text-slate-400 font-medium tracking-wide"
-                              >
+                              <td colSpan={result.mode === 'tax-return' ? 8 : 7}
+                                className="px-5 py-2.5 text-xs text-slate-400 font-medium tracking-wide">
                                 <span className="inline-flex items-center gap-1.5">
                                   <IconFile className="w-3.5 h-3.5" />
                                   {sourceFile}
                                 </span>
                               </td>
                             </tr>
-                            {invoices.map((invoice) => (
-                              <InvoiceRow
-                                key={invoice.index}
-                                invoice={invoice}
-                                onDownload={() => handleDownloadOne(invoice)}
-                              />
-                            ))}
+                            {invoices.map((invoice) =>
+                              result.mode === 'tax-return' ? (
+                                <TaxReturnRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
+                              ) : (
+                                <InvoiceRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
+                              )
+                            )}
                           </Fragment>
                         ))
-                      : result.invoices.map((invoice) => (
-                          <InvoiceRow
-                            key={invoice.index}
-                            invoice={invoice}
-                            onDownload={() => handleDownloadOne(invoice)}
-                          />
-                        ))}
+                      : result.invoices.map((invoice) =>
+                          result.mode === 'tax-return' ? (
+                            <TaxReturnRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
+                          ) : (
+                            <InvoiceRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
+                          )
+                        )}
                   </tbody>
                 </table>
               </div>
 
-              {/* テーブルフッター：ファイル名形式の説明 */}
+              {/* テーブルフッター */}
               <div className="px-5 py-3 border-t border-slate-50 bg-slate-50/30">
                 <p className="text-[10px] text-slate-300 tracking-widest uppercase">
                   File format :{' '}
-                  <code className="bg-white border border-slate-100 px-1.5 py-0.5 rounded-md
-                    font-mono text-slate-400 normal-case tracking-normal">
-                    日付_請求者名_税込金額.pdf
+                  <code className="bg-white border border-slate-100 px-1.5 py-0.5 rounded-md font-mono text-slate-400 normal-case tracking-normal">
+                    {result.mode === 'tax-return' ? '年度_氏名_書類種別.pdf' : '日付_請求者名_税込金額.pdf'}
                   </code>
                 </p>
               </div>
