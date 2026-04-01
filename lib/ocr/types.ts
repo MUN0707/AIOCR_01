@@ -2,7 +2,7 @@
 // 共通型定義 - 法人請求書 / 確定申告 両方で使用
 // ============================================================
 
-export type OcrMode = 'invoice' | 'tax-return';
+export type OcrMode = 'invoice' | 'tax-return' | 'bank-statement' | 'journal-entry';
 
 // ──────────────────────────────────────────────────────────
 // 法人請求書
@@ -42,6 +42,37 @@ export interface TaxReturnResult extends TaxReturnInfo {
   fileName: string;
   pdfBase64: string;
   sourceFile: string;
+}
+
+// ──────────────────────────────────────────────────────────
+// 通帳OCR
+// ──────────────────────────────────────────────────────────
+
+export interface BankTransaction {
+  date: string;           // YYYYMMDD or "不明"
+  description: string;   // 摘要・取引内容
+  debit: number | null;  // 出金（引出し）
+  credit: number | null; // 入金（預入れ）
+  balance: number | null; // 残高
+}
+
+export interface BankStatementInfo {
+  bankName: string;       // 銀行名 (例: "三菱UFJ銀行")
+  accountNumber: string;  // 口座番号（下4桁など一部のみ）
+  transactions: BankTransaction[];
+}
+
+// ──────────────────────────────────────────────────────────
+// 自動仕訳
+// ──────────────────────────────────────────────────────────
+
+export interface JournalEntry {
+  date: string;           // YYYYMMDD or "不明"
+  debitAccount: string;   // 借方勘定科目
+  creditAccount: string;  // 貸方勘定科目
+  amount: number | null;  // 金額（円）
+  description: string;   // 摘要
+  taxType: string;        // 消費税区分 (課税仕入・非課税・対象外 etc.)
 }
 
 // ──────────────────────────────────────────────────────────

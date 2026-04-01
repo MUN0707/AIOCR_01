@@ -28,14 +28,31 @@ interface InvoiceResult {
   sourceFile: string;
 }
 
-interface ProcessResult {
-  invoices: InvoiceResult[];
-  totalPages: number;
-  processedFiles: number;
-  mode: OcrMode;
+interface BankTransactionRow {
+  date: string;
+  description: string;
+  debit: number | null;
+  credit: number | null;
+  balance: number | null;
+  sourceFile: string;
 }
 
-// ─── ユーティリティ（既存ロジックと同じ） ──────────────────────────────────
+interface JournalEntryRow {
+  date: string;
+  debitAccount: string;
+  creditAccount: string;
+  amount: number | null;
+  description: string;
+  taxType: string;
+  sourceFile: string;
+}
+
+type ProcessResult =
+  | { mode: 'invoice' | 'tax-return'; invoices: InvoiceResult[]; totalPages: number; processedFiles: number }
+  | { mode: 'bank-statement'; bankName: string; accountNumber: string; transactions: BankTransactionRow[]; totalPages: number; processedFiles: number }
+  | { mode: 'journal-entry'; entries: JournalEntryRow[]; totalPages: number; processedFiles: number };
+
+// ─── ユーティリティ ────────────────────────────────────────────────────────
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
   const bytes = atob(base64);
@@ -53,6 +70,13 @@ function downloadBlob(blob: Blob, fileName: string) {
   a.download = fileName;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadCsv(rows: string[][], fileName: string) {
+  const bom = '\uFEFF';
+  const csv = bom + rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, fileName);
 }
 
 const GUEST_MAX_USES = 5;
@@ -333,6 +357,95 @@ function TaxReturnRow({
   );
 }
 
+// ─── テーブル行（通帳OCR） ─────────────────────────────────────────────────────
+
+function BankRow({ row, index }: { row: BankTransactionRow; index: number }) {
+  return (
+    <tr className="group hover:bg-sky-50/40 transition-colors duration-150">
+      <td className="px-5 py-3 text-slate-300 font-mono text-xs tabular-nums">
+        {String(index).padStart(2, '0')}
+      </td>
+      <td className="px-5 py-3">
+        <span className={`text-sm font-mono ${row.date === '不明' ? 'text-amber-400' : 'text-slate-600'}`}>
+          {row.date === '不明' ? '—' : `${row.date.slice(0, 4)}/${row.date.slice(4, 6)}/${row.date.slice(6, 8)}`}
+        </span>
+      </td>
+      <td className="px-5 py-3 max-w-[200px]">
+        <span className="text-sm text-slate-700 block truncate">{row.description || '—'}</span>
+      </td>
+      <td className="px-5 py-3 text-right">
+        {row.debit != null ? (
+          <span className="text-sm font-semibold text-red-500 tabular-nums">
+            ▼ ¥{row.debit.toLocaleString()}
+          </span>
+        ) : (
+          <span className="text-slate-200 text-sm">—</span>
+        )}
+      </td>
+      <td className="px-5 py-3 text-right">
+        {row.credit != null ? (
+          <span className="text-sm font-semibold text-emerald-500 tabular-nums">
+            ▲ ¥{row.credit.toLocaleString()}
+          </span>
+        ) : (
+          <span className="text-slate-200 text-sm">—</span>
+        )}
+      </td>
+      <td className="px-5 py-3 text-right">
+        {row.balance != null ? (
+          <span className="text-sm text-slate-600 tabular-nums">¥{row.balance.toLocaleString()}</span>
+        ) : (
+          <span className="text-slate-200 text-sm">—</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+// ─── テーブル行（自動仕訳） ────────────────────────────────────────────────────
+
+function JournalRow({ row, index }: { row: JournalEntryRow; index: number }) {
+  return (
+    <tr className="group hover:bg-sky-50/40 transition-colors duration-150">
+      <td className="px-4 py-3 text-slate-300 font-mono text-xs tabular-nums">
+        {String(index).padStart(2, '0')}
+      </td>
+      <td className="px-4 py-3">
+        <span className={`text-xs font-mono ${row.date === '不明' ? 'text-amber-400' : 'text-slate-500'}`}>
+          {row.date === '不明' ? '—' : `${row.date.slice(0, 4)}/${row.date.slice(4, 6)}/${row.date.slice(6, 8)}`}
+        </span>
+      </td>
+      <td className="px-4 py-3">
+        <span className="text-sm font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md whitespace-nowrap">
+          {row.debitAccount}
+        </span>
+      </td>
+      <td className="px-4 py-3">
+        <span className="text-sm font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md whitespace-nowrap">
+          {row.creditAccount}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-right">
+        {row.amount != null ? (
+          <span className="text-sm font-semibold text-slate-900 tabular-nums">
+            ¥{row.amount.toLocaleString()}
+          </span>
+        ) : (
+          <span className="text-amber-400 text-sm">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3 max-w-[180px]">
+        <span className="text-xs text-slate-500 block truncate">{row.description || '—'}</span>
+      </td>
+      <td className="px-4 py-3 hidden lg:table-cell">
+        <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+          {row.taxType || '—'}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
 // ─── メインコンポーネント ─────────────────────────────────────────────────────
 
 export default function Home() {
@@ -432,9 +545,59 @@ export default function Home() {
     setResult(null);
 
     try {
-      const allInvoices: InvoiceResult[] = [];
       let totalPages = 0;
 
+      if (mode === 'bank-statement') {
+        const allTransactions: BankTransactionRow[] = [];
+        let bankName = '不明';
+        let accountNumber = '不明';
+        for (let i = 0; i < files.length; i++) {
+          setProcessingIndex(i + 1);
+          const file = files[i];
+          const formData = new FormData();
+          formData.append('pdf', file);
+          formData.append('mode', mode);
+          const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
+          const data = await res.json();
+          if (!res.ok) throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
+          if (i === 0) { bankName = data.bankName; accountNumber = data.accountNumber; }
+          allTransactions.push(...(data.transactions || []).map((t: Omit<BankTransactionRow, 'sourceFile'>) => ({ ...t, sourceFile: file.name })));
+          totalPages += data.totalPages;
+        }
+        if (isGuest) {
+          const count = parseInt(localStorage.getItem('guestUseCount') || '0');
+          localStorage.setItem('guestUseCount', String(count + 1));
+          if (count + 1 >= GUEST_MAX_USES) setGuestLimitReached(true);
+        }
+        setResult({ mode: 'bank-statement', bankName, accountNumber, transactions: allTransactions, totalPages, processedFiles: files.length });
+        return;
+      }
+
+      if (mode === 'journal-entry') {
+        const allEntries: JournalEntryRow[] = [];
+        for (let i = 0; i < files.length; i++) {
+          setProcessingIndex(i + 1);
+          const file = files[i];
+          const formData = new FormData();
+          formData.append('pdf', file);
+          formData.append('mode', mode);
+          const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
+          const data = await res.json();
+          if (!res.ok) throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
+          allEntries.push(...(data.entries || []).map((e: Omit<JournalEntryRow, 'sourceFile'>) => ({ ...e, sourceFile: file.name })));
+          totalPages += data.totalPages;
+        }
+        if (isGuest) {
+          const count = parseInt(localStorage.getItem('guestUseCount') || '0');
+          localStorage.setItem('guestUseCount', String(count + 1));
+          if (count + 1 >= GUEST_MAX_USES) setGuestLimitReached(true);
+        }
+        setResult({ mode: 'journal-entry', entries: allEntries, totalPages, processedFiles: files.length });
+        return;
+      }
+
+      // invoice / tax-return
+      const allInvoices: InvoiceResult[] = [];
       for (let i = 0; i < files.length; i++) {
         setProcessingIndex(i + 1);
         const file = files[i];
@@ -488,6 +651,28 @@ export default function Home() {
 
   const handleDownloadAll = async () => {
     if (!result) return;
+    if (result.mode === 'bank-statement') {
+      const header = ['取引日', '摘要', '出金', '入金', '残高', 'ファイル名'];
+      const rows = result.transactions.map((t) => [
+        t.date, t.description,
+        t.debit != null ? String(t.debit) : '',
+        t.credit != null ? String(t.credit) : '',
+        t.balance != null ? String(t.balance) : '',
+        t.sourceFile,
+      ]);
+      downloadCsv([header, ...rows], `通帳_${result.bankName}_${result.accountNumber}.csv`);
+      return;
+    }
+    if (result.mode === 'journal-entry') {
+      const header = ['日付', '借方科目', '貸方科目', '金額', '摘要', '消費税区分', 'ファイル名'];
+      const rows = result.entries.map((e) => [
+        e.date, e.debitAccount, e.creditAccount,
+        e.amount != null ? String(e.amount) : '',
+        e.description, e.taxType, e.sourceFile,
+      ]);
+      downloadCsv([header, ...rows], '自動仕訳.csv');
+      return;
+    }
     const JSZip = (await import('jszip')).default;
     const zip = new JSZip();
     result.invoices.forEach((invoice) => {
@@ -508,17 +693,18 @@ export default function Home() {
     router.push('/login');
   };
 
-  // ファイルごとに請求書をグループ化
-  const invoicesByFile: Record<string, InvoiceResult[]> = result
-    ? result.invoices.reduce(
-        (acc, inv) => {
-          if (!acc[inv.sourceFile]) acc[inv.sourceFile] = [];
-          acc[inv.sourceFile].push(inv);
-          return acc;
-        },
-        {} as Record<string, InvoiceResult[]>
-      )
-    : {};
+  // ファイルごとに請求書をグループ化（invoice / tax-return モードのみ使用）
+  const invoicesByFile: Record<string, InvoiceResult[]> =
+    result && (result.mode === 'invoice' || result.mode === 'tax-return')
+      ? result.invoices.reduce(
+          (acc, inv) => {
+            if (!acc[inv.sourceFile]) acc[inv.sourceFile] = [];
+            acc[inv.sourceFile].push(inv);
+            return acc;
+          },
+          {} as Record<string, InvoiceResult[]>
+        )
+      : {};
 
   // ─── レンダリング ──────────────────────────────────────────────────────────
 
@@ -599,27 +785,27 @@ export default function Home() {
         {/* ─── モード切替タブ ──────────────────────────────────────────────── */}
         {!result && !loading && (
           <div className="flex justify-center">
-            <div className="inline-flex bg-slate-100 rounded-2xl p-1 gap-1">
-              <button
-                onClick={() => { setMode('invoice'); setFiles([]); setError(null); }}
-                className={`px-5 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
-                  mode === 'invoice'
-                    ? 'bg-white text-sky-500 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                法人請求書
-              </button>
-              <button
-                onClick={() => { setMode('tax-return'); setFiles([]); setError(null); }}
-                className={`px-5 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
-                  mode === 'tax-return'
-                    ? 'bg-white text-sky-500 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                確定申告
-              </button>
+            <div className="inline-flex bg-slate-100 rounded-2xl p-1 gap-1 flex-wrap justify-center">
+              {(
+                [
+                  { key: 'invoice', label: '法人請求書' },
+                  { key: 'tax-return', label: '確定申告' },
+                  { key: 'bank-statement', label: '通帳OCR' },
+                  { key: 'journal-entry', label: '自動仕訳' },
+                ] as const
+              ).map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => { setMode(key); setFiles([]); setError(null); }}
+                  className={`px-5 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    mode === key
+                      ? 'bg-white text-sky-500 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -627,26 +813,43 @@ export default function Home() {
         {/* キャッチコピー（初期表示のみ） */}
         {files.length === 0 && !result && !loading && (
           <div className="text-center pb-4">
-            {mode === 'invoice' ? (
+            {mode === 'invoice' && (
               <>
                 <h2 className="text-2xl sm:text-[2rem] font-light text-slate-800 tracking-tight leading-snug">
-                  複数の請求書PDFを
-                  <span className="text-sky-400 font-semibold"> AI </span>
-                  で自動整理
+                  複数の請求書PDFを<span className="text-sky-400 font-semibold"> AI </span>で自動整理
                 </h2>
                 <p className="text-sm text-slate-400 mt-2 tracking-wider">
                   アップロードするだけで、1件1ファイルに分割・命名まで完了
                 </p>
               </>
-            ) : (
+            )}
+            {mode === 'tax-return' && (
               <>
                 <h2 className="text-2xl sm:text-[2rem] font-light text-slate-800 tracking-tight leading-snug">
-                  確定申告書類を
-                  <span className="text-sky-400 font-semibold"> AI </span>
-                  で自動整理
+                  確定申告書類を<span className="text-sky-400 font-semibold"> AI </span>で自動整理
                 </h2>
                 <p className="text-sm text-slate-400 mt-2 tracking-wider">
                   申告書・決算書・明細書をまとめてアップロード → 1書類1ファイルに分割
+                </p>
+              </>
+            )}
+            {mode === 'bank-statement' && (
+              <>
+                <h2 className="text-2xl sm:text-[2rem] font-light text-slate-800 tracking-tight leading-snug">
+                  通帳・口座明細を<span className="text-sky-400 font-semibold"> AI </span>でデータ化
+                </h2>
+                <p className="text-sm text-slate-400 mt-2 tracking-wider">
+                  通帳PDFをアップロード → 取引一覧をCSVで出力
+                </p>
+              </>
+            )}
+            {mode === 'journal-entry' && (
+              <>
+                <h2 className="text-2xl sm:text-[2rem] font-light text-slate-800 tracking-tight leading-snug">
+                  財務書類から<span className="text-sky-400 font-semibold"> AI </span>が自動で仕訳
+                </h2>
+                <p className="text-sm text-slate-400 mt-2 tracking-wider">
+                  請求書・領収書・通帳をアップロード → 仕訳帳形式でCSV出力
                 </p>
               </>
             )}
@@ -844,9 +1047,13 @@ export default function Home() {
                           <circle cx="11" cy="11" r="8" />
                           <line x1="21" y1="21" x2="16.65" y2="16.65" />
                         </svg>
-                        {files.length > 1
-                          ? `${files.length}件のPDFを解析・分割する`
-                          : 'AI OCRで解析・分割する'}
+                        {mode === 'bank-statement' || mode === 'journal-entry'
+                          ? files.length > 1
+                            ? `${files.length}件のPDFを解析する`
+                            : 'AI OCRで解析する'
+                          : files.length > 1
+                            ? `${files.length}件のPDFを解析・分割する`
+                            : 'AI OCRで解析・分割する'}
                       </>
                     )}
                   </button>
@@ -870,7 +1077,9 @@ export default function Home() {
               </div>
             </div>
             <p className="text-base font-semibold text-slate-800 tracking-tight mb-1.5">
-              AIが請求書を解析しています
+              {mode === 'bank-statement' ? 'AIが通帳を解析しています' :
+               mode === 'journal-entry' ? 'AIが仕訳を生成しています' :
+               'AIが書類を解析しています'}
             </p>
             {files.length > 1 && processingIndex > 0 && (
               <p className="text-sm font-medium text-sky-400 tabular-nums mb-1">
@@ -933,7 +1142,6 @@ export default function Home() {
                 flex flex-wrap items-center justify-between gap-4"
             >
               <div className="flex items-center gap-3">
-                {/* 成功アイコン */}
                 <div
                   className="w-9 h-9 rounded-xl bg-lime-100/60 flex items-center justify-center flex-shrink-0"
                   aria-hidden="true"
@@ -944,7 +1152,11 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="text-base font-semibold text-slate-900 tracking-tight">
-                    {result.invoices.length} 件の{result.mode === 'tax-return' ? '書類' : '請求書'}を検出
+                    {result.mode === 'bank-statement'
+                      ? `${result.transactions.length} 件の取引を検出 · ${result.bankName} ${result.accountNumber}`
+                      : result.mode === 'journal-entry'
+                        ? `${result.entries.length} 行の仕訳を生成`
+                        : `${result.invoices.length} 件の${result.mode === 'tax-return' ? '書類' : '請求書'}を検出`}
                   </p>
                   <p className="text-xs text-slate-400 mt-0.5 tracking-wide">
                     {result.processedFiles > 1
@@ -971,7 +1183,9 @@ export default function Home() {
                     transition-all duration-200 shadow-sm shadow-lime-200/60 tracking-wide"
                 >
                   <IconArchive className="w-3.5 h-3.5" />
-                  ZIPで一括DL
+                  {result.mode === 'bank-statement' || result.mode === 'journal-entry'
+                    ? 'CSVダウンロード'
+                    : 'ZIPで一括DL'}
                 </button>
               </div>
             </div>
@@ -1004,69 +1218,113 @@ export default function Home() {
             {/* 結果テーブル */}
             <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[560px]">
-                  <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-10">#</th>
-                      <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Page</th>
-                      {result.mode === 'tax-return' ? (
-                        <>
-                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Year</th>
-                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Name</th>
-                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Type</th>
-                          <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Income</th>
-                        </>
-                      ) : (
-                        <>
-                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Date</th>
-                          <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Requester</th>
-                          <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Amount</th>
-                        </>
-                      )}
-                      <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest hidden lg:table-cell">File</th>
-                      <th className="px-5 py-4 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-16">DL</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {result.processedFiles > 1
-                      ? Object.entries(invoicesByFile).map(([sourceFile, invoices]) => (
-                          <Fragment key={sourceFile}>
-                            <tr className="bg-slate-50/50">
-                              <td colSpan={result.mode === 'tax-return' ? 8 : 7}
-                                className="px-5 py-2.5 text-xs text-slate-400 font-medium tracking-wide">
-                                <span className="inline-flex items-center gap-1.5">
-                                  <IconFile className="w-3.5 h-3.5" />
-                                  {sourceFile}
-                                </span>
-                              </td>
-                            </tr>
-                            {invoices.map((invoice) =>
-                              result.mode === 'tax-return' ? (
-                                <TaxReturnRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
-                              ) : (
-                                <InvoiceRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
-                              )
-                            )}
-                          </Fragment>
-                        ))
-                      : result.invoices.map((invoice) =>
-                          result.mode === 'tax-return' ? (
-                            <TaxReturnRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
-                          ) : (
-                            <InvoiceRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
-                          )
+                {result.mode === 'bank-statement' ? (
+                  <table className="w-full text-sm min-w-[600px]">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-10">#</th>
+                        <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Date</th>
+                        <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
+                        <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">出金</th>
+                        <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">入金</th>
+                        <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">残高</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {result.transactions.map((t, i) => (
+                        <BankRow key={i} row={t} index={i + 1} />
+                      ))}
+                    </tbody>
+                  </table>
+                ) : result.mode === 'journal-entry' ? (
+                  <table className="w-full text-sm min-w-[700px]">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-10">#</th>
+                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Date</th>
+                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
+                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
+                        <th className="px-4 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
+                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
+                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest hidden lg:table-cell">消費税</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {result.entries.map((e, i) => (
+                        <JournalRow key={i} row={e} index={i + 1} />
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-sm min-w-[560px]">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-10">#</th>
+                        <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Page</th>
+                        {result.mode === 'tax-return' ? (
+                          <>
+                            <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Year</th>
+                            <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Name</th>
+                            <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Type</th>
+                            <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Income</th>
+                          </>
+                        ) : (
+                          <>
+                            <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Date</th>
+                            <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Requester</th>
+                            <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Amount</th>
+                          </>
                         )}
-                  </tbody>
-                </table>
+                        <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest hidden lg:table-cell">File</th>
+                        <th className="px-5 py-4 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-16">DL</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {result.processedFiles > 1
+                        ? Object.entries(invoicesByFile).map(([sourceFile, invoices]) => (
+                            <Fragment key={sourceFile}>
+                              <tr className="bg-slate-50/50">
+                                <td colSpan={result.mode === 'tax-return' ? 8 : 7}
+                                  className="px-5 py-2.5 text-xs text-slate-400 font-medium tracking-wide">
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <IconFile className="w-3.5 h-3.5" />
+                                    {sourceFile}
+                                  </span>
+                                </td>
+                              </tr>
+                              {invoices.map((invoice) =>
+                                result.mode === 'tax-return' ? (
+                                  <TaxReturnRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
+                                ) : (
+                                  <InvoiceRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
+                                )
+                              )}
+                            </Fragment>
+                          ))
+                        : result.invoices.map((invoice) =>
+                            result.mode === 'tax-return' ? (
+                              <TaxReturnRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
+                            ) : (
+                              <InvoiceRow key={invoice.index} invoice={invoice} onDownload={() => handleDownloadOne(invoice)} />
+                            )
+                          )}
+                    </tbody>
+                  </table>
+                )}
               </div>
 
               {/* テーブルフッター */}
               <div className="px-5 py-3 border-t border-slate-50 bg-slate-50/30">
                 <p className="text-[10px] text-slate-300 tracking-widest uppercase">
-                  File format :{' '}
-                  <code className="bg-white border border-slate-100 px-1.5 py-0.5 rounded-md font-mono text-slate-400 normal-case tracking-normal">
-                    {result.mode === 'tax-return' ? '年度_氏名_書類種別.pdf' : '日付_請求者名_税込金額.pdf'}
-                  </code>
+                  {result.mode === 'bank-statement'
+                    ? `Output: CSV · ${result.bankName} ${result.accountNumber}`
+                    : result.mode === 'journal-entry'
+                      ? 'Output: CSV · 借方 / 貸方 / 金額 / 摘要 / 消費税区分'
+                      : <>File format :{' '}
+                          <code className="bg-white border border-slate-100 px-1.5 py-0.5 rounded-md font-mono text-slate-400 normal-case tracking-normal">
+                            {result.mode === 'tax-return' ? '年度_氏名_書類種別.pdf' : '日付_請求者名_税込金額.pdf'}
+                          </code>
+                        </>}
                 </p>
               </div>
             </div>
