@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import type { User } from '@supabase/supabase-js';
 import type { OcrMode } from '@/lib/ocr/types';
+import type { MatchResult, MatchSummary, VoucherInput, TransactionInput } from '@/lib/ocr/journal-matcher';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
@@ -37,20 +38,9 @@ interface BankTransactionRow {
   sourceFile: string;
 }
 
-interface JournalEntryRow {
-  date: string;
-  debitAccount: string;
-  creditAccount: string;
-  amount: number | null;
-  description: string;
-  taxType: string;
-  sourceFile: string;
-}
-
 type ProcessResult =
   | { mode: 'invoice' | 'tax-return'; invoices: InvoiceResult[]; totalPages: number; processedFiles: number }
-  | { mode: 'bank-statement'; bankName: string; accountNumber: string; transactions: BankTransactionRow[]; totalPages: number; processedFiles: number }
-  | { mode: 'journal-entry'; entries: JournalEntryRow[]; totalPages: number; processedFiles: number };
+  | { mode: 'bank-statement'; bankName: string; accountNumber: string; transactions: BankTransactionRow[]; totalPages: number; processedFiles: number };
 
 // ─── ユーティリティ ────────────────────────────────────────────────────────
 
@@ -402,50 +392,6 @@ function BankRow({ row, index }: { row: BankTransactionRow; index: number }) {
   );
 }
 
-// ─── テーブル行（自動仕訳） ────────────────────────────────────────────────────
-
-function JournalRow({ row, index }: { row: JournalEntryRow; index: number }) {
-  return (
-    <tr className="group hover:bg-sky-50/40 transition-colors duration-150">
-      <td className="px-4 py-3 text-slate-300 font-mono text-xs tabular-nums">
-        {String(index).padStart(2, '0')}
-      </td>
-      <td className="px-4 py-3">
-        <span className={`text-xs font-mono ${row.date === '不明' ? 'text-amber-400' : 'text-slate-500'}`}>
-          {row.date === '不明' ? '—' : `${row.date.slice(0, 4)}/${row.date.slice(4, 6)}/${row.date.slice(6, 8)}`}
-        </span>
-      </td>
-      <td className="px-4 py-3">
-        <span className="text-sm font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md whitespace-nowrap">
-          {row.debitAccount}
-        </span>
-      </td>
-      <td className="px-4 py-3">
-        <span className="text-sm font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md whitespace-nowrap">
-          {row.creditAccount}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-right">
-        {row.amount != null ? (
-          <span className="text-sm font-semibold text-slate-900 tabular-nums">
-            ¥{row.amount.toLocaleString()}
-          </span>
-        ) : (
-          <span className="text-amber-400 text-sm">—</span>
-        )}
-      </td>
-      <td className="px-4 py-3 max-w-[180px]">
-        <span className="text-xs text-slate-500 block truncate">{row.description || '—'}</span>
-      </td>
-      <td className="px-4 py-3 hidden lg:table-cell">
-        <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-          {row.taxType || '—'}
-        </span>
-      </td>
-    </tr>
-  );
-}
-
 // ─── メインコンポーネント ─────────────────────────────────────────────────────
 
 export default function Home() {
@@ -453,7 +399,8 @@ export default function Home() {
   const supabase = createClient();
 
   // ─── State ───────────────────────────────────────────────────────────────
-  const [mode, setMode] = useState<OcrMode>('invoice');
+  type AppMode = OcrMode | 'journal-entry';
+  const [mode, setMode] = useState<AppMode>('invoice');
   const [files, setFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -463,6 +410,20 @@ export default function Home() {
   // undefined = 初期ロード中 / null = ゲスト / User = ログイン済み
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
+  const [usageInfo, setUsageInfo] = useState<{ count: number; limit: number } | null>(null);
+
+  // ─── 自動仕訳モード専用 State ─────────────────────────────────────────────
+  const [bankFiles, setBankFiles] = useState<File[]>([]);
+  const [invoiceFiles, setInvoiceFiles] = useState<File[]>([]);
+  const [bankOcr, setBankOcr] = useState<{ transactions: TransactionInput[]; bankName: string; accountNumber: string } | null>(null);
+  const [invoiceOcr, setInvoiceOcr] = useState<{ vouchers: VoucherInput[]; count: number } | null>(null);
+  const [journalMatchResult, setJournalMatchResult] = useState<{ results: MatchResult[]; summary: MatchSummary } | null>(null);
+  const [bankProcessing, setBankProcessing] = useState(false);
+  const [invoiceProcessing, setInvoiceProcessing] = useState(false);
+  const [matchProcessing, setMatchProcessing] = useState(false);
+  const [journalError, setJournalError] = useState<string | null>(null);
+  const bankFileInputRef = useRef<HTMLInputElement>(null);
+  const invoiceFileInputRef = useRef<HTMLInputElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -472,6 +433,11 @@ export default function Home() {
       if (!data.user) {
         const count = parseInt(localStorage.getItem('guestUseCount') || '0');
         if (count >= GUEST_MAX_USES) setGuestLimitReached(true);
+      } else {
+        fetch('/api/usage')
+          .then((r) => r.json())
+          .then((d) => { if (d.count != null) setUsageInfo({ count: d.count, limit: d.limit }); })
+          .catch(() => {});
       }
     });
   }, []);
@@ -530,7 +496,7 @@ export default function Home() {
   // ─── OCR処理（既存ロジックと同じ） ────────────────────────────────────────
 
   const handleProcess = async () => {
-    if (files.length === 0) return;
+    if (mode === 'journal-entry' || files.length === 0) return;
 
     if (isGuest) {
       const count = parseInt(localStorage.getItem('guestUseCount') || '0');
@@ -573,29 +539,6 @@ export default function Home() {
         return;
       }
 
-      if (mode === 'journal-entry') {
-        const allEntries: JournalEntryRow[] = [];
-        for (let i = 0; i < files.length; i++) {
-          setProcessingIndex(i + 1);
-          const file = files[i];
-          const formData = new FormData();
-          formData.append('pdf', file);
-          formData.append('mode', mode);
-          const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
-          const data = await res.json();
-          if (!res.ok) throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
-          allEntries.push(...(data.entries || []).map((e: Omit<JournalEntryRow, 'sourceFile'>) => ({ ...e, sourceFile: file.name })));
-          totalPages += data.totalPages;
-        }
-        if (isGuest) {
-          const count = parseInt(localStorage.getItem('guestUseCount') || '0');
-          localStorage.setItem('guestUseCount', String(count + 1));
-          if (count + 1 >= GUEST_MAX_USES) setGuestLimitReached(true);
-        }
-        setResult({ mode: 'journal-entry', entries: allEntries, totalPages, processedFiles: files.length });
-        return;
-      }
-
       // invoice / tax-return
       const allInvoices: InvoiceResult[] = [];
       for (let i = 0; i < files.length; i++) {
@@ -634,6 +577,14 @@ export default function Home() {
       }
 
       setResult({ invoices: allInvoices, totalPages, processedFiles: files.length, mode });
+
+      // ログインユーザーの使用量を再取得
+      if (!isGuest) {
+        fetch('/api/usage')
+          .then((r) => r.json())
+          .then((d) => { if (d.count != null) setUsageInfo({ count: d.count, limit: d.limit }); })
+          .catch(() => {});
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'エラーが発生しました');
     } finally {
@@ -663,16 +614,6 @@ export default function Home() {
       downloadCsv([header, ...rows], `通帳_${result.bankName}_${result.accountNumber}.csv`);
       return;
     }
-    if (result.mode === 'journal-entry') {
-      const header = ['日付', '借方科目', '貸方科目', '金額', '摘要', '消費税区分', 'ファイル名'];
-      const rows = result.entries.map((e) => [
-        e.date, e.debitAccount, e.creditAccount,
-        e.amount != null ? String(e.amount) : '',
-        e.description, e.taxType, e.sourceFile,
-      ]);
-      downloadCsv([header, ...rows], '自動仕訳.csv');
-      return;
-    }
     const JSZip = (await import('jszip')).default;
     const zip = new JSZip();
     result.invoices.forEach((invoice) => {
@@ -686,6 +627,124 @@ export default function Home() {
     setFiles([]);
     setResult(null);
     setError(null);
+  };
+
+  // ─── 自動仕訳モード: 通帳OCR ──────────────────────────────────────────────
+  const handleBankProcess = async () => {
+    if (bankFiles.length === 0) return;
+    setBankProcessing(true);
+    setJournalError(null);
+    try {
+      const allTx: TransactionInput[] = [];
+      let bankName = '不明';
+      let accountNumber = '不明';
+      for (const file of bankFiles) {
+        const fd = new FormData();
+        fd.append('pdf', file);
+        fd.append('mode', 'bank-statement');
+        const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(`${file.name}: ${data.error}`);
+        if (bankName === '不明') { bankName = data.bankName; accountNumber = data.accountNumber; }
+        allTx.push(...(data.transactions || []).map((t: { date: string; description: string; debit: number | null; credit: number | null }) => ({
+          transactionDate: t.date,
+          description: t.description,
+          debit: t.debit,
+          credit: t.credit,
+        })));
+      }
+      setBankOcr({ transactions: allTx, bankName, accountNumber });
+    } catch (e) {
+      setJournalError(e instanceof Error ? e.message : '通帳OCRエラー');
+    } finally {
+      setBankProcessing(false);
+    }
+  };
+
+  // ─── 自動仕訳モード: 請求書OCR ───────────────────────────────────────────
+  const handleInvoiceProcess = async () => {
+    if (invoiceFiles.length === 0) return;
+    setInvoiceProcessing(true);
+    setJournalError(null);
+    try {
+      const allVouchers: VoucherInput[] = [];
+      for (const file of invoiceFiles) {
+        const fd = new FormData();
+        fd.append('pdf', file);
+        fd.append('mode', 'invoice');
+        const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(`${file.name}: ${data.error}`);
+        for (const inv of (data.invoices || [])) {
+          allVouchers.push({
+            vendorName: inv.requesterName || '',
+            invoiceDate: inv.date || '不明',
+            amountInclTax: inv.taxIncludedAmount,
+            debitAccount: '未払費用',
+            description: inv.requesterName || '',
+            taxType: '課税仕入10%',
+          });
+        }
+      }
+      setInvoiceOcr({ vouchers: allVouchers, count: allVouchers.length });
+    } catch (e) {
+      setJournalError(e instanceof Error ? e.message : '請求書OCRエラー');
+    } finally {
+      setInvoiceProcessing(false);
+    }
+  };
+
+  // ─── 自動仕訳モード: 照合実行 ─────────────────────────────────────────────
+  const handleRunMatch = async () => {
+    if (!bankOcr || !invoiceOcr) return;
+    setMatchProcessing(true);
+    setJournalError(null);
+    try {
+      const res = await fetch('/api/match-journal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactions: bankOcr.transactions, vouchers: invoiceOcr.vouchers }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setJournalMatchResult(data);
+    } catch (e) {
+      setJournalError(e instanceof Error ? e.message : '照合エラー');
+    } finally {
+      setMatchProcessing(false);
+    }
+  };
+
+  const handleResetJournal = () => {
+    setBankFiles([]);
+    setInvoiceFiles([]);
+    setBankOcr(null);
+    setInvoiceOcr(null);
+    setJournalMatchResult(null);
+    setJournalError(null);
+  };
+
+  const handleDownloadJournal = () => {
+    if (!journalMatchResult) return;
+    const header = ['種別', '日付', '借方科目', '貸方科目', '金額', '摘要', '消費税区分', '照合ステータス', '照合スコア'];
+    const rows: string[][] = [];
+    for (const r of journalMatchResult.results) {
+      const e = r.accrualEntry;
+      rows.push([
+        '費用計上', e.date, e.debitAccount, e.creditAccount,
+        e.amount != null ? String(e.amount) : '',
+        e.description, e.taxType, e.matchStatus, '',
+      ]);
+      if (r.paymentEntry) {
+        const p = r.paymentEntry;
+        rows.push([
+          '支払消込', p.date, p.debitAccount, p.creditAccount,
+          p.amount != null ? String(p.amount) : '',
+          p.description, p.taxType, p.matchStatus, String(p.matchScore),
+        ]);
+      }
+    }
+    downloadCsv([header, ...rows], '自動仕訳.csv');
   };
 
   const handleSignOut = async () => {
@@ -810,6 +869,30 @@ export default function Home() {
           </div>
         )}
 
+        {/* 使用量バー（ログインユーザーのみ・初期表示） */}
+        {!isGuest && usageInfo && !result && !loading && (
+          <div className="flex justify-center">
+            <div className="flex items-center gap-3 bg-white/70 border border-slate-100 rounded-2xl px-5 py-3 shadow-sm">
+              <span className="text-xs text-slate-500 tracking-wide whitespace-nowrap">今月の使用量</span>
+              <div className="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    usageInfo.count / usageInfo.limit >= 0.9
+                      ? 'bg-red-400'
+                      : usageInfo.count / usageInfo.limit >= 0.7
+                      ? 'bg-amber-400'
+                      : 'bg-sky-400'
+                  }`}
+                  style={{ width: `${Math.min((usageInfo.count / usageInfo.limit) * 100, 100)}%` }}
+                />
+              </div>
+              <span className="text-xs font-semibold text-slate-700 tabular-nums whitespace-nowrap">
+                {usageInfo.count}<span className="text-slate-400 font-normal">/{usageInfo.limit}件</span>
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* キャッチコピー（初期表示のみ） */}
         {files.length === 0 && !result && !loading && (
           <div className="text-center pb-4">
@@ -846,18 +929,283 @@ export default function Home() {
             {mode === 'journal-entry' && (
               <>
                 <h2 className="text-2xl sm:text-[2rem] font-light text-slate-800 tracking-tight leading-snug">
-                  財務書類から<span className="text-sky-400 font-semibold"> AI </span>が自動で仕訳
+                  通帳 × 請求書を<span className="text-sky-400 font-semibold"> AI </span>で自動照合・仕訳
                 </h2>
                 <p className="text-sm text-slate-400 mt-2 tracking-wider">
-                  請求書・領収書・通帳をアップロード → 仕訳帳形式でCSV出力
+                  通帳と請求書をそれぞれアップロード → 金額・日付・相手先で照合 → 仕訳CSV出力
                 </p>
               </>
             )}
           </div>
         )}
 
+        {/* ─── 自動仕訳モード専用UI ────────────────────────────────────────── */}
+        {mode === 'journal-entry' && (
+          <section className="space-y-5">
+            {journalError && (
+              <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-3 text-sm text-red-600">
+                {journalError}
+              </div>
+            )}
+
+            {/* 照合結果 */}
+            {journalMatchResult ? (
+              <div className="space-y-4">
+                {/* サマリー */}
+                <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-lime-100/60 flex items-center justify-center">
+                      <IconCheck className="w-4 h-4 text-lime-500" />
+                    </div>
+                    <div>
+                      <p className="text-base font-semibold text-slate-900 tracking-tight">
+                        {journalMatchResult.summary.total} 件の証票を処理
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        自動照合 {journalMatchResult.summary.autoMatched} 件 ·
+                        要確認 {journalMatchResult.summary.needsReview} 件 ·
+                        未照合 {journalMatchResult.summary.unmatched} 件
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleResetJournal}
+                      className="text-xs text-slate-500 border border-slate-200 rounded-xl px-4 py-2.5 hover:bg-slate-50 transition-all duration-200 tracking-wide"
+                    >
+                      最初からやり直す
+                    </button>
+                    <button
+                      onClick={handleDownloadJournal}
+                      className="inline-flex items-center gap-1.5 text-xs text-white bg-lime-500 rounded-xl px-4 py-2.5 font-semibold hover:bg-lime-600 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 shadow-sm shadow-lime-200/60 tracking-wide"
+                    >
+                      <IconArchive className="w-3.5 h-3.5" />
+                      仕訳CSVをDL
+                    </button>
+                  </div>
+                </div>
+
+                {/* 仕訳テーブル */}
+                <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[760px]">
+                      <thead>
+                        <tr className="border-b border-slate-100">
+                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
+                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Date</th>
+                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
+                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
+                          <th className="px-4 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
+                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
+                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">照合</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {journalMatchResult.results.map((r, i) => (
+                          <Fragment key={i}>
+                            {/* 費用計上行 */}
+                            <tr className="hover:bg-sky-50/30 transition-colors">
+                              <td className="px-4 py-3">
+                                <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-medium">費用計上</span>
+                              </td>
+                              <td className="px-4 py-3 text-xs font-mono text-slate-500">
+                                {r.accrualEntry.date === '不明' ? '—' : `${r.accrualEntry.date.slice(0,4)}/${r.accrualEntry.date.slice(4,6)}/${r.accrualEntry.date.slice(6,8)}`}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{r.accrualEntry.debitAccount}</span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{r.accrualEntry.creditAccount}</span>
+                              </td>
+                              <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                                {r.accrualEntry.amount != null ? `¥${r.accrualEntry.amount.toLocaleString()}` : '—'}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-slate-500 max-w-[160px] truncate">{r.accrualEntry.description || '—'}</td>
+                              <td className="px-4 py-3">
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                  r.accrualEntry.matchStatus === 'auto' ? 'bg-lime-100 text-lime-600'
+                                  : r.accrualEntry.matchStatus === 'needs_review' ? 'bg-amber-100 text-amber-600'
+                                  : 'bg-red-100 text-red-500'
+                                }`}>
+                                  {r.accrualEntry.matchStatus === 'auto' ? '自動照合' : r.accrualEntry.matchStatus === 'needs_review' ? '要確認' : '未照合'}
+                                </span>
+                              </td>
+                            </tr>
+                            {/* 支払消込行 */}
+                            {r.paymentEntry && (
+                              <tr className="hover:bg-lime-50/30 transition-colors bg-slate-50/30">
+                                <td className="px-4 py-3">
+                                  <span className="text-[10px] bg-lime-100 text-lime-700 px-2 py-0.5 rounded-full font-medium">支払消込</span>
+                                </td>
+                                <td className="px-4 py-3 text-xs font-mono text-slate-500">
+                                  {`${r.paymentEntry.date.slice(0,4)}/${r.paymentEntry.date.slice(4,6)}/${r.paymentEntry.date.slice(6,8)}`}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{r.paymentEntry.debitAccount}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{r.paymentEntry.creditAccount}</span>
+                                </td>
+                                <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                                  {r.paymentEntry.amount != null ? `¥${r.paymentEntry.amount.toLocaleString()}` : '—'}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-slate-500 max-w-[160px] truncate">{r.paymentEntry.description}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                    r.paymentEntry.matchStatus === 'auto' ? 'bg-lime-100 text-lime-600' : 'bg-amber-100 text-amber-600'
+                                  }`}>
+                                    {r.paymentEntry.matchStatus === 'auto' ? `自動 ${Math.round(r.paymentEntry.matchScore * 100)}%` : `要確認 ${Math.round(r.paymentEntry.matchScore * 100)}%`}
+                                  </span>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="px-5 py-3 border-t border-slate-50 bg-slate-50/30">
+                    <p className="text-[10px] text-slate-300 tracking-widest uppercase">
+                      Output: CSV · 費用計上 / 支払消込 · 借方 / 貸方 / 金額 / 摘要 / 照合スコア
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* 2パネルアップロード */
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                {/* 通帳パネル */}
+                <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800 tracking-tight">① 通帳 / 口座明細</p>
+                    <p className="text-xs text-slate-400 mt-0.5">入出金データを抽出します</p>
+                  </div>
+                  <input
+                    ref={bankFileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const sel = Array.from(e.target.files || []).filter(f => f.type === 'application/pdf');
+                      setBankFiles(prev => {
+                        const ex = new Set(prev.map(f => f.name + f.size));
+                        return [...prev, ...sel.filter(f => !ex.has(f.name + f.size))];
+                      });
+                      e.target.value = '';
+                    }}
+                  />
+                  <button
+                    onClick={() => bankFileInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-slate-200 rounded-xl p-4 text-xs text-slate-400 hover:border-sky-300 hover:text-sky-500 transition-all duration-200"
+                  >
+                    <IconUpload className="w-6 h-6 mx-auto mb-2" />
+                    PDFを選択
+                  </button>
+                  {bankFiles.length > 0 && (
+                    <div className="space-y-1">
+                      {bankFiles.map((f, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-1.5">
+                          <span className="truncate max-w-[160px]">{f.name}</span>
+                          <button onClick={() => setBankFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-300 hover:text-red-400 ml-2">
+                            <IconX className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {bankOcr ? (
+                    <div className="flex items-center gap-2 text-xs text-lime-600 bg-lime-50 rounded-xl px-3 py-2">
+                      <IconCheck className="w-4 h-4" />
+                      {bankOcr.transactions.length}件の取引を抽出済み
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleBankProcess}
+                      disabled={bankFiles.length === 0 || bankProcessing}
+                      className="w-full bg-sky-400 text-white text-xs font-semibold rounded-xl py-2.5 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
+                    >
+                      {bankProcessing ? '解析中...' : 'OCRで抽出'}
+                    </button>
+                  )}
+                </div>
+
+                {/* 請求書パネル */}
+                <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800 tracking-tight">② 請求書 / 領収書</p>
+                    <p className="text-xs text-slate-400 mt-0.5">相手先・金額・日付を抽出します</p>
+                  </div>
+                  <input
+                    ref={invoiceFileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const sel = Array.from(e.target.files || []).filter(f => f.type === 'application/pdf');
+                      setInvoiceFiles(prev => {
+                        const ex = new Set(prev.map(f => f.name + f.size));
+                        return [...prev, ...sel.filter(f => !ex.has(f.name + f.size))];
+                      });
+                      e.target.value = '';
+                    }}
+                  />
+                  <button
+                    onClick={() => invoiceFileInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-slate-200 rounded-xl p-4 text-xs text-slate-400 hover:border-sky-300 hover:text-sky-500 transition-all duration-200"
+                  >
+                    <IconUpload className="w-6 h-6 mx-auto mb-2" />
+                    PDFを選択
+                  </button>
+                  {invoiceFiles.length > 0 && (
+                    <div className="space-y-1">
+                      {invoiceFiles.map((f, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-1.5">
+                          <span className="truncate max-w-[160px]">{f.name}</span>
+                          <button onClick={() => setInvoiceFiles(prev => prev.filter((_, j) => j !== i))} className="text-slate-300 hover:text-red-400 ml-2">
+                            <IconX className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {invoiceOcr ? (
+                    <div className="flex items-center gap-2 text-xs text-lime-600 bg-lime-50 rounded-xl px-3 py-2">
+                      <IconCheck className="w-4 h-4" />
+                      {invoiceOcr.count}件の証票を抽出済み
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleInvoiceProcess}
+                      disabled={invoiceFiles.length === 0 || invoiceProcessing}
+                      className="w-full bg-sky-400 text-white text-xs font-semibold rounded-xl py-2.5 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
+                    >
+                      {invoiceProcessing ? '解析中...' : 'OCRで抽出'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 照合実行ボタン */}
+            {!journalMatchResult && bankOcr && invoiceOcr && (
+              <div className="flex justify-center pt-2">
+                <button
+                  onClick={handleRunMatch}
+                  disabled={matchProcessing}
+                  className="inline-flex items-center gap-2 bg-lime-500 text-white text-sm font-semibold rounded-2xl px-8 py-3 hover:bg-lime-600 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 shadow-sm shadow-lime-200/60 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {matchProcessing ? '照合中...' : '照合して仕訳を生成'}
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* ─── アップロードセクション ─────────────────────────────────────── */}
-        {!result && (
+        {mode !== 'journal-entry' && !result && (
           <section>
             {guestLimitReached ? (
 
@@ -1047,7 +1395,7 @@ export default function Home() {
                           <circle cx="11" cy="11" r="8" />
                           <line x1="21" y1="21" x2="16.65" y2="16.65" />
                         </svg>
-                        {mode === 'bank-statement' || mode === 'journal-entry'
+                        {mode === 'bank-statement'
                           ? files.length > 1
                             ? `${files.length}件のPDFを解析する`
                             : 'AI OCRで解析する'
@@ -1077,9 +1425,7 @@ export default function Home() {
               </div>
             </div>
             <p className="text-base font-semibold text-slate-800 tracking-tight mb-1.5">
-              {mode === 'bank-statement' ? 'AIが通帳を解析しています' :
-               mode === 'journal-entry' ? 'AIが仕訳を生成しています' :
-               'AIが書類を解析しています'}
+              {mode === 'bank-statement' ? 'AIが通帳を解析しています' : 'AIが書類を解析しています'}
             </p>
             {files.length > 1 && processingIndex > 0 && (
               <p className="text-sm font-medium text-sky-400 tabular-nums mb-1">
@@ -1133,7 +1479,7 @@ export default function Home() {
         )}
 
         {/* ─── 結果表示 ─────────────────────────────────────────────────────── */}
-        {result && (
+        {result && mode !== 'journal-entry' && (
           <section className="space-y-4">
 
             {/* サマリーバー */}
@@ -1154,9 +1500,7 @@ export default function Home() {
                   <p className="text-base font-semibold text-slate-900 tracking-tight">
                     {result.mode === 'bank-statement'
                       ? `${result.transactions.length} 件の取引を検出 · ${result.bankName} ${result.accountNumber}`
-                      : result.mode === 'journal-entry'
-                        ? `${result.entries.length} 行の仕訳を生成`
-                        : `${result.invoices.length} 件の${result.mode === 'tax-return' ? '書類' : '請求書'}を検出`}
+                      : `${result.invoices.length} 件の${result.mode === 'tax-return' ? '書類' : '請求書'}を検出`}
                   </p>
                   <p className="text-xs text-slate-400 mt-0.5 tracking-wide">
                     {result.processedFiles > 1
@@ -1183,9 +1527,7 @@ export default function Home() {
                     transition-all duration-200 shadow-sm shadow-lime-200/60 tracking-wide"
                 >
                   <IconArchive className="w-3.5 h-3.5" />
-                  {result.mode === 'bank-statement' || result.mode === 'journal-entry'
-                    ? 'CSVダウンロード'
-                    : 'ZIPで一括DL'}
+                  {result.mode === 'bank-statement' ? 'CSVダウンロード' : 'ZIPで一括DL'}
                 </button>
               </div>
             </div>
@@ -1233,25 +1575,6 @@ export default function Home() {
                     <tbody className="divide-y divide-slate-50">
                       {result.transactions.map((t, i) => (
                         <BankRow key={i} row={t} index={i + 1} />
-                      ))}
-                    </tbody>
-                  </table>
-                ) : result.mode === 'journal-entry' ? (
-                  <table className="w-full text-sm min-w-[700px]">
-                    <thead>
-                      <tr className="border-b border-slate-100">
-                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-10">#</th>
-                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Date</th>
-                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
-                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
-                        <th className="px-4 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
-                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
-                        <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest hidden lg:table-cell">消費税</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {result.entries.map((e, i) => (
-                        <JournalRow key={i} row={e} index={i + 1} />
                       ))}
                     </tbody>
                   </table>
@@ -1318,9 +1641,7 @@ export default function Home() {
                 <p className="text-[10px] text-slate-300 tracking-widest uppercase">
                   {result.mode === 'bank-statement'
                     ? `Output: CSV · ${result.bankName} ${result.accountNumber}`
-                    : result.mode === 'journal-entry'
-                      ? 'Output: CSV · 借方 / 貸方 / 金額 / 摘要 / 消費税区分'
-                      : <>File format :{' '}
+                    : <>File format :{' '}
                           <code className="bg-white border border-slate-100 px-1.5 py-0.5 rounded-md font-mono text-slate-400 normal-case tracking-normal">
                             {result.mode === 'tax-return' ? '年度_氏名_書類種別.pdf' : '日付_請求者名_税込金額.pdf'}
                           </code>

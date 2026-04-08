@@ -1,8 +1,48 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 
+// 営業ページのトークン保護
+const SALES_PROTECTED = ['/sales', '/security', '/guide', '/faq', '/pricing'];
+const SALES_COOKIE = 'sales_access';
+
+function handleSalesToken(request: NextRequest): NextResponse | null {
+  const { pathname, searchParams } = request.nextUrl;
+  const isProtected = SALES_PROTECTED.some(
+    (p) => pathname === p || pathname.startsWith(p + '/')
+  );
+  if (!isProtected) return null;
+
+  const token = process.env.SALES_TOKEN;
+  if (!token) return null;
+
+  // クッキー認証済み
+  if (request.cookies.get(SALES_COOKIE)?.value === token) return null;
+
+  // URLトークン認証
+  const queryToken = searchParams.get('t');
+  if (queryToken === token) {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete('t');
+    const res = NextResponse.redirect(url);
+    res.cookies.set(SALES_COOKIE, token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 30,
+      path: '/',
+    });
+    return res;
+  }
+
+  return NextResponse.redirect(new URL('/denied', request.url));
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // 営業ページのトークン保護を最初にチェック
+  const salesResponse = handleSalesToken(request);
+  if (salesResponse) return salesResponse;
 
   // Stripe webhookはSupabase認証不要（Stripeサーバーからのリクエスト）
   if (pathname.startsWith('/api/stripe/webhook')) {
@@ -36,13 +76,13 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // 認証不要の公開ページ（/login, /auth/*, /pricing, /subscribe, /tokusho）
+  // 認証不要の公開ページ（/login, /auth/*, /subscribe, /tokusho, /denied）
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/auth') ||
-    pathname.startsWith('/pricing') ||
     pathname.startsWith('/subscribe') ||
-    pathname.startsWith('/tokusho')
+    pathname.startsWith('/tokusho') ||
+    pathname.startsWith('/denied')
   ) {
     return supabaseResponse;
   }

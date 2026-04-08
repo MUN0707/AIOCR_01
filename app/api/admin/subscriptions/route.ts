@@ -31,16 +31,30 @@ export async function GET() {
   }
 
   const serviceClient = createServiceClient();
-  const { data, error } = await serviceClient
-    .from('subscriptions')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const yearMonth = new Date().toISOString().slice(0, 7);
+
+  const [{ data, error }, { data: usageLogs }] = await Promise.all([
+    serviceClient
+      .from('subscriptions')
+      .select('*')
+      .order('created_at', { ascending: false }),
+    serviceClient
+      .from('usage_logs')
+      .select('user_id, count')
+      .eq('year_month', yearMonth),
+  ]);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ subscriptions: data });
+  const usageMap = new Map((usageLogs ?? []).map((u) => [u.user_id, u.count]));
+  const subscriptions = (data ?? []).map((s) => ({
+    ...s,
+    monthly_usage: usageMap.get(s.user_id) ?? 0,
+  }));
+
+  return NextResponse.json({ subscriptions });
 }
 
 export async function PATCH(request: NextRequest) {

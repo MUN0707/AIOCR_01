@@ -2,7 +2,7 @@
 // 共通型定義 - 法人請求書 / 確定申告 両方で使用
 // ============================================================
 
-export type OcrMode = 'invoice' | 'tax-return' | 'bank-statement' | 'journal-entry';
+export type OcrMode = 'invoice' | 'tax-return' | 'bank-statement';
 
 // ──────────────────────────────────────────────────────────
 // 法人請求書

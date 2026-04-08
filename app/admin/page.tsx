@@ -3,10 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
+const PLAN_LIMITS: Record<string, number> = { light: 50, heavy: 200, trial: 50 };
+
 interface Subscription {
   id: string;
   email: string;
   status: 'trial' | 'active' | 'inactive' | 'pending';
+  plan: 'light' | 'heavy';
   payment_method: 'credit_card' | 'bank_transfer' | null;
   trial_start_at: string | null;
   trial_end_at: string | null;
@@ -14,6 +17,7 @@ interface Subscription {
   subscription_end_at: string | null;
   notes: string | null;
   created_at: string;
+  monthly_usage: number;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -153,6 +157,7 @@ export default function AdminPage() {
                   <th className="px-5 py-4 text-left text-xs font-bold text-sky-500 uppercase tracking-wide">支払い</th>
                   <th className="px-5 py-4 text-left text-xs font-bold text-sky-500 uppercase tracking-wide">Trial期限</th>
                   <th className="px-5 py-4 text-left text-xs font-bold text-sky-500 uppercase tracking-wide">サブスク期限</th>
+                  <th className="px-5 py-4 text-left text-xs font-bold text-sky-500 uppercase tracking-wide">今月</th>
                   <th className="px-5 py-4 text-left text-xs font-bold text-sky-500 uppercase tracking-wide">備考</th>
                   <th className="px-5 py-4 text-center text-xs font-bold text-sky-500 uppercase tracking-wide">操作</th>
                 </tr>
@@ -176,6 +181,21 @@ export default function AdminPage() {
                     </td>
                     <td className="px-5 py-4 text-sky-600 text-xs font-mono">
                       {formatDate(sub.subscription_end_at)}
+                    </td>
+                    <td className="px-5 py-4 text-xs">
+                      {(() => {
+                        const limit = PLAN_LIMITS[sub.status === 'active' ? sub.plan : 'trial'] ?? 50;
+                        const pct = Math.min((sub.monthly_usage / limit) * 100, 100);
+                        const color = pct >= 90 ? 'bg-red-400' : pct >= 70 ? 'bg-amber-400' : 'bg-sky-400';
+                        return (
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-sky-700 font-mono tabular-nums">{sub.monthly_usage}/{limit}</span>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-5 py-4 text-sky-500 text-xs max-w-[160px] truncate" title={sub.notes ?? ''}>
                       {sub.notes || '—'}
@@ -209,7 +229,7 @@ export default function AdminPage() {
                 ))}
                 {subscriptions.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-5 py-10 text-center text-sky-300">
+                    <td colSpan={8} className="px-5 py-10 text-center text-sky-300">
                       ユーザーがいません
                     </td>
                   </tr>

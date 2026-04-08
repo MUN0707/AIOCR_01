@@ -3,7 +3,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { processInvoicePdf } from '@/lib/ocr/invoice-ocr';
 import { processTaxReturnPdf } from '@/lib/ocr/tax-return-ocr';
 import { processBankStatementPdf } from '@/lib/ocr/bank-statement-ocr';
-import { processJournalEntryPdf } from '@/lib/ocr/journal-entry-ocr';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 
@@ -88,13 +87,6 @@ export async function POST(request: NextRequest) {
         bankName,
         accountNumber,
         transactions,
-        totalPages,
-      });
-    } else if (mode === 'journal-entry') {
-      const { entries, totalPages } = await processJournalEntryPdf(pdfBuffer, anthropic);
-      result = NextResponse.json({
-        mode: 'journal-entry',
-        entries,
         totalPages,
       });
     } else {

@@ -1,0 +1,860 @@
+openapi: 3.0.3
+info:
+  title: Invoice OCR API
+  description: |
+    税理士事務所向けAI OCRツール「Invoice OCR」のAPI仕様書。
+    Claude API を利用した請求書・確定申告・通帳PDFの自動解析・分割・データ抽出を提供します。
+  version: 0.1.0
+  contact:
+    email: negitoro0707@gmail.com
+
+servers:
+  - url: https://invoice-ocr-tawny.vercel.app
+    description: 本番環境 (Vercel)
+  - url: http://localhost:3000
+    description: ローカル開発環境
+
+tags:
+  - name: OCR
+    description: PDF OCR処理
+  - name: Journal
+    description: 証票照合
+  - name: Usage
+    description: 使用量管理
+  - name: Admin
+    description: 管理者向け
+  - name: Subscription
+    description: サブスクリプション管理
+
+paths:
+  /api/process-pdf:
+    post:
+      tags: [OCR]
+      summary: PDF OCR処理
+      description: |
+        PDFをアップロードしてAI OCR処理を行います。
+        モードに応じて請求書・確定申告・通帳のデータを返します。
+      operationId: processPdf
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [pdf]
+              properties:
+                pdf:
+                  type: string
+                  format: binary
+                  description: PDFファイル（最大50MB）
+                mode:
+                  type: string
+                  enum: [invoice, tax-return, bank-statement]
+                  default: invoice
+                  description: 処理モード
+      responses:
+        '200':
+          description: OCR処理成功
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InvoiceResponse'
+                  - $ref: '#/components/schemas/TaxReturnResponse'
+                  - $ref: '#/components/schemas/BankStatementResponse'
+              examples:
+                invoice:
+                  summary: 請求書モード
+                  value:
+                    mode: invoice
+                    totalPages: 8
+                    invoices:
+                      - index: 1
+                        pageStart: 1
+                        pageEnd: 2
+                        date: "20260115"
+                        requesterName: "株式会社サンプル"
+                        taxIncludedAmount: 110000
+                        fileName: "001_20260115_株式会社サンプル_110000円.pdf"
+                        pdfBase64: "JVBERi0xLjQK..."
+                        sourceFile: "請求書まとめ.pdf"
+                tax-return:
+                  summary: 確定申告モード
+                  value:
+                    mode: tax-return
+                    totalPages: 12
+                    invoices:
+                      - index: 1
+                        pageStart: 1
+                        pageEnd: 4
+                        year: "令和5年分"
+                        taxpayerName: "山田太郎"
+                        documentType: "確定申告書B"
+                        totalIncome: 8500000
+                        taxPayable: 650000
+                        fileName: "001_令和5年分_山田太郎_確定申告書B.pdf"
+                        pdfBase64: "JVBERi0xLjQK..."
+                        sourceFile: "申告書まとめ.pdf"
+                bank-statement:
+                  summary: 通帳モード
+                  value:
+                    mode: bank-statement
+                    bankName: "三菱UFJ銀行"
+                    accountNumber: "****1234"
+                    totalPages: 3
+                    transactions:
+                      - date: "20260110"
+                        description: "ｶﾌﾞｼｷｶｲｼｬAAA 請求書支払"
+                        debit: 110000
+                        credit: null
+                        balance: 2890000
+                      - date: "20260115"
+                        description: "給与振込"
+                        debit: null
+                        credit: 500000
+                        balance: 3390000
+        '400':
+          description: リクエスト不正
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                no-file:
+                  summary: ファイルなし
+                  value:
+                    error: "PDFファイルが見つかりません"
+                not-pdf:
+                  summary: 非PDFファイル
+                  value:
+                    error: "PDFファイルのみ対応しています"
+        '429':
+          description: 月次使用量上限到達
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "今月の処理上限（50件）に達しました。プランのアップグレードをご検討ください。"
+        '500':
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "PDF処理中にエラーが発生しました"
+
+  /api/match-journal:
+    post:
+      tags: [Journal]
+      summary: 証票照合
+      description: |
+        請求書データ（証票）と通帳データ（入出金）を照合して仕訳候補を生成します。
+
+        **スコアリング：**
+        - 金額一致度: 60%
+        - 日付近接度: 30%
+        - 相手先名類似度: 10%
+
+        **照合ステータス：**
+        - `auto` (score ≥ 0.7): 自動照合
+        - `needs_review` (0.4 ≤ score < 0.7): 要確認
+        - `unmatched` (score < 0.4): 未照合
+      operationId: matchJournal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchJournalRequest'
+            example:
+              vouchers:
+                - id: "v001"
+                  date: "20260110"
+                  vendorName: "株式会社サンプル"
+                  amount: 110000
+                - id: "v002"
+                  date: "20260120"
+                  vendorName: "テスト商事"
+                  amount: 55000
+              transactions:
+                - id: "t001"
+                  date: "20260110"
+                  description: "ｶﾌﾞｼｷｶｲｼｬｻﾝﾌﾟﾙ 請求書支払"
+                  debit: 110000
+                  credit: null
+                - id: "t002"
+                  date: "20260121"
+                  description: "テスト商事 支払"
+                  debit: 55000
+                  credit: null
+      responses:
+        '200':
+          description: 照合成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchJournalResponse'
+              example:
+                results:
+                  - voucherId: "v001"
+                    transactionId: "t001"
+                    score: 0.9
+                    status: "auto"
+                    scoreDetail:
+                      amount: 0.6
+                      date: 0.3
+                      name: 0.0
+                  - voucherId: "v002"
+                    transactionId: "t002"
+                    score: 0.75
+                    status: "auto"
+                    scoreDetail:
+                      amount: 0.6
+                      date: 0.1
+                      name: 0.05
+                summary:
+                  total: 2
+                  auto: 2
+                  needs_review: 0
+                  unmatched: 0
+        '400':
+          description: データ不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "証票データまたは入出金データが必要です"
+        '500':
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/usage:
+    get:
+      tags: [Usage]
+      summary: 使用量確認
+      description: ログイン中のユーザーの当月使用量情報を返します。
+      operationId: getUsage
+      security:
+        - supabaseAuth: []
+      responses:
+        '200':
+          description: 使用量情報
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageResponse'
+              example:
+                count: 23
+                limit: 50
+                plan: "light"
+                status: "active"
+                yearMonth: "2026-04"
+        '401':
+          description: 未認証
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Unauthorized"
+
+  /api/admin/subscriptions:
+    get:
+      tags: [Admin]
+      summary: サブスクリプション一覧取得
+      description: 全ユーザーのサブスクリプション情報を取得します（管理者のみ）。
+      operationId: listSubscriptions
+      security:
+        - supabaseAuth: []
+      responses:
+        '200':
+          description: サブスク一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscriptions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SubscriptionRow'
+              example:
+                subscriptions:
+                  - id: "550e8400-e29b-41d4-a716-446655440000"
+                    user_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    email: "user@example.com"
+                    plan: "light"
+                    status: "active"
+                    payment_method: "bank_transfer"
+                    trial_ends_at: "2026-04-10T00:00:00+09:00"
+                    subscription_start_at: "2026-04-01T00:00:00+09:00"
+                    subscription_end_at: "2026-06-01T00:00:00+09:00"
+                    created_at: "2026-04-01T10:30:00+09:00"
+                    updated_at: "2026-04-01T11:00:00+09:00"
+                    monthly_usage: 23
+        '403':
+          description: 管理者権限なし
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Forbidden"
+
+    patch:
+      tags: [Admin]
+      summary: サブスクリプション管理操作
+      description: |
+        サブスクリプションの状態を変更します（管理者のみ）。
+
+        **利用可能なアクション：**
+        - `activate`: 有効化（開始日=現在、終了日=2ヶ月後）
+        - `extend`: 2ヶ月延長（現在の終了日起点）
+        - `deactivate`: 無効化
+      operationId: updateSubscription
+      security:
+        - supabaseAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminActionRequest'
+            examples:
+              activate:
+                summary: 有効化
+                value:
+                  id: "550e8400-e29b-41d4-a716-446655440000"
+                  action: "activate"
+              extend:
+                summary: 2ヶ月延長
+                value:
+                  id: "550e8400-e29b-41d4-a716-446655440000"
+                  action: "extend"
+              deactivate:
+                summary: 無効化
+                value:
+                  id: "550e8400-e29b-41d4-a716-446655440000"
+                  action: "deactivate"
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+              example:
+                success: true
+        '400':
+          description: パラメータ不正
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missing-params:
+                  summary: パラメータ不足
+                  value:
+                    error: "id と action は必須です"
+                invalid-action:
+                  summary: 不正なアクション
+                  value:
+                    error: "不正な action です"
+        '403':
+          description: 管理者権限なし
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/subscription/status:
+    get:
+      tags: [Subscription]
+      summary: サブスク状態確認
+      description: ログイン中のユーザー自身のサブスクリプション状態を取得します。
+      operationId: getSubscriptionStatus
+      security:
+        - supabaseAuth: []
+      responses:
+        '200':
+          description: サブスク状態
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionStatus'
+              example:
+                plan: "light"
+                status: "active"
+                trial_ends_at: null
+                subscription_end_at: "2026-06-01T00:00:00+09:00"
+        '401':
+          description: 未認証
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/subscription/bank-transfer:
+    post:
+      tags: [Subscription]
+      summary: 銀行振込申込
+      description: 銀行振込によるサブスクリプション申し込みを処理します。
+      operationId: requestBankTransfer
+      security:
+        - supabaseAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BankTransferRequest'
+            example:
+              plan: "light"
+              name: "山田太郎"
+              companyName: "山田税理士事務所"
+              tel: "03-1234-5678"
+      responses:
+        '200':
+          description: 申込成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BankTransferResponse'
+              example:
+                success: true
+                bankInfo:
+                  bankName: "〇〇銀行"
+                  branchName: "〇〇支店"
+                  accountType: "普通"
+                  accountNumber: "1234567"
+                  accountHolder: "ムラタ ナオマサ"
+                amount: 10000
+                description: "ライトプラン 2ヶ月分"
+        '401':
+          description: 未認証
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    supabaseAuth:
+      type: apiKey
+      in: cookie
+      name: sb-lonmddwpcfalgtddaksg-auth-token
+      description: Supabase Auth セッションCookie
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: エラーメッセージ（日本語）
+
+    # === OCR レスポンス ===
+
+    InvoiceResponse:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [invoice]
+        totalPages:
+          type: integer
+          description: 元PDFの総ページ数
+        invoices:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceItem'
+
+    InvoiceItem:
+      type: object
+      properties:
+        index:
+          type: integer
+          description: 連番（1始まり）
+        pageStart:
+          type: integer
+          description: 開始ページ（1始まり）
+        pageEnd:
+          type: integer
+          description: 終了ページ（1始まり）
+        date:
+          type: string
+          description: 請求日（YYYYMMDD形式、不明時は"不明"）
+          example: "20260115"
+        requesterName:
+          type: string
+          description: 請求元名称
+          example: "株式会社サンプル"
+        taxIncludedAmount:
+          type: integer
+          nullable: true
+          description: 税込合計金額（円）
+          example: 110000
+        fileName:
+          type: string
+          description: 自動生成されたファイル名
+          example: "001_20260115_株式会社サンプル_110000円.pdf"
+        pdfBase64:
+          type: string
+          description: 分割済みPDFのBase64文字列
+        sourceFile:
+          type: string
+          description: 元PDFのファイル名
+
+    TaxReturnResponse:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [tax-return]
+        totalPages:
+          type: integer
+        invoices:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaxReturnItem'
+
+    TaxReturnItem:
+      type: object
+      properties:
+        index:
+          type: integer
+        pageStart:
+          type: integer
+        pageEnd:
+          type: integer
+        year:
+          type: string
+          description: 申告年度
+          example: "令和5年分"
+        taxpayerName:
+          type: string
+          description: 納税者氏名
+          example: "山田太郎"
+        documentType:
+          type: string
+          description: 書類種別
+          example: "確定申告書B"
+        totalIncome:
+          type: integer
+          nullable: true
+          description: 総所得金額（円）
+        taxPayable:
+          type: integer
+          nullable: true
+          description: 納付税額（円）
+        fileName:
+          type: string
+        pdfBase64:
+          type: string
+        sourceFile:
+          type: string
+
+    BankStatementResponse:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [bank-statement]
+        bankName:
+          type: string
+          description: 銀行名
+          example: "三菱UFJ銀行"
+        accountNumber:
+          type: string
+          description: 口座番号（マスク表示）
+          example: "****1234"
+        totalPages:
+          type: integer
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/BankTransaction'
+
+    BankTransaction:
+      type: object
+      properties:
+        date:
+          type: string
+          description: 取引日（YYYYMMDD）
+          example: "20260110"
+        description:
+          type: string
+          description: 摘要
+          example: "ｶﾌﾞｼｷｶｲｼｬAAA 請求書支払"
+        debit:
+          type: integer
+          nullable: true
+          description: 出金金額（円）
+        credit:
+          type: integer
+          nullable: true
+          description: 入金金額（円）
+        balance:
+          type: integer
+          nullable: true
+          description: 残高（円）
+
+    # === 照合 ===
+
+    MatchJournalRequest:
+      type: object
+      properties:
+        vouchers:
+          type: array
+          items:
+            $ref: '#/components/schemas/VoucherInput'
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionInput'
+
+    VoucherInput:
+      type: object
+      required: [id, date, vendorName, amount]
+      properties:
+        id:
+          type: string
+          description: 証票ID
+        date:
+          type: string
+          description: 請求日（YYYYMMDD）
+        vendorName:
+          type: string
+          description: 相手先名称
+        amount:
+          type: integer
+          description: 税込金額（円）
+
+    TransactionInput:
+      type: object
+      required: [id, date, description, debit, credit]
+      properties:
+        id:
+          type: string
+          description: 取引ID
+        date:
+          type: string
+          description: 取引日（YYYYMMDD）
+        description:
+          type: string
+          description: 摘要
+        debit:
+          type: integer
+          nullable: true
+          description: 出金金額（円）
+        credit:
+          type: integer
+          nullable: true
+          description: 入金金額（円）
+
+    MatchJournalResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchResult'
+        summary:
+          $ref: '#/components/schemas/MatchSummary'
+
+    MatchResult:
+      type: object
+      properties:
+        voucherId:
+          type: string
+        transactionId:
+          type: string
+          nullable: true
+        score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: 総合スコア（0.0〜1.0）
+        status:
+          type: string
+          enum: [auto, needs_review, unmatched]
+          description: |
+            照合ステータス:
+            - auto: 自動照合（score ≥ 0.7）
+            - needs_review: 要確認（0.4 ≤ score < 0.7）
+            - unmatched: 未照合（score < 0.4）
+        scoreDetail:
+          type: object
+          properties:
+            amount:
+              type: number
+              description: 金額スコア（最大0.6）
+            date:
+              type: number
+              description: 日付スコア（最大0.3）
+            name:
+              type: number
+              description: 名前スコア（最大0.1）
+
+    MatchSummary:
+      type: object
+      properties:
+        total:
+          type: integer
+        auto:
+          type: integer
+        needs_review:
+          type: integer
+        unmatched:
+          type: integer
+
+    # === Usage ===
+
+    UsageResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: 当月の処理済み件数
+        limit:
+          type: integer
+          description: 月次上限件数
+        plan:
+          type: string
+          enum: [light, heavy]
+        status:
+          type: string
+          enum: [trial, active, pending, inactive]
+        yearMonth:
+          type: string
+          description: 対象月（YYYY-MM形式）
+          example: "2026-04"
+
+    # === Subscription ===
+
+    SubscriptionRow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        plan:
+          type: string
+          enum: [light, heavy]
+        status:
+          type: string
+          enum: [trial, active, pending, inactive]
+        payment_method:
+          type: string
+          enum: [bank_transfer, stripe]
+        trial_ends_at:
+          type: string
+          format: date-time
+          nullable: true
+        subscription_start_at:
+          type: string
+          format: date-time
+          nullable: true
+        subscription_end_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        monthly_usage:
+          type: integer
+          description: 当月の処理件数
+
+    SubscriptionStatus:
+      type: object
+      properties:
+        plan:
+          type: string
+          enum: [light, heavy]
+        status:
+          type: string
+          enum: [trial, active, pending, inactive]
+        trial_ends_at:
+          type: string
+          format: date-time
+          nullable: true
+        subscription_end_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    AdminActionRequest:
+      type: object
+      required: [id, action]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: サブスクリプションのUUID
+        action:
+          type: string
+          enum: [activate, extend, deactivate]
+          description: 実行するアクション
+
+    BankTransferRequest:
+      type: object
+      required: [plan, name, companyName]
+      properties:
+        plan:
+          type: string
+          enum: [light, heavy]
+        name:
+          type: string
+          description: 申込者名
+        companyName:
+          type: string
+          description: 事務所名
+        tel:
+          type: string
+          description: 電話番号
+
+    BankTransferResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        bankInfo:
+          type: object
+          properties:
+            bankName:
+              type: string
+            branchName:
+              type: string
+            accountType:
+              type: string
+            accountNumber:
+              type: string
+            accountHolder:
+              type: string
+        amount:
+          type: integer
+          description: 振込金額（円）
+        description:
+          type: string
+          description: プラン説明
