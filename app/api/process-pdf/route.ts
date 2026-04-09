@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get('pdf') as File | null;
     const mode = (formData.get('mode') as string) || 'invoice';
     const sessionId = (formData.get('sessionId') as string) || crypto.randomUUID();
+    const clientId = (formData.get('clientId') as string) || null;
 
     if (!file) {
       return NextResponse.json({ error: 'PDFファイルが見つかりません' }, { status: 400 });
@@ -127,6 +128,7 @@ export async function POST(request: NextRequest) {
         mode,
         ocr_result: responseBody,
         file_size_bytes: pdfBuffer.byteLength,
+        ...(clientId ? { client_id: clientId } : {}),
       });
     } catch (storageError) {
       console.error('PDF保存エラー（OCR結果は正常）:', storageError);

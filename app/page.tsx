@@ -9,6 +9,14 @@ import type { MatchResult, MatchSummary, VoucherInput, TransactionInput } from '
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
+interface ClientItem {
+  id: string;
+  name: string;
+  client_type: string;
+  industry: string | null;
+  created_at: string;
+}
+
 interface InvoiceResult {
   index: number;
   pageStart: number;
@@ -412,6 +420,13 @@ export default function Home() {
   const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [usageInfo, setUsageInfo] = useState<{ count: number; limit: number } | null>(null);
 
+  // ─── クライアント管理 State ─────────────────────────────────────────────────
+  const [clients, setClients] = useState<ClientItem[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [clientSaving, setClientSaving] = useState(false);
+
   // ─── 自動仕訳モード専用 State ─────────────────────────────────────────────
   const [bankFiles, setBankFiles] = useState<File[]>([]);
   const [invoiceFiles, setInvoiceFiles] = useState<File[]>([]);
@@ -437,6 +452,11 @@ export default function Home() {
         fetch('/api/usage')
           .then((r) => r.json())
           .then((d) => { if (d.count != null) setUsageInfo({ count: d.count, limit: d.limit }); })
+          .catch(() => {});
+        // クライアント一覧を取得
+        fetch('/api/clients')
+          .then((r) => r.json())
+          .then((d) => { if (d.clients) setClients(d.clients); })
           .catch(() => {});
       }
     });
@@ -525,6 +545,7 @@ export default function Home() {
           formData.append('pdf', file);
           formData.append('mode', mode);
           formData.append('sessionId', sessionId);
+          if (selectedClientId) formData.append('clientId', selectedClientId);
           const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
           const data = await res.json();
           if (!res.ok) throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
@@ -551,6 +572,7 @@ export default function Home() {
         formData.append('pdf', file);
         formData.append('mode', mode);
         formData.append('sessionId', sessionId);
+        if (selectedClientId) formData.append('clientId', selectedClientId);
 
         const res = await fetch('/api/process-pdf', {
           method: 'POST',
@@ -647,6 +669,7 @@ export default function Home() {
         fd.append('pdf', file);
         fd.append('mode', 'bank-statement');
         fd.append('sessionId', bankSessionId);
+        if (selectedClientId) fd.append('clientId', selectedClientId);
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
         const data = await res.json();
         if (!res.ok) throw new Error(`${file.name}: ${data.error}`);
@@ -679,6 +702,7 @@ export default function Home() {
         fd.append('pdf', file);
         fd.append('mode', 'invoice');
         fd.append('sessionId', invoiceSessionId);
+        if (selectedClientId) fd.append('clientId', selectedClientId);
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
         const data = await res.json();
         if (!res.ok) throw new Error(`${file.name}: ${data.error}`);
@@ -752,6 +776,39 @@ export default function Home() {
       }
     }
     downloadCsv([header, ...rows], '自動仕訳.csv');
+  };
+
+  // ─── クライアント管理ハンドラ ───────────────────────────────────────────────
+  const handleAddClient = async () => {
+    const name = newClientName.trim();
+    if (!name || clientSaving) return;
+    setClientSaving(true);
+    try {
+      const res = await fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setClients((prev) => [...prev, data.client]);
+      setNewClientName('');
+      if (!selectedClientId) setSelectedClientId(data.client.id);
+    } catch {
+      // silent
+    } finally {
+      setClientSaving(false);
+    }
+  };
+
+  const handleDeleteClient = async (id: string) => {
+    try {
+      await fetch(`/api/clients?id=${id}`, { method: 'DELETE' });
+      setClients((prev) => prev.filter((c) => c.id !== id));
+      if (selectedClientId === id) setSelectedClientId(null);
+    } catch {
+      // silent
+    }
   };
 
   const handleSignOut = async () => {
@@ -872,6 +929,98 @@ export default function Home() {
                   {label}
                 </button>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ─── クライアント選択バー（ログインユーザーのみ） ────────────────── */}
+        {!isGuest && user && !result && !loading && (
+          <div className="flex justify-center">
+            <div className="flex items-center gap-3 bg-white/70 border border-slate-100 rounded-2xl px-5 py-3 shadow-sm">
+              <span className="text-xs text-slate-500 tracking-wide whitespace-nowrap">クライアント</span>
+              <select
+                value={selectedClientId || ''}
+                onChange={(e) => setSelectedClientId(e.target.value || null)}
+                className="text-sm bg-white border border-slate-200 rounded-xl px-3 py-1.5
+                  text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300
+                  transition-all duration-200 min-w-[160px]"
+              >
+                <option value="">未選択（個人）</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowClientModal(true)}
+                className="text-xs font-medium text-sky-500 border border-sky-200 rounded-xl
+                  px-3 py-1.5 hover:bg-sky-50 hover:border-sky-300
+                  transition-all duration-200 whitespace-nowrap"
+              >
+                管理
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── クライアント管理モーダル ─────────────────────────────────────── */}
+        {showClientModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+            onClick={() => setShowClientModal(false)}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 space-y-5"
+              onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-slate-800">クライアント管理</h3>
+                <button onClick={() => setShowClientModal(false)}
+                  className="text-slate-400 hover:text-slate-600 transition-colors">
+                  <IconX className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* 新規追加フォーム */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newClientName}
+                  onChange={(e) => setNewClientName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddClient(); }}
+                  placeholder="クライアント名を入力"
+                  className="flex-1 text-sm border border-slate-200 rounded-xl px-4 py-2.5
+                    focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300
+                    transition-all duration-200 placeholder:text-slate-300"
+                />
+                <button
+                  onClick={handleAddClient}
+                  disabled={!newClientName.trim() || clientSaving}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-white
+                    bg-sky-400 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed
+                    transition-all duration-200 whitespace-nowrap shadow-sm shadow-sky-200/60"
+                >
+                  追加
+                </button>
+              </div>
+
+              {/* クライアント一覧 */}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {clients.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-6">
+                    まだクライアントが登録されていません
+                  </p>
+                ) : (
+                  clients.map((c) => (
+                    <div key={c.id}
+                      className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3 group">
+                      <span className="text-sm text-slate-700 font-medium">{c.name}</span>
+                      <button
+                        onClick={() => handleDeleteClient(c.id)}
+                        className="text-slate-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                        title="削除"
+                      >
+                        <IconX className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}
