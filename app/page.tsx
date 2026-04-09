@@ -512,6 +512,7 @@ export default function Home() {
 
     try {
       let totalPages = 0;
+      const sessionId = crypto.randomUUID();
 
       if (mode === 'bank-statement') {
         const allTransactions: BankTransactionRow[] = [];
@@ -523,6 +524,7 @@ export default function Home() {
           const formData = new FormData();
           formData.append('pdf', file);
           formData.append('mode', mode);
+          formData.append('sessionId', sessionId);
           const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
           const data = await res.json();
           if (!res.ok) throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
@@ -548,6 +550,7 @@ export default function Home() {
         const formData = new FormData();
         formData.append('pdf', file);
         formData.append('mode', mode);
+        formData.append('sessionId', sessionId);
 
         const res = await fetch('/api/process-pdf', {
           method: 'POST',
@@ -638,10 +641,12 @@ export default function Home() {
       const allTx: TransactionInput[] = [];
       let bankName = '不明';
       let accountNumber = '不明';
+      const bankSessionId = crypto.randomUUID();
       for (const file of bankFiles) {
         const fd = new FormData();
         fd.append('pdf', file);
         fd.append('mode', 'bank-statement');
+        fd.append('sessionId', bankSessionId);
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
         const data = await res.json();
         if (!res.ok) throw new Error(`${file.name}: ${data.error}`);
@@ -668,10 +673,12 @@ export default function Home() {
     setJournalError(null);
     try {
       const allVouchers: VoucherInput[] = [];
+      const invoiceSessionId = crypto.randomUUID();
       for (const file of invoiceFiles) {
         const fd = new FormData();
         fd.append('pdf', file);
         fd.append('mode', 'invoice');
+        fd.append('sessionId', invoiceSessionId);
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
         const data = await res.json();
         if (!res.ok) throw new Error(`${file.name}: ${data.error}`);

@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get('pdf') as File | null;
     const mode = (formData.get('mode') as string) || 'invoice';
+    const sessionId = (formData.get('sessionId') as string) || crypto.randomUUID();
 
     if (!file) {
       return NextResponse.json({ error: 'PDFファイルが見つかりません' }, { status: 400 });
@@ -71,40 +72,67 @@ export async function POST(request: NextRequest) {
 
     const pdfBuffer = Buffer.from(await file.arrayBuffer());
 
-    let result: NextResponse;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let responseBody: any;
     if (mode === 'tax-return') {
       const { items, totalPages } = await processTaxReturnPdf(pdfBuffer, anthropic);
-      result = NextResponse.json({
+      responseBody = {
         mode: 'tax-return',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
         totalPages,
-      });
+      };
     } else if (mode === 'bank-statement') {
       const { bankName, accountNumber, transactions, totalPages } =
         await processBankStatementPdf(pdfBuffer, anthropic);
-      result = NextResponse.json({
+      responseBody = {
         mode: 'bank-statement',
         bankName,
         accountNumber,
         transactions,
         totalPages,
-      });
+      };
     } else {
       const { items, totalPages } = await processInvoicePdf(pdfBuffer, anthropic);
-      result = NextResponse.json({
+      responseBody = {
         mode: 'invoice',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
         totalPages,
-      });
+      };
     }
 
     // OCR成功後に使用量をインクリメント（サービスクライアントでRLSをバイパス）
+    const service = createServiceClient();
     if (trackUsage && userId) {
-      const service = createServiceClient();
       await service.rpc('increment_usage', { p_user_id: userId, p_year_month: yearMonth });
     }
 
-    return result;
+    // PDFをSupabase Storageに保存（バックグラウンド、失敗してもOCR結果は返す）
+    try {
+      const timestamp = Date.now();
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `${sessionId}/${timestamp}_${safeName}`;
+
+      await service.storage
+        .from('ocr-uploads')
+        .upload(storagePath, pdfBuffer, {
+          contentType: 'application/pdf',
+          upsert: false,
+        });
+
+      await service.from('ocr_uploads').insert({
+        user_id: userId,
+        session_id: sessionId,
+        file_name: file.name,
+        storage_path: storagePath,
+        mode,
+        ocr_result: responseBody,
+        file_size_bytes: pdfBuffer.byteLength,
+      });
+    } catch (storageError) {
+      console.error('PDF保存エラー（OCR結果は正常）:', storageError);
+    }
+
+    return NextResponse.json(responseBody);
   } catch (error) {
     console.error('PDF処理エラー:', error);
     const message = error instanceof Error ? error.message : 'PDF処理中にエラーが発生しました';
