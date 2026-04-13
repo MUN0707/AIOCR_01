@@ -52,17 +52,21 @@ type ProcessResult =
 
 interface LedgerEntry {
   id: string;
-  logId: string;
-  logCreatedAt: string;
-  entryType: 'accrual' | 'payment';
-  date: string;
-  debitAccount: string;
-  creditAccount: string;
+  user_id: string;
+  client_id: string | null;
+  log_id: string | null;
+  entry_type: 'accrual' | 'payment' | 'manual';
+  entry_date: string;
+  debit_account: string;
+  credit_account: string;
   amount: number | null;
   description: string;
-  taxType: string;
-  vendorName: string;
-  matchStatus: string;
+  tax_type: string;
+  vendor_name: string;
+  match_status: string;
+  created_at: string;
+  updated_at: string;
+  locked: boolean;
 }
 
 // ─── ユーティリティ ────────────────────────────────────────────────────────
@@ -461,11 +465,13 @@ export default function Home() {
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
 
   // ─── 仕訳日記帳サブビュー State ────────────────────────────────────────────
-  const [journalSubView, setJournalSubView] = useState<'execute' | 'ledger'>('execute');
+  const [journalSubView, setJournalSubView] = useState<'execute' | 'ledger' | 'balance'>('execute');
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[] | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerAccountFilter, setLedgerAccountFilter] = useState<string>('');
+  const [closedUntil, setClosedUntil] = useState<string | null>(null);
+  const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
 
   const fetchLedger = useCallback(async () => {
     setLedgerLoading(true);
@@ -478,6 +484,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '取得失敗');
       setLedgerEntries(data.entries);
+      setClosedUntil(data.closedUntil ?? null);
     } catch (e) {
       setLedgerError(e instanceof Error ? e.message : '日記帳の取得に失敗しました');
     } finally {
@@ -486,10 +493,66 @@ export default function Home() {
   }, [selectedClientId]);
 
   useEffect(() => {
-    if (mode === 'journal-entry' && journalSubView === 'ledger') {
+    if (mode === 'journal-entry' && (journalSubView === 'ledger' || journalSubView === 'balance')) {
       fetchLedger();
     }
   }, [mode, journalSubView, fetchLedger]);
+
+  const handleDeleteEntry = async (entry: LedgerEntry) => {
+    if (entry.locked) return;
+    if (!confirm('この仕訳を削除しますか？')) return;
+    const res = await fetch(`/api/journal-entries/${entry.id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || '削除失敗');
+      return;
+    }
+    fetchLedger();
+  };
+
+  const handleSaveEntry = async (patch: Partial<LedgerEntry>) => {
+    if (!editingEntry) return;
+    const res = await fetch(`/api/journal-entries/${editingEntry.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || '更新失敗');
+      return;
+    }
+    setEditingEntry(null);
+    fetchLedger();
+  };
+
+  const handleCloseAt = async (closedUntilYmd: string) => {
+    const res = await fetch('/api/journal-closings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: selectedClientId, closedUntil: closedUntilYmd }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || '締め設定失敗');
+      return;
+    }
+    fetchLedger();
+  };
+
+  const handleReopenClosing = async () => {
+    if (!confirm('締めを解除しますか？（締め済み期間の仕訳が再度編集可能になります）')) return;
+    const url = selectedClientId
+      ? `/api/journal-closings?clientId=${encodeURIComponent(selectedClientId)}`
+      : '/api/journal-closings';
+    const res = await fetch(url, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || '解除失敗');
+      return;
+    }
+    fetchLedger();
+  };
 
   // ─── PDFプレビューモーダル State ───────────────────────────────────────────
   const [pdfPreview, setPdfPreview] = useState<{ url: string; name: string } | null>(null);
@@ -1292,11 +1355,12 @@ export default function Home() {
         {/* ─── 自動仕訳モード専用UI ────────────────────────────────────────── */}
         {mode === 'journal-entry' && (
           <section className="space-y-5">
-            {/* サブビュー切替: 実行 / 日記帳 */}
-            <div className="flex items-center justify-center gap-1 bg-slate-100/60 rounded-xl p-1 max-w-xs mx-auto">
+            {/* サブビュー切替: 実行 / 日記帳 / 残高 */}
+            <div className="flex items-center justify-center gap-1 bg-slate-100/60 rounded-xl p-1 max-w-md mx-auto">
               {([
                 { key: 'execute', label: '仕訳実行' },
-                { key: 'ledger', label: '日記帳・残高' },
+                { key: 'ledger', label: '日記帳' },
+                { key: 'balance', label: '残高' },
               ] as const).map((item) => (
                 <button
                   key={item.key}
@@ -1326,6 +1390,18 @@ export default function Home() {
                 accountFilter={ledgerAccountFilter}
                 setAccountFilter={setLedgerAccountFilter}
                 onRefresh={fetchLedger}
+                clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
+                closedUntil={closedUntil}
+                onEdit={setEditingEntry}
+                onDelete={handleDeleteEntry}
+                onClose={handleCloseAt}
+                onReopen={handleReopenClosing}
+              />
+            ) : journalSubView === 'balance' ? (
+              <BalanceView
+                entries={ledgerEntries}
+                loading={ledgerLoading}
+                error={ledgerError}
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
               />
             ) : journalMatchResult ? (
@@ -2187,6 +2263,15 @@ export default function Home() {
         </p>
       </footer>
 
+      {/* ─── 仕訳編集モーダル ──────────────────────────────────────── */}
+      {editingEntry && (
+        <EditEntryModal
+          entry={editingEntry}
+          onCancel={() => setEditingEntry(null)}
+          onSave={handleSaveEntry}
+        />
+      )}
+
       {/* ─── PDFプレビューモーダル ───────────────────────────────────── */}
       {pdfPreview && (
         <div
@@ -2302,13 +2387,50 @@ export default function Home() {
   );
 }
 
-// ─── 仕訳日記帳ビュー ────────────────────────────────────────────────────────
+// ─── 共通ユーティリティ ────────────────────────────────────────────────────
 
-function formatDate(s: string): string {
+function formatDateYmd(s: string): string {
   if (!s || s === '不明') return '—';
   if (s.length === 8) return `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)}`;
   return s;
 }
+
+function computeBalances(entries: LedgerEntry[]) {
+  const accountSet = new Set<string>();
+  const accountBalances: Record<string, { debit: number; credit: number }> = {};
+  for (const e of entries) {
+    accountSet.add(e.debit_account);
+    accountSet.add(e.credit_account);
+    const amt = e.amount ?? 0;
+    if (!accountBalances[e.debit_account]) accountBalances[e.debit_account] = { debit: 0, credit: 0 };
+    if (!accountBalances[e.credit_account]) accountBalances[e.credit_account] = { debit: 0, credit: 0 };
+    accountBalances[e.debit_account].debit += amt;
+    accountBalances[e.credit_account].credit += amt;
+  }
+  const accounts = Array.from(accountSet).sort();
+
+  const payableByVendor: Record<string, { accrued: number; paid: number }> = {};
+  for (const e of entries) {
+    const amt = e.amount ?? 0;
+    if (e.credit_account === '未払費用') {
+      const v = e.vendor_name || '(不明)';
+      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0 };
+      payableByVendor[v].accrued += amt;
+    }
+    if (e.debit_account === '未払費用') {
+      const v = e.vendor_name || '(不明)';
+      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0 };
+      payableByVendor[v].paid += amt;
+    }
+  }
+  const vendorRows = Object.entries(payableByVendor)
+    .map(([vendor, v]) => ({ vendor, accrued: v.accrued, paid: v.paid, balance: v.accrued - v.paid }))
+    .sort((a, b) => b.balance - a.balance);
+
+  return { accounts, accountBalances, vendorRows };
+}
+
+// ─── 仕訳日記帳ビュー（明細 + 編集削除 + 締め） ─────────────────────────────
 
 function LedgerView({
   entries,
@@ -2318,6 +2440,11 @@ function LedgerView({
   setAccountFilter,
   onRefresh,
   clientName,
+  closedUntil,
+  onEdit,
+  onDelete,
+  onClose,
+  onReopen,
 }: {
   entries: LedgerEntry[] | null;
   loading: boolean;
@@ -2326,7 +2453,14 @@ function LedgerView({
   setAccountFilter: (v: string) => void;
   onRefresh: () => void;
   clientName: string | null;
+  closedUntil: string | null;
+  onEdit: (entry: LedgerEntry) => void;
+  onDelete: (entry: LedgerEntry) => void;
+  onClose: (closedUntil: string) => void;
+  onReopen: () => void;
 }) {
+  const [closingInput, setClosingInput] = useState('');
+
   if (loading) {
     return (
       <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
@@ -2337,9 +2471,7 @@ function LedgerView({
   }
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-4 text-sm text-red-600">
-        {error}
-      </div>
+      <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-4 text-sm text-red-600">{error}</div>
     );
   }
   if (!entries || entries.length === 0) {
@@ -2353,49 +2485,16 @@ function LedgerView({
     );
   }
 
-  // 勘定科目一覧（借方・貸方ユニオン）
   const accountSet = new Set<string>();
   for (const e of entries) {
-    accountSet.add(e.debitAccount);
-    accountSet.add(e.creditAccount);
+    accountSet.add(e.debit_account);
+    accountSet.add(e.credit_account);
   }
   const accounts = Array.from(accountSet).sort();
 
-  // フィルタ適用
   const filtered = accountFilter
-    ? entries.filter((e) => e.debitAccount === accountFilter || e.creditAccount === accountFilter)
+    ? entries.filter((e) => e.debit_account === accountFilter || e.credit_account === accountFilter)
     : entries;
-
-  // 勘定科目別残高（借方合計 - 貸方合計）
-  // 資産・費用は借方残、負債・収益は貸方残だが、ここでは単純な「借方-貸方」と「貸方-借方」両方表示
-  const accountBalances: Record<string, { debit: number; credit: number }> = {};
-  for (const e of entries) {
-    const amt = e.amount ?? 0;
-    if (!accountBalances[e.debitAccount]) accountBalances[e.debitAccount] = { debit: 0, credit: 0 };
-    if (!accountBalances[e.creditAccount]) accountBalances[e.creditAccount] = { debit: 0, credit: 0 };
-    accountBalances[e.debitAccount].debit += amt;
-    accountBalances[e.creditAccount].credit += amt;
-  }
-
-  // 未払費用の取引先別残高（補助元帳）
-  // 貸方計上（accrual） - 借方消込（payment） = 残高
-  const payableByVendor: Record<string, { accrued: number; paid: number }> = {};
-  for (const e of entries) {
-    const amt = e.amount ?? 0;
-    if (e.creditAccount === '未払費用') {
-      const v = e.vendorName || '(不明)';
-      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0 };
-      payableByVendor[v].accrued += amt;
-    }
-    if (e.debitAccount === '未払費用') {
-      const v = e.vendorName || '(不明)';
-      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0 };
-      payableByVendor[v].paid += amt;
-    }
-  }
-  const vendorRows = Object.entries(payableByVendor)
-    .map(([vendor, v]) => ({ vendor, accrued: v.accrued, paid: v.paid, balance: v.accrued - v.paid }))
-    .sort((a, b) => b.balance - a.balance);
 
   return (
     <div className="space-y-5">
@@ -2407,6 +2506,11 @@ function LedgerView({
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
             全 {entries.length} 件 · {filtered.length} 件表示
+            {closedUntil && (
+              <span className="ml-2 text-amber-600">
+                · 締め日 {formatDateYmd(closedUntil)} まで
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -2427,11 +2531,169 @@ function LedgerView({
         </div>
       </div>
 
+      {/* 締め操作 */}
+      <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-700 tracking-tight">締め設定</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {closedUntil
+                ? `${formatDateYmd(closedUntil)} 以前の仕訳は編集・削除できません`
+                : 'まだ締められていません'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={closingInput}
+              onChange={(e) => setClosingInput(e.target.value)}
+              className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-sky-400"
+            />
+            <button
+              onClick={() => {
+                if (!closingInput) { alert('締め日を選択してください'); return; }
+                const ymd = closingInput.replace(/-/g, '');
+                if (!confirm(`${closingInput} までを締めますか？`)) return;
+                onClose(ymd);
+              }}
+              className="text-xs text-white bg-amber-500 rounded-xl px-4 py-2 font-semibold hover:bg-amber-600 transition-all"
+            >
+              この日付で締める
+            </button>
+            {closedUntil && (
+              <button
+                onClick={onReopen}
+                className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
+              >
+                締め解除
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 仕訳明細 */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
+          <p className="text-sm font-semibold text-slate-700 tracking-tight">仕訳明細</p>
+        </div>
+        <div className="overflow-x-auto max-h-[640px]">
+          <table className="w-full text-sm min-w-[920px]">
+            <thead className="sticky top-0 bg-white">
+              <tr className="border-b border-slate-100">
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
+                <th className="px-3 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先 / 摘要</th>
+                <th className="px-3 py-3 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {filtered.map((e) => (
+                <tr key={e.id} className={`hover:bg-slate-50/30 ${e.locked ? 'bg-amber-50/20' : ''}`}>
+                  <td className="px-3 py-3 text-xs font-mono text-slate-500">{formatDateYmd(e.entry_date)}</td>
+                  <td className="px-3 py-3">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      e.entry_type === 'accrual' ? 'bg-sky-100 text-sky-600'
+                      : e.entry_type === 'payment' ? 'bg-lime-100 text-lime-700'
+                      : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {e.entry_type === 'accrual' ? '費用計上' : e.entry_type === 'payment' ? '支払消込' : '手動'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{e.debit_account}</span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{e.credit_account}</span>
+                  </td>
+                  <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                    {e.amount != null ? `¥${Number(e.amount).toLocaleString()}` : '—'}
+                  </td>
+                  <td className="px-3 py-3 text-xs text-slate-500 max-w-[240px] truncate" title={`${e.vendor_name} / ${e.description}`}>
+                    {e.vendor_name && <span className="text-slate-700 font-medium">{e.vendor_name}</span>}
+                    {e.vendor_name && e.description && <span className="text-slate-300 mx-1">·</span>}
+                    {e.description}
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    {e.locked ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded-full" title="締め済み">
+                        <IconLock className="w-3 h-3" /> 締済
+                      </span>
+                    ) : (
+                      <div className="flex justify-center gap-1">
+                        <button
+                          onClick={() => onEdit(e)}
+                          className="text-[10px] text-sky-600 border border-sky-200 rounded-md px-2 py-1 hover:bg-sky-50"
+                        >
+                          編集
+                        </button>
+                        <button
+                          onClick={() => onDelete(e)}
+                          className="text-[10px] text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50"
+                        >
+                          削除
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 残高ビュー（勘定科目別 + 未払費用 取引先別） ───────────────────────────
+
+function BalanceView({
+  entries,
+  loading,
+  error,
+  clientName,
+}: {
+  entries: LedgerEntry[] | null;
+  loading: boolean;
+  error: string | null;
+  clientName: string | null;
+}) {
+  if (loading) {
+    return (
+      <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
+        <div className="w-8 h-8 border-4 border-sky-200 border-t-sky-500 rounded-full animate-spin mx-auto" />
+        <p className="text-xs text-slate-400 mt-3">読み込み中...</p>
+      </div>
+    );
+  }
+  if (error) {
+    return <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-4 text-sm text-red-600">{error}</div>;
+  }
+  if (!entries || entries.length === 0) {
+    return (
+      <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
+        <p className="text-sm text-slate-400">
+          {clientName ? `${clientName} の` : ''}残高データはまだありません
+        </p>
+      </div>
+    );
+  }
+
+  const { accounts, accountBalances, vendorRows } = computeBalances(entries);
+
+  return (
+    <div className="space-y-5">
       {/* 未払費用 取引先別残高 */}
       {vendorRows.length > 0 && (
         <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
-            <p className="text-sm font-semibold text-sky-700 tracking-tight">未払費用 取引先別残高</p>
+            <p className="text-sm font-semibold text-sky-700 tracking-tight">
+              未払費用 取引先別残高 {clientName && <span className="text-sky-400">· {clientName}</span>}
+            </p>
             <p className="text-[10px] text-sky-500/70 mt-0.5">貸方計上 − 借方消込 = 未払残高</p>
           </div>
           <div className="overflow-x-auto">
@@ -2461,7 +2723,7 @@ function LedgerView({
         </div>
       )}
 
-      {/* 勘定科目別 残高サマリー */}
+      {/* 勘定科目別 集計 */}
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
           <p className="text-sm font-semibold text-slate-700 tracking-tight">勘定科目別 集計</p>
@@ -2495,53 +2757,128 @@ function LedgerView({
           </table>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* 仕訳明細 */}
-      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
-          <p className="text-sm font-semibold text-slate-700 tracking-tight">仕訳明細</p>
+// ─── 仕訳編集モーダル ───────────────────────────────────────────────────────
+
+function EditEntryModal({
+  entry,
+  onCancel,
+  onSave,
+}: {
+  entry: LedgerEntry;
+  onCancel: () => void;
+  onSave: (patch: Partial<LedgerEntry>) => void;
+}) {
+  const [entryDate, setEntryDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
+  const [debitAccount, setDebitAccount] = useState(entry.debit_account);
+  const [creditAccount, setCreditAccount] = useState(entry.credit_account);
+  const [amount, setAmount] = useState(entry.amount != null ? String(entry.amount) : '');
+  const [description, setDescription] = useState(entry.description);
+  const [vendorName, setVendorName] = useState(entry.vendor_name);
+  const [taxType, setTaxType] = useState(entry.tax_type);
+
+  const dateInput = entryDate.length === 8
+    ? `${entryDate.slice(0,4)}-${entryDate.slice(4,6)}-${entryDate.slice(6,8)}`
+    : '';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 pt-6 pb-4 border-b border-slate-100">
+          <h3 className="text-base font-semibold text-slate-900 tracking-tight">仕訳を編集</h3>
         </div>
-        <div className="overflow-x-auto max-h-[600px]">
-          <table className="w-full text-sm min-w-[840px]">
-            <thead className="sticky top-0 bg-white">
-              <tr className="border-b border-slate-100">
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
-                <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先 / 摘要</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filtered.map((e) => (
-                <tr key={e.id} className="hover:bg-slate-50/30">
-                  <td className="px-4 py-3 text-xs font-mono text-slate-500">{formatDate(e.date)}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      e.entryType === 'accrual' ? 'bg-sky-100 text-sky-600' : 'bg-lime-100 text-lime-700'
-                    }`}>
-                      {e.entryType === 'accrual' ? '費用計上' : '支払消込'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{e.debitAccount}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{e.creditAccount}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
-                    {e.amount != null ? `¥${e.amount.toLocaleString()}` : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500 max-w-[260px] truncate" title={`${e.vendorName} / ${e.description}`}>
-                    {e.vendorName && <span className="text-slate-700 font-medium">{e.vendorName}</span>}
-                    {e.vendorName && e.description && <span className="text-slate-300 mx-1">·</span>}
-                    {e.description}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="px-6 py-5 space-y-3 text-sm">
+          <label className="block">
+            <span className="text-xs text-slate-500">日付</span>
+            <input
+              type="date"
+              value={dateInput}
+              onChange={(e) => setEntryDate(e.target.value.replace(/-/g, ''))}
+              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs text-slate-500">借方科目</span>
+              <input
+                value={debitAccount}
+                onChange={(e) => setDebitAccount(e.target.value)}
+                className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-500">貸方科目</span>
+              <input
+                value={creditAccount}
+                onChange={(e) => setCreditAccount(e.target.value)}
+                className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
+              />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-xs text-slate-500">金額</span>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400 tabular-nums"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500">取引先</span>
+            <input
+              value={vendorName}
+              onChange={(e) => setVendorName(e.target.value)}
+              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500">摘要</span>
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500">消費税区分</span>
+            <input
+              value={taxType}
+              onChange={(e) => setTaxType(e.target.value)}
+              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+          </label>
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="text-xs text-slate-500 border border-slate-200 rounded-xl px-4 py-2.5 hover:bg-slate-50"
+          >
+            キャンセル
+          </button>
+          <button
+            onClick={() => onSave({
+              entry_date: entryDate || '不明',
+              debit_account: debitAccount,
+              credit_account: creditAccount,
+              amount: amount === '' ? null : Number(amount),
+              description,
+              vendor_name: vendorName,
+              tax_type: taxType,
+            })}
+            className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2.5 font-semibold hover:bg-sky-600"
+          >
+            保存
+          </button>
         </div>
       </div>
     </div>
