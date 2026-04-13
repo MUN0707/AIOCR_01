@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 
 // 営業ページのトークン保護
-const SALES_PROTECTED = ['/sales', '/security', '/guide', '/faq', '/pricing'];
+const SALES_PROTECTED = ['/sales', '/security', '/guide', '/faq'];
 const SALES_COOKIE = 'sales_access';
 
 function handleSalesToken(request: NextRequest): NextResponse | null {
