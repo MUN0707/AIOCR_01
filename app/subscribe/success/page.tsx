@@ -45,7 +45,7 @@ export default async function SubscribeSuccessPage({ searchParams }: Props) {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-sky-400 mt-0.5">2.</span>
-                  2ヶ月分をお振込みください
+                  1ヶ月分をお振込みください（後払いをご希望の場合はメールにてお知らせください）
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-sky-400 mt-0.5">3.</span>

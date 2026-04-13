@@ -90,8 +90,9 @@ export default function SubscribePage() {
 
             <div className="bg-sky-50 rounded-2xl p-4 text-sky-700 text-sm space-y-1">
               <p>• 申請後、管理者よりメールにて振込先口座をご連絡します</p>
-              <p>• 入金確認後（1〜2営業日）に利用開始となります</p>
-              <p>• 入金が確認できない場合はアカウントが無効になります</p>
+              <p>• 1ヶ月分の前払い、または後払いをお選びいただけます</p>
+              <p>• 適格請求書（インボイス）を発行いたします</p>
+              <p>• 前払いの場合、入金確認後（1〜2営業日）に利用開始となります</p>
             </div>
 
             <button

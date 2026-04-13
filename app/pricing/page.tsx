@@ -166,7 +166,7 @@ export default function PricingPage() {
               <p className="font-bold text-sky-900">銀行振込</p>
             </div>
             <p className="text-sky-600 text-sm leading-relaxed">
-              2ヶ月分を前払い。入金確認後（1〜2営業日）に利用開始となります。
+              1ヶ月分の前払い、または後払いに対応。適格請求書（インボイス）を発行いたします。
             </p>
             <p className="text-xs text-sky-400">クレジットカード登録不要・自動課金なし</p>
           </div>
@@ -175,12 +175,12 @@ export default function PricingPage() {
         {/* CTA */}
         <div className="text-center space-y-3">
           <Link
-            href="/subscribe"
+            href="/login"
             className="inline-block bg-sky-500 hover:bg-sky-600 text-white font-bold px-10 py-4 rounded-full text-lg shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
           >
             3日間無料で試してみる →
           </Link>
-          <p className="text-sky-400 text-sm">カード登録不要・いつでもキャンセル可</p>
+          <p className="text-sky-400 text-sm">Googleログインのみ・カード登録不要</p>
         </div>
       </main>
     </div>
