@@ -43,6 +43,85 @@ interface ClaudeInvoiceResponse {
   invoices: InvoiceInfo[];
 }
 
+// ──────────────────────────────────────────────────────────
+// 単一請求書モード（自動仕訳用：分割しない）
+// ──────────────────────────────────────────────────────────
+
+const PROMPT_INVOICE_SINGLE = `このPDFを1件の請求書として扱い、以下のJSON形式のみで返答してください。説明文や前置きは一切不要です。JSONのみ出力してください。
+
+{
+  "date": "20240201",
+  "requesterName": "株式会社〇〇",
+  "taxIncludedAmount": 110000
+}
+
+抽出ルール：
+- date：請求日または発行日をYYYYMMDD形式。不明な場合は"不明"
+- requesterName：請求書を発行した会社名または個人名（請求元）。不明な場合は"不明"
+- taxIncludedAmount：税込合計金額（整数・円）。不明な場合はnull
+- PDFに複数明細があっても1件の請求として合算してください
+- 純粋なJSONのみ返すこと。マークダウンのコードブロックも不要`;
+
+interface ClaudeInvoiceSingleResponse {
+  date?: string;
+  requesterName?: string;
+  taxIncludedAmount?: number | null;
+}
+
+export async function processInvoicePdfSingle(
+  pdfBuffer: Buffer,
+  anthropic: Anthropic
+): Promise<{ items: Array<InvoiceInfo & { fileName: string; pdfBase64: string }>; totalPages: number }> {
+  const pdfBase64 = pdfBuffer.toString('base64');
+
+  const response = await anthropic.messages.create({
+    model: 'claude-opus-4-6',
+    max_tokens: 2048,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
+          },
+          { type: 'text', text: PROMPT_INVOICE_SINGLE },
+        ],
+      },
+    ],
+  });
+
+  const textContent = response.content.find((c) => c.type === 'text');
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('Claudeからの応答が不正です');
+  }
+
+  const claudeData = parseJsonSafe<ClaudeInvoiceSingleResponse>(textContent.text);
+
+  const { PDFDocument } = await import('pdf-lib');
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const totalPages = pdfDoc.getPageCount();
+
+  const date = String(claudeData.date || '不明');
+  const requester = sanitizeFileName(String(claudeData.requesterName || '不明'));
+  const amount =
+    claudeData.taxIncludedAmount != null
+      ? `${Number(claudeData.taxIncludedAmount).toLocaleString()}円`
+      : '金額不明';
+
+  const item = {
+    pageStart: 1,
+    pageEnd: totalPages,
+    date: claudeData.date || '不明',
+    requesterName: claudeData.requesterName || '不明',
+    taxIncludedAmount: claudeData.taxIncludedAmount ?? null,
+    fileName: `${date}_${requester}_${amount}.pdf`,
+    pdfBase64,
+  };
+
+  return { items: [item], totalPages };
+}
+
 export async function processInvoicePdf(
   pdfBuffer: Buffer,
   anthropic: Anthropic

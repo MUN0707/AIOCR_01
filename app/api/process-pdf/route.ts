@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { processInvoicePdf } from '@/lib/ocr/invoice-ocr';
+import { processInvoicePdf, processInvoicePdfSingle } from '@/lib/ocr/invoice-ocr';
 import { processTaxReturnPdf } from '@/lib/ocr/tax-return-ocr';
 import { processBankStatementPdf } from '@/lib/ocr/bank-statement-ocr';
 import { createClient } from '@/utils/supabase/server';
@@ -90,6 +90,13 @@ export async function POST(request: NextRequest) {
         bankName,
         accountNumber,
         transactions,
+        totalPages,
+      };
+    } else if (mode === 'invoice-single') {
+      const { items, totalPages } = await processInvoicePdfSingle(pdfBuffer, anthropic);
+      responseBody = {
+        mode: 'invoice-single',
+        invoices: items.map((item, i) => ({ index: i + 1, ...item })),
         totalPages,
       };
     } else {

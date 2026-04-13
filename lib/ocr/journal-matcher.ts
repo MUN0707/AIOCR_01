@@ -25,6 +25,8 @@ export interface VoucherInput {
   debitAccount: string;      // OCR推測済み借方勘定科目
   description: string;       // 摘要
   taxType: string;           // 消費税区分
+  sourceFileIndex?: number;  // 元PDF（フロント側 invoiceFiles のインデックス）
+  sourceFileName?: string;   // 元PDFのファイル名
 }
 
 export interface TransactionInput {
@@ -33,6 +35,8 @@ export interface TransactionInput {
   description: string;       // 通帳摘要
   debit: number | null;      // 出金額
   credit: number | null;     // 入金額
+  sourceFileIndex?: number;  // 元PDF（フロント側 bankFiles のインデックス）
+  sourceFileName?: string;   // 元PDFのファイル名
 }
 
 // ─── 出力型 ────────────────────────────────────────────────────────────────

@@ -442,6 +442,33 @@ export default function Home() {
   const [bankDragOver, setBankDragOver] = useState(false);
   const [invoiceDragOver, setInvoiceDragOver] = useState(false);
 
+  // ─── 未照合トランザクションの勘定科目選択 State ───────────────────────────
+  const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
+
+  // ─── PDFプレビューモーダル State ───────────────────────────────────────────
+  const [pdfPreview, setPdfPreview] = useState<{ url: string; name: string } | null>(null);
+
+  const showVoucherPdf = (voucher: VoucherInput) => {
+    if (voucher.sourceFileIndex == null) return;
+    const file = invoiceFiles[voucher.sourceFileIndex];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setPdfPreview({ url, name: voucher.sourceFileName || file.name });
+  };
+
+  const showTransactionPdf = (tx: TransactionInput) => {
+    if (tx.sourceFileIndex == null) return;
+    const file = bankFiles[tx.sourceFileIndex];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setPdfPreview({ url, name: tx.sourceFileName || file.name });
+  };
+
+  const closePdfPreview = () => {
+    if (pdfPreview) URL.revokeObjectURL(pdfPreview.url);
+    setPdfPreview(null);
+  };
+
   // ─── エラー報告 State ─────────────────────────────────────────────────────
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportComment, setReportComment] = useState('');
@@ -750,7 +777,8 @@ export default function Home() {
       let bankName = '不明';
       let accountNumber = '不明';
       const bankSessionId = crypto.randomUUID();
-      for (const file of bankFiles) {
+      for (let fi = 0; fi < bankFiles.length; fi++) {
+        const file = bankFiles[fi];
         const fd = new FormData();
         fd.append('pdf', file);
         fd.append('mode', 'bank-statement');
@@ -765,6 +793,8 @@ export default function Home() {
           description: t.description,
           debit: t.debit,
           credit: t.credit,
+          sourceFileIndex: fi,
+          sourceFileName: file.name,
         })));
       }
       setBankOcr({ transactions: allTx, bankName, accountNumber });
@@ -783,10 +813,12 @@ export default function Home() {
     try {
       const allVouchers: VoucherInput[] = [];
       const invoiceSessionId = crypto.randomUUID();
-      for (const file of invoiceFiles) {
+      for (let fi = 0; fi < invoiceFiles.length; fi++) {
+        const file = invoiceFiles[fi];
         const fd = new FormData();
         fd.append('pdf', file);
-        fd.append('mode', 'invoice');
+        // 自動仕訳モードでは1PDF=1請求書として扱う（自動分割しない）
+        fd.append('mode', 'invoice-single');
         fd.append('sessionId', invoiceSessionId);
         if (selectedClientId) fd.append('clientId', selectedClientId);
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
@@ -797,9 +829,11 @@ export default function Home() {
             vendorName: inv.requesterName || '',
             invoiceDate: inv.date || '不明',
             amountInclTax: inv.taxIncludedAmount,
-            debitAccount: '未払費用',
+            debitAccount: '仕入高',
             description: inv.requesterName || '',
             taxType: '課税仕入10%',
+            sourceFileIndex: fi,
+            sourceFileName: file.name,
           });
         }
       }
@@ -839,7 +873,24 @@ export default function Home() {
     setInvoiceOcr(null);
     setJournalMatchResult(null);
     setJournalError(null);
+    setUnmatchedTxAccounts({});
   };
+
+  // 未照合入出金で選択できる勘定科目候補
+  const COMMON_DEBIT_ACCOUNTS = [
+    '支払手数料',
+    '通信費',
+    '旅費交通費',
+    '消耗品費',
+    '会議費',
+    '接待交際費',
+    '広告宣伝費',
+    '水道光熱費',
+    '租税公課',
+    '雑費',
+    '仕入高',
+    '外注費',
+  ];
 
   const handleDownloadJournal = () => {
     if (!journalMatchResult) return;
@@ -861,6 +912,17 @@ export default function Home() {
         ]);
       }
     }
+    // 未照合トランザクションも CSV に追加（勘定科目が選択されているもののみ）
+    const unmatched = journalMatchResult.summary.unmatchedTransactions ?? [];
+    unmatched.forEach((tx, idx) => {
+      const account = unmatchedTxAccounts[idx];
+      if (!account) return;
+      rows.push([
+        '出金単独', tx.transactionDate, account, '普通預金',
+        tx.debit != null ? String(tx.debit) : '',
+        tx.description, '課税仕入10%', 'manual', '',
+      ]);
+    });
     downloadCsv([header, ...rows], '自動仕訳.csv');
   };
 
@@ -1253,7 +1315,11 @@ export default function Home() {
                         {journalMatchResult.results.map((r, i) => (
                           <Fragment key={i}>
                             {/* 費用計上行 */}
-                            <tr className="hover:bg-sky-50/30 transition-colors">
+                            <tr
+                              className={`hover:bg-sky-50/30 transition-colors ${r.accrualEntry.voucher.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
+                              onClick={() => showVoucherPdf(r.accrualEntry.voucher)}
+                              title={r.accrualEntry.voucher.sourceFileIndex != null ? 'クリックで元PDF表示' : ''}
+                            >
                               <td className="px-4 py-3">
                                 <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-medium">費用計上</span>
                               </td>
@@ -1282,7 +1348,11 @@ export default function Home() {
                             </tr>
                             {/* 支払消込行 */}
                             {r.paymentEntry && (
-                              <tr className="hover:bg-lime-50/30 transition-colors bg-slate-50/30">
+                              <tr
+                                className={`hover:bg-lime-50/30 transition-colors bg-slate-50/30 ${r.paymentEntry.transaction.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
+                                onClick={() => r.paymentEntry && showTransactionPdf(r.paymentEntry.transaction)}
+                                title={r.paymentEntry.transaction.sourceFileIndex != null ? 'クリックで元PDF表示' : ''}
+                              >
                                 <td className="px-4 py-3">
                                   <span className="text-[10px] bg-lime-100 text-lime-700 px-2 py-0.5 rounded-full font-medium">支払消込</span>
                                 </td>
@@ -1319,6 +1389,71 @@ export default function Home() {
                     </p>
                   </div>
                 </div>
+
+                {/* ─── 未照合の入出金（証票なし） ───────────────────── */}
+                {journalMatchResult.summary.unmatchedTransactions && journalMatchResult.summary.unmatchedTransactions.length > 0 && (
+                  <div className="bg-white border border-amber-100 rounded-2xl shadow-sm overflow-hidden">
+                    <div className="px-5 py-4 border-b border-amber-100 bg-amber-50/40">
+                      <p className="text-sm font-semibold text-amber-700 tracking-tight">
+                        証憑がない出金（{journalMatchResult.summary.unmatchedTransactions.length}件）
+                      </p>
+                      <p className="text-[10px] text-amber-500/80 mt-0.5 tracking-wide">
+                        勘定科目を選択するとCSVに含まれます。例：銀行手数料 → 支払手数料
+                      </p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm min-w-[760px]">
+                        <thead>
+                          <tr className="border-b border-amber-50">
+                            <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">日付</th>
+                            <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">摘要</th>
+                            <th className="px-4 py-3 text-right text-[10px] font-semibold text-amber-400 uppercase tracking-widest">金額</th>
+                            <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">借方科目</th>
+                            <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">貸方</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-amber-50">
+                          {journalMatchResult.summary.unmatchedTransactions.map((tx, i) => (
+                            <tr
+                              key={i}
+                              className={`hover:bg-amber-50/30 transition-colors ${tx.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
+                              onClick={(e) => {
+                                if ((e.target as HTMLElement).closest('select, input')) return;
+                                showTransactionPdf(tx);
+                              }}
+                            >
+                              <td className="px-4 py-3 text-xs font-mono text-slate-500">
+                                {tx.transactionDate.length === 8
+                                  ? `${tx.transactionDate.slice(0,4)}/${tx.transactionDate.slice(4,6)}/${tx.transactionDate.slice(6,8)}`
+                                  : tx.transactionDate}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-slate-600 max-w-[200px] truncate" title={tx.description}>
+                                {tx.description}
+                              </td>
+                              <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                                {tx.debit != null ? `¥${tx.debit.toLocaleString()}` : '—'}
+                              </td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={unmatchedTxAccounts[i] ?? ''}
+                                  onChange={(e) => setUnmatchedTxAccounts((prev) => ({ ...prev, [i]: e.target.value }))}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:border-sky-400"
+                                >
+                                  <option value="">未設定</option>
+                                  {COMMON_DEBIT_ACCOUNTS.map((acc) => (
+                                    <option key={acc} value={acc}>{acc}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-slate-400">普通預金</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               /* 2パネルアップロード */
@@ -1976,6 +2111,31 @@ export default function Home() {
           </a>
         </p>
       </footer>
+
+      {/* ─── PDFプレビューモーダル ───────────────────────────────────── */}
+      {pdfPreview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+          onClick={closePdfPreview}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-slate-800 truncate">{pdfPreview.name}</p>
+              <button
+                onClick={closePdfPreview}
+                className="text-slate-400 hover:text-slate-700 p-1"
+                aria-label="閉じる"
+              >
+                <IconX className="w-4 h-4" />
+              </button>
+            </div>
+            <iframe src={pdfPreview.url} title={pdfPreview.name} className="flex-1 w-full" />
+          </div>
+        </div>
+      )}
 
       {/* ─── エラー報告モーダル ───────────────────────────────────────── */}
       {showReportModal && (
