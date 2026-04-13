@@ -50,6 +50,21 @@ type ProcessResult =
   | { mode: 'invoice' | 'tax-return'; invoices: InvoiceResult[]; totalPages: number; processedFiles: number }
   | { mode: 'bank-statement'; bankName: string; accountNumber: string; transactions: BankTransactionRow[]; totalPages: number; processedFiles: number };
 
+interface LedgerEntry {
+  id: string;
+  logId: string;
+  logCreatedAt: string;
+  entryType: 'accrual' | 'payment';
+  date: string;
+  debitAccount: string;
+  creditAccount: string;
+  amount: number | null;
+  description: string;
+  taxType: string;
+  vendorName: string;
+  matchStatus: string;
+}
+
 // ─── ユーティリティ ────────────────────────────────────────────────────────
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
@@ -444,6 +459,37 @@ export default function Home() {
 
   // ─── 未照合トランザクションの勘定科目選択 State ───────────────────────────
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
+
+  // ─── 仕訳日記帳サブビュー State ────────────────────────────────────────────
+  const [journalSubView, setJournalSubView] = useState<'execute' | 'ledger'>('execute');
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[] | null>(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [ledgerAccountFilter, setLedgerAccountFilter] = useState<string>('');
+
+  const fetchLedger = useCallback(async () => {
+    setLedgerLoading(true);
+    setLedgerError(null);
+    try {
+      const url = selectedClientId
+        ? `/api/journal-ledger?clientId=${encodeURIComponent(selectedClientId)}`
+        : '/api/journal-ledger';
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '取得失敗');
+      setLedgerEntries(data.entries);
+    } catch (e) {
+      setLedgerError(e instanceof Error ? e.message : '日記帳の取得に失敗しました');
+    } finally {
+      setLedgerLoading(false);
+    }
+  }, [selectedClientId]);
+
+  useEffect(() => {
+    if (mode === 'journal-entry' && journalSubView === 'ledger') {
+      fetchLedger();
+    }
+  }, [mode, journalSubView, fetchLedger]);
 
   // ─── PDFプレビューモーダル State ───────────────────────────────────────────
   const [pdfPreview, setPdfPreview] = useState<{ url: string; name: string } | null>(null);
@@ -1246,14 +1292,43 @@ export default function Home() {
         {/* ─── 自動仕訳モード専用UI ────────────────────────────────────────── */}
         {mode === 'journal-entry' && (
           <section className="space-y-5">
-            {journalError && (
+            {/* サブビュー切替: 実行 / 日記帳 */}
+            <div className="flex items-center justify-center gap-1 bg-slate-100/60 rounded-xl p-1 max-w-xs mx-auto">
+              {([
+                { key: 'execute', label: '仕訳実行' },
+                { key: 'ledger', label: '日記帳・残高' },
+              ] as const).map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setJournalSubView(item.key)}
+                  className={`flex-1 text-xs font-semibold px-4 py-2 rounded-lg transition-all tracking-wide ${
+                    journalSubView === item.key
+                      ? 'bg-white text-sky-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {journalError && journalSubView === 'execute' && (
               <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-3 text-sm text-red-600">
                 {journalError}
               </div>
             )}
 
-            {/* 照合結果 */}
-            {journalMatchResult ? (
+            {journalSubView === 'ledger' ? (
+              <LedgerView
+                entries={ledgerEntries}
+                loading={ledgerLoading}
+                error={ledgerError}
+                accountFilter={ledgerAccountFilter}
+                setAccountFilter={setLedgerAccountFilter}
+                onRefresh={fetchLedger}
+                clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
+              />
+            ) : journalMatchResult ? (
               <div className="space-y-4">
                 {/* サマリー */}
                 <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
@@ -2223,6 +2298,252 @@ export default function Home() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── 仕訳日記帳ビュー ────────────────────────────────────────────────────────
+
+function formatDate(s: string): string {
+  if (!s || s === '不明') return '—';
+  if (s.length === 8) return `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)}`;
+  return s;
+}
+
+function LedgerView({
+  entries,
+  loading,
+  error,
+  accountFilter,
+  setAccountFilter,
+  onRefresh,
+  clientName,
+}: {
+  entries: LedgerEntry[] | null;
+  loading: boolean;
+  error: string | null;
+  accountFilter: string;
+  setAccountFilter: (v: string) => void;
+  onRefresh: () => void;
+  clientName: string | null;
+}) {
+  if (loading) {
+    return (
+      <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
+        <div className="w-8 h-8 border-4 border-sky-200 border-t-sky-500 rounded-full animate-spin mx-auto" />
+        <p className="text-xs text-slate-400 mt-3">読み込み中...</p>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-4 text-sm text-red-600">
+        {error}
+      </div>
+    );
+  }
+  if (!entries || entries.length === 0) {
+    return (
+      <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
+        <p className="text-sm text-slate-400">
+          {clientName ? `${clientName} の` : ''}仕訳データはまだありません
+        </p>
+        <p className="text-xs text-slate-300 mt-2">「仕訳実行」タブで照合するとここに記録されます</p>
+      </div>
+    );
+  }
+
+  // 勘定科目一覧（借方・貸方ユニオン）
+  const accountSet = new Set<string>();
+  for (const e of entries) {
+    accountSet.add(e.debitAccount);
+    accountSet.add(e.creditAccount);
+  }
+  const accounts = Array.from(accountSet).sort();
+
+  // フィルタ適用
+  const filtered = accountFilter
+    ? entries.filter((e) => e.debitAccount === accountFilter || e.creditAccount === accountFilter)
+    : entries;
+
+  // 勘定科目別残高（借方合計 - 貸方合計）
+  // 資産・費用は借方残、負債・収益は貸方残だが、ここでは単純な「借方-貸方」と「貸方-借方」両方表示
+  const accountBalances: Record<string, { debit: number; credit: number }> = {};
+  for (const e of entries) {
+    const amt = e.amount ?? 0;
+    if (!accountBalances[e.debitAccount]) accountBalances[e.debitAccount] = { debit: 0, credit: 0 };
+    if (!accountBalances[e.creditAccount]) accountBalances[e.creditAccount] = { debit: 0, credit: 0 };
+    accountBalances[e.debitAccount].debit += amt;
+    accountBalances[e.creditAccount].credit += amt;
+  }
+
+  // 未払費用の取引先別残高（補助元帳）
+  // 貸方計上（accrual） - 借方消込（payment） = 残高
+  const payableByVendor: Record<string, { accrued: number; paid: number }> = {};
+  for (const e of entries) {
+    const amt = e.amount ?? 0;
+    if (e.creditAccount === '未払費用') {
+      const v = e.vendorName || '(不明)';
+      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0 };
+      payableByVendor[v].accrued += amt;
+    }
+    if (e.debitAccount === '未払費用') {
+      const v = e.vendorName || '(不明)';
+      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0 };
+      payableByVendor[v].paid += amt;
+    }
+  }
+  const vendorRows = Object.entries(payableByVendor)
+    .map(([vendor, v]) => ({ vendor, accrued: v.accrued, paid: v.paid, balance: v.accrued - v.paid }))
+    .sort((a, b) => b.balance - a.balance);
+
+  return (
+    <div className="space-y-5">
+      {/* ヘッダ */}
+      <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-base font-semibold text-slate-900 tracking-tight">
+            仕訳日記帳 {clientName && <span className="text-sky-500">· {clientName}</span>}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            全 {entries.length} 件 · {filtered.length} 件表示
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={accountFilter}
+            onChange={(e) => setAccountFilter(e.target.value)}
+            className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-sky-400"
+          >
+            <option value="">全勘定科目</option>
+            {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <button
+            onClick={onRefresh}
+            className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
+          >
+            再読み込み
+          </button>
+        </div>
+      </div>
+
+      {/* 未払費用 取引先別残高 */}
+      {vendorRows.length > 0 && (
+        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
+            <p className="text-sm font-semibold text-sky-700 tracking-tight">未払費用 取引先別残高</p>
+            <p className="text-[10px] text-sky-500/70 mt-0.5">貸方計上 − 借方消込 = 未払残高</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[600px]">
+              <thead>
+                <tr className="border-b border-slate-50">
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
+                  <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">計上額</th>
+                  <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">支払済</th>
+                  <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">残高</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {vendorRows.map((row) => (
+                  <tr key={row.vendor} className="hover:bg-sky-50/30">
+                    <td className="px-4 py-3 text-xs text-slate-700 font-medium">{row.vendor}</td>
+                    <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{row.accrued.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{row.paid.toLocaleString()}</td>
+                    <td className={`px-4 py-3 text-right text-sm font-semibold tabular-nums ${row.balance > 0 ? 'text-amber-600' : row.balance < 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                      ¥{row.balance.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 勘定科目別 残高サマリー */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
+          <p className="text-sm font-semibold text-slate-700 tracking-tight">勘定科目別 集計</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
+            <thead>
+              <tr className="border-b border-slate-50">
+                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">勘定科目</th>
+                <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方合計</th>
+                <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方合計</th>
+                <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">差額（借−貸）</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {accounts.map((acc) => {
+                const b = accountBalances[acc] ?? { debit: 0, credit: 0 };
+                const diff = b.debit - b.credit;
+                return (
+                  <tr key={acc} className="hover:bg-slate-50/40">
+                    <td className="px-4 py-3 text-xs text-slate-700 font-medium">{acc}</td>
+                    <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{b.debit.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{b.credit.toLocaleString()}</td>
+                    <td className={`px-4 py-3 text-right text-xs font-semibold tabular-nums ${diff > 0 ? 'text-sky-600' : diff < 0 ? 'text-lime-600' : 'text-slate-400'}`}>
+                      ¥{diff.toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 仕訳明細 */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
+          <p className="text-sm font-semibold text-slate-700 tracking-tight">仕訳明細</p>
+        </div>
+        <div className="overflow-x-auto max-h-[600px]">
+          <table className="w-full text-sm min-w-[840px]">
+            <thead className="sticky top-0 bg-white">
+              <tr className="border-b border-slate-100">
+                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
+                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
+                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
+                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
+                <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
+                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先 / 摘要</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {filtered.map((e) => (
+                <tr key={e.id} className="hover:bg-slate-50/30">
+                  <td className="px-4 py-3 text-xs font-mono text-slate-500">{formatDate(e.date)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      e.entryType === 'accrual' ? 'bg-sky-100 text-sky-600' : 'bg-lime-100 text-lime-700'
+                    }`}>
+                      {e.entryType === 'accrual' ? '費用計上' : '支払消込'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{e.debitAccount}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{e.creditAccount}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                    {e.amount != null ? `¥${e.amount.toLocaleString()}` : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-500 max-w-[260px] truncate" title={`${e.vendorName} / ${e.description}`}>
+                    {e.vendorName && <span className="text-slate-700 font-medium">{e.vendorName}</span>}
+                    {e.vendorName && e.description && <span className="text-slate-300 mx-1">·</span>}
+                    {e.description}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
