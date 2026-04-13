@@ -464,6 +464,41 @@ export default function Home() {
   // ─── 未照合トランザクションの勘定科目選択 State ───────────────────────────
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
 
+  // ─── 勘定科目マスタ State（起動時に1回だけロード） ────────────────────────
+  interface AccountItem { id: string; name: string; reading: string; category: string }
+  const [accountsList, setAccountsList] = useState<AccountItem[]>([]);
+
+  const fetchAccounts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/accounts');
+      if (!res.ok) return;
+      const data = await res.json();
+      setAccountsList(data.accounts ?? []);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const addAccountLocal = useCallback(async (name: string): Promise<AccountItem | null> => {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    // 既存に同名があれば再利用
+    const existing = accountsList.find((a) => a.name === trimmed);
+    if (existing) return existing;
+    const res = await fetch('/api/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: trimmed }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status !== 409) alert(data.error || '科目追加失敗');
+      return null;
+    }
+    setAccountsList((prev) => [...prev, data.account].sort((a, b) => a.name.localeCompare(b.name)));
+    return data.account;
+  }, [accountsList]);
+
   // ─── 仕訳日記帳サブビュー State ────────────────────────────────────────────
   const [journalSubView, setJournalSubView] = useState<'execute' | 'ledger' | 'balance'>('execute');
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[] | null>(null);
@@ -680,9 +715,11 @@ export default function Home() {
           .then((r) => r.json())
           .then((d) => { if (d.clients) setClients(d.clients); })
           .catch(() => {});
+        // 勘定科目マスタを起動時に1回ロード
+        fetchAccounts();
       }
     });
-  }, []);
+  }, [fetchAccounts]);
 
   const isGuest = user === null;
 
@@ -985,22 +1022,6 @@ export default function Home() {
     setUnmatchedTxAccounts({});
   };
 
-  // 未照合入出金で選択できる勘定科目候補
-  const COMMON_DEBIT_ACCOUNTS = [
-    '支払手数料',
-    '通信費',
-    '旅費交通費',
-    '消耗品費',
-    '会議費',
-    '接待交際費',
-    '広告宣伝費',
-    '水道光熱費',
-    '租税公課',
-    '雑費',
-    '仕入高',
-    '外注費',
-  ];
-
   const handleDownloadJournal = () => {
     if (!journalMatchResult) return;
     const header = ['種別', '日付', '借方科目', '貸方科目', '金額', '摘要', '消費税区分', '照合ステータス', '照合スコア'];
@@ -1160,7 +1181,9 @@ export default function Home() {
       </header>
 
       {/* ─── メインコンテンツ ──────────────────────────────────────────────── */}
-      <main className="max-w-[900px] mx-auto px-4 sm:px-6 py-10 sm:py-14 relative space-y-6">
+      <main className={`mx-auto px-4 sm:px-6 py-10 sm:py-14 relative space-y-6 ${
+        mode === 'journal-entry' && journalSubView !== 'execute' ? 'max-w-[1280px]' : 'max-w-[900px]'
+      }`}>
 
         {/* ─── モード切替タブ ──────────────────────────────────────────────── */}
         {!result && !loading && (
@@ -1584,18 +1607,14 @@ export default function Home() {
                               <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
                                 {tx.debit != null ? `¥${tx.debit.toLocaleString()}` : '—'}
                               </td>
-                              <td className="px-4 py-3">
-                                <select
+                              <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                                <AccountCombobox
                                   value={unmatchedTxAccounts[i] ?? ''}
-                                  onChange={(e) => setUnmatchedTxAccounts((prev) => ({ ...prev, [i]: e.target.value }))}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:border-sky-400"
-                                >
-                                  <option value="">未設定</option>
-                                  {COMMON_DEBIT_ACCOUNTS.map((acc) => (
-                                    <option key={acc} value={acc}>{acc}</option>
-                                  ))}
-                                </select>
+                                  onChange={(v) => setUnmatchedTxAccounts((prev) => ({ ...prev, [i]: v }))}
+                                  accounts={accountsList}
+                                  onCreate={addAccountLocal}
+                                  placeholder="科目名 / ローマ字"
+                                />
                               </td>
                               <td className="px-4 py-3 text-xs text-slate-400">普通預金</td>
                             </tr>
@@ -2269,6 +2288,8 @@ export default function Home() {
           entry={editingEntry}
           onCancel={() => setEditingEntry(null)}
           onSave={handleSaveEntry}
+          accounts={accountsList}
+          onCreateAccount={addAccountLocal}
         />
       )}
 
@@ -2577,9 +2598,18 @@ function LedgerView({
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
           <p className="text-sm font-semibold text-slate-700 tracking-tight">仕訳明細</p>
         </div>
-        <div className="overflow-x-auto max-h-[640px]">
-          <table className="w-full text-sm min-w-[920px]">
-            <thead className="sticky top-0 bg-white">
+        <div className="max-h-[640px] overflow-y-auto">
+          <table className="w-full text-sm table-fixed">
+            <colgroup>
+              <col style={{ width: '92px' }} />   {/* 日付 */}
+              <col style={{ width: '76px' }} />   {/* 種別 */}
+              <col style={{ width: '120px' }} />  {/* 借方 */}
+              <col style={{ width: '120px' }} />  {/* 貸方 */}
+              <col style={{ width: '110px' }} />  {/* 金額 */}
+              <col />                              {/* 取引先 / 摘要（残り） */}
+              <col style={{ width: '128px' }} />  {/* 操作 */}
+            </colgroup>
+            <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-slate-100">
                 <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
                 <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
@@ -2612,7 +2642,7 @@ function LedgerView({
                   <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
                     {e.amount != null ? `¥${Number(e.amount).toLocaleString()}` : '—'}
                   </td>
-                  <td className="px-3 py-3 text-xs text-slate-500 max-w-[240px] truncate" title={`${e.vendor_name} / ${e.description}`}>
+                  <td className="px-3 py-3 text-xs text-slate-500 truncate" title={`${e.vendor_name} / ${e.description}`}>
                     {e.vendor_name && <span className="text-slate-700 font-medium">{e.vendor_name}</span>}
                     {e.vendor_name && e.description && <span className="text-slate-300 mx-1">·</span>}
                     {e.description}
@@ -2767,10 +2797,14 @@ function EditEntryModal({
   entry,
   onCancel,
   onSave,
+  accounts,
+  onCreateAccount,
 }: {
   entry: LedgerEntry;
   onCancel: () => void;
   onSave: (patch: Partial<LedgerEntry>) => void;
+  accounts: AccountOption[];
+  onCreateAccount: (name: string) => Promise<AccountOption | null>;
 }) {
   const [entryDate, setEntryDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
   const [debitAccount, setDebitAccount] = useState(entry.debit_account);
@@ -2807,22 +2841,30 @@ function EditEntryModal({
             />
           </label>
           <div className="grid grid-cols-2 gap-3">
-            <label className="block">
+            <div>
               <span className="text-xs text-slate-500">借方科目</span>
-              <input
-                value={debitAccount}
-                onChange={(e) => setDebitAccount(e.target.value)}
-                className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
-              />
-            </label>
-            <label className="block">
+              <div className="mt-1">
+                <AccountCombobox
+                  value={debitAccount}
+                  onChange={setDebitAccount}
+                  accounts={accounts}
+                  onCreate={onCreateAccount}
+                  placeholder="科目名 / ローマ字"
+                />
+              </div>
+            </div>
+            <div>
               <span className="text-xs text-slate-500">貸方科目</span>
-              <input
-                value={creditAccount}
-                onChange={(e) => setCreditAccount(e.target.value)}
-                className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
-              />
-            </label>
+              <div className="mt-1">
+                <AccountCombobox
+                  value={creditAccount}
+                  onChange={setCreditAccount}
+                  accounts={accounts}
+                  onCreate={onCreateAccount}
+                  placeholder="科目名 / ローマ字"
+                />
+              </div>
+            </div>
           </div>
           <label className="block">
             <span className="text-xs text-slate-500">金額</span>
@@ -2881,6 +2923,113 @@ function EditEntryModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── 勘定科目コンボボックス（補完つきインライン入力） ────────────────────────
+
+interface AccountOption { id?: string; name: string; reading?: string; category?: string }
+
+function AccountCombobox({
+  value,
+  onChange,
+  accounts,
+  onCreate,
+  placeholder,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  accounts: AccountOption[];
+  onCreate?: (name: string) => Promise<AccountOption | null> | void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+
+  // 補完候補（前方一致）— name または reading が入力で始まるもの
+  const q = value.trim().toLowerCase();
+  const candidates = q
+    ? accounts.filter((a) =>
+        a.name.toLowerCase().startsWith(q) ||
+        (a.reading || '').toLowerCase().startsWith(q)
+      ).slice(0, 12)
+    : accounts.slice(0, 12);
+
+  // 完全一致がない場合は「+ 新規追加」を表示
+  const exact = accounts.some((a) => a.name === value.trim());
+  const showCreate = !!value.trim() && !exact && !!onCreate;
+
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setHighlight(0); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => {
+          if (!open) return;
+          const total = candidates.length + (showCreate ? 1 : 0);
+          if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => (h + 1) % Math.max(total, 1)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => (h - 1 + total) % Math.max(total, 1)); }
+          else if (e.key === 'Enter') {
+            if (highlight < candidates.length) {
+              e.preventDefault();
+              onChange(candidates[highlight].name);
+              setOpen(false);
+            } else if (showCreate && onCreate) {
+              e.preventDefault();
+              Promise.resolve(onCreate(value.trim())).then((acc) => {
+                if (acc) onChange(acc.name);
+                setOpen(false);
+              });
+            }
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+        placeholder={placeholder}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-sky-400"
+      />
+      {open && (candidates.length > 0 || showCreate) && (
+        <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+          {candidates.map((a, i) => (
+            <button
+              key={a.name}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(a.name);
+                setOpen(false);
+              }}
+              className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between ${
+                i === highlight ? 'bg-sky-50' : 'hover:bg-slate-50'
+              }`}
+            >
+              <span className="text-slate-700">{a.name}</span>
+              {a.reading && <span className="text-[10px] text-slate-400 font-mono ml-2">{a.reading}</span>}
+            </button>
+          ))}
+          {showCreate && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                if (!onCreate) return;
+                Promise.resolve(onCreate(value.trim())).then((acc) => {
+                  if (acc) onChange(acc.name);
+                  setOpen(false);
+                });
+              }}
+              className={`w-full text-left px-3 py-2 text-xs border-t border-slate-100 ${
+                highlight === candidates.length ? 'bg-lime-50' : 'hover:bg-lime-50'
+              } text-lime-700 font-medium`}
+            >
+              + 新規追加: {value.trim()}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
