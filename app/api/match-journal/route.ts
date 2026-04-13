@@ -3,35 +3,75 @@ import {
   matchVouchersToTransactions,
   type VoucherInput,
   type TransactionInput,
+  type AccountingMethod,
 } from '@/lib/ocr/journal-matcher';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { normalizeVendorKey } from '@/lib/vendor-normalize';
 
 export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const vouchers: VoucherInput[] = body.vouchers ?? [];
+    const rawVouchers: VoucherInput[] = body.vouchers ?? [];
     const transactions: TransactionInput[] = body.transactions ?? [];
     const clientId: string | null = body.clientId ?? null;
+    const accountingMethod: AccountingMethod = body.accountingMethod === 'cash' ? 'cash' : 'accrual';
 
-    if (vouchers.length === 0 && transactions.length === 0) {
+    if (rawVouchers.length === 0 && transactions.length === 0) {
       return NextResponse.json(
         { error: '証票データまたは入出金データが必要です' },
         { status: 400 }
       );
     }
 
-    const { results, summary } = matchVouchersToTransactions(vouchers, transactions);
+    // ─── 取引先の名寄せ（既存マスタの canonical name に統一・新規は自動登録） ───
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    const service = createServiceClient();
+
+    let vouchers: VoucherInput[] = rawVouchers;
+    if (user) {
+      const { data: existingVendors } = await service
+        .from('vendors')
+        .select('id, name, normalized_key')
+        .eq('user_id', user.id);
+
+      const keyToName = new Map<string, string>();
+      for (const v of existingVendors ?? []) {
+        keyToName.set(v.normalized_key, v.name);
+      }
+
+      const newVendorRows: { user_id: string; name: string; normalized_key: string }[] = [];
+      vouchers = rawVouchers.map((v) => {
+        const raw = v.vendorName?.trim() ?? '';
+        if (!raw) return v;
+        const key = normalizeVendorKey(raw);
+        if (!key) return v;
+        const canonical = keyToName.get(key);
+        if (canonical) {
+          return { ...v, vendorName: canonical };
+        }
+        // 新規取引先として登録（最初に来た表記を canonical にする）
+        keyToName.set(key, raw);
+        newVendorRows.push({ user_id: user.id, name: raw, normalized_key: key });
+        return v;
+      });
+
+      if (newVendorRows.length > 0) {
+        await service.from('vendors').upsert(newVendorRows, {
+          onConflict: 'user_id,normalized_key',
+          ignoreDuplicates: true,
+        });
+      }
+    }
+
+    const { results, summary } = matchVouchersToTransactions(vouchers, transactions, accountingMethod);
 
     // ─── 改善分析用のログ保存＋仕訳明細テーブルにも保存 ───
     try {
-      const supabase = await createClient();
-      const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const service = createServiceClient();
-
         // 1) ログ保存（分析用）
         const { data: logRow } = await service
           .from('journal_match_logs')

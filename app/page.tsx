@@ -460,6 +460,7 @@ export default function Home() {
   const invoiceFileInputRef = useRef<HTMLInputElement>(null);
   const [bankDragOver, setBankDragOver] = useState(false);
   const [invoiceDragOver, setInvoiceDragOver] = useState(false);
+  const [accountingMethod, setAccountingMethod] = useState<'accrual' | 'cash'>('accrual');
 
   // ─── 未照合トランザクションの勘定科目選択 State ───────────────────────────
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
@@ -499,8 +500,43 @@ export default function Home() {
     return data.account;
   }, [accountsList]);
 
+  // ─── 取引先マスタ State ──────────────────────────────────────────────────
+  interface VendorItem { id: string; name: string; normalized_key: string; reading: string }
+  const [vendorsList, setVendorsList] = useState<VendorItem[]>([]);
+
+  const fetchVendors = useCallback(async () => {
+    try {
+      const res = await fetch('/api/vendors');
+      if (!res.ok) return;
+      const data = await res.json();
+      setVendorsList(data.vendors ?? []);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const addVendorLocal = useCallback(async (name: string, reading?: string): Promise<VendorItem | null> => {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const res = await fetch('/api/vendors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: trimmed, reading: reading?.trim() ?? '' }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status !== 409) alert(data.error || '取引先追加失敗');
+      return null;
+    }
+    setVendorsList((prev) => {
+      if (prev.some((v) => v.id === data.vendor.id)) return prev;
+      return [...prev, data.vendor].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    return data.vendor;
+  }, []);
+
   // ─── 仕訳日記帳サブビュー State ────────────────────────────────────────────
-  const [journalSubView, setJournalSubView] = useState<'execute' | 'ledger' | 'balance'>('execute');
+  const [journalSubView, setJournalSubView] = useState<'execute' | 'ledger' | 'balance' | 'master'>('execute');
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[] | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
@@ -719,11 +755,12 @@ export default function Home() {
           .then((r) => r.json())
           .then((d) => { if (d.clients) setClients(d.clients); })
           .catch(() => {});
-        // 勘定科目マスタを起動時に1回ロード
+        // 勘定科目・取引先マスタを起動時に1回ロード
         fetchAccounts();
+        fetchVendors();
       }
     });
-  }, [fetchAccounts]);
+  }, [fetchAccounts, fetchVendors]);
 
   const isGuest = user === null;
 
@@ -1004,7 +1041,7 @@ export default function Home() {
       const res = await fetch('/api/match-journal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: bankOcr.transactions, vouchers: invoiceOcr.vouchers, clientId: selectedClientId }),
+        body: JSON.stringify({ transactions: bankOcr.transactions, vouchers: invoiceOcr.vouchers, clientId: selectedClientId, accountingMethod }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -1186,7 +1223,7 @@ export default function Home() {
 
       {/* ─── メインコンテンツ ──────────────────────────────────────────────── */}
       <main className={`mx-auto px-4 sm:px-6 py-10 sm:py-14 relative space-y-6 ${
-        mode === 'journal-entry' && journalSubView !== 'execute' ? 'max-w-[1280px]' : 'max-w-[900px]'
+        mode === 'journal-entry' && (journalSubView === 'ledger' || journalSubView === 'master') ? 'max-w-[1280px]' : 'max-w-[900px]'
       }`}>
 
         {/* ─── モード切替タブ ──────────────────────────────────────────────── */}
@@ -1382,12 +1419,13 @@ export default function Home() {
         {/* ─── 自動仕訳モード専用UI ────────────────────────────────────────── */}
         {mode === 'journal-entry' && (
           <section className="space-y-5">
-            {/* サブビュー切替: 実行 / 日記帳 / 残高 */}
-            <div className="flex items-center justify-center gap-1 bg-slate-100/60 rounded-xl p-1 max-w-md mx-auto">
+            {/* サブビュー切替: 実行 / 日記帳 / 残高 / マスタ */}
+            <div className="flex items-center justify-center gap-1 bg-slate-100/60 rounded-xl p-1 max-w-xl mx-auto">
               {([
                 { key: 'execute', label: '仕訳実行' },
                 { key: 'ledger', label: '日記帳' },
                 { key: 'balance', label: '残高' },
+                { key: 'master', label: 'マスタ' },
               ] as const).map((item) => (
                 <button
                   key={item.key}
@@ -1425,6 +1463,8 @@ export default function Home() {
                 onReopen={handleReopenClosing}
                 accountsList={accountsList}
                 addAccountLocal={addAccountLocal}
+                vendorsList={vendorsList}
+                addVendorLocal={addVendorLocal}
               />
             ) : journalSubView === 'balance' ? (
               <BalanceView
@@ -1432,6 +1472,15 @@ export default function Home() {
                 loading={ledgerLoading}
                 error={ledgerError}
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
+              />
+            ) : journalSubView === 'master' ? (
+              <MasterView
+                accountsList={accountsList}
+                vendorsList={vendorsList}
+                onReloadAccounts={fetchAccounts}
+                onReloadVendors={fetchVendors}
+                onCreateAccount={addAccountLocal}
+                onCreateVendor={addVendorLocal}
               />
             ) : journalMatchResult ? (
               <div className="space-y-4">
@@ -1761,6 +1810,47 @@ export default function Home() {
                       {invoiceProcessing ? '解析中...' : 'OCRで抽出'}
                     </button>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* 経理方式トグル */}
+            {!journalMatchResult && bankOcr && invoiceOcr && (
+              <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
+                <p className="text-sm font-semibold text-slate-700 tracking-tight mb-3">経理方式</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className={`cursor-pointer border rounded-xl p-3 transition-all ${
+                    accountingMethod === 'accrual' ? 'border-sky-400 bg-sky-50/40' : 'border-slate-200 hover:border-slate-300'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="accountingMethod"
+                      value="accrual"
+                      checked={accountingMethod === 'accrual'}
+                      onChange={() => setAccountingMethod('accrual')}
+                      className="mr-2"
+                    />
+                    <span className="text-sm font-semibold text-slate-700">発生主義</span>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed pl-5">
+                      請求書日で費用計上 → 支払日で未払費用を取り崩し
+                    </p>
+                  </label>
+                  <label className={`cursor-pointer border rounded-xl p-3 transition-all ${
+                    accountingMethod === 'cash' ? 'border-lime-400 bg-lime-50/40' : 'border-slate-200 hover:border-slate-300'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="accountingMethod"
+                      value="cash"
+                      checked={accountingMethod === 'cash'}
+                      onChange={() => setAccountingMethod('cash')}
+                      className="mr-2"
+                    />
+                    <span className="text-sm font-semibold text-slate-700">現金主義</span>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed pl-5">
+                      支払日に費用 / 普通預金 を直接計上（未払費用は使わない）
+                    </p>
+                  </label>
                 </div>
               </div>
             )}
@@ -2228,8 +2318,8 @@ export default function Home() {
           </section>
         )}
 
-        {/* ─── 使い方ガイド（初期表示のみ） ────────────────────────────────── */}
-        {files.length === 0 && !result && !loading && (
+        {/* ─── 使い方ガイド（請求書/通帳モードの初期表示のみ） ───────────── */}
+        {mode !== 'journal-entry' && files.length === 0 && !result && !loading && (
           <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
             {[
               {
@@ -2463,6 +2553,8 @@ function LedgerView({
   onReopen,
   accountsList,
   addAccountLocal,
+  vendorsList,
+  addVendorLocal,
 }: {
   entries: LedgerEntry[] | null;
   loading: boolean;
@@ -2478,6 +2570,8 @@ function LedgerView({
   onReopen: () => void;
   accountsList: AccountOption[];
   addAccountLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
+  vendorsList: AccountOption[];
+  addVendorLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
 }) {
   const [closingInput, setClosingInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -2674,6 +2768,8 @@ function LedgerView({
                 onSaveField={onSaveField}
                 accountsList={accountsList}
                 addAccountLocal={addAccountLocal}
+                vendorsList={vendorsList}
+                addVendorLocal={addVendorLocal}
               />
             ))}
           </tbody>
@@ -2692,6 +2788,8 @@ function EditableRow({
   onSaveField,
   accountsList,
   addAccountLocal,
+  vendorsList,
+  addVendorLocal,
 }: {
   entry: LedgerEntry;
   selected: boolean;
@@ -2699,6 +2797,8 @@ function EditableRow({
   onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
   accountsList: AccountOption[];
   addAccountLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
+  vendorsList: AccountOption[];
+  addVendorLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
 }) {
   const [date, setDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
   const [debitAccount, setDebitAccount] = useState(entry.debit_account);
@@ -2816,13 +2916,20 @@ function EditableRow({
         />
       </td>
       <td className="px-2 py-1.5">
-        <input
+        <AccountCombobox
           value={vendorName}
-          onChange={(e) => setVendorName(e.target.value)}
-          onBlur={() => {
-            if (vendorName !== entry.vendor_name) saveIfChanged({ vendor_name: vendorName });
+          onChange={(v) => {
+            setVendorName(v);
+            if (v !== entry.vendor_name && vendorsList.some((a) => a.name === v)) {
+              saveIfChanged({ vendor_name: v });
+            }
           }}
-          className="w-full text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+          onCommit={(v) => {
+            if (v !== entry.vendor_name) saveIfChanged({ vendor_name: v });
+          }}
+          accounts={vendorsList}
+          onCreate={addVendorLocal}
+          dense
         />
       </td>
       <td className="px-2 py-1.5">
@@ -3147,5 +3254,232 @@ function AccountCombobox({
         </div>
       )}
     </div>
+  );
+}
+
+// ─── マスタ管理ビュー（勘定科目・取引先の編集） ─────────────────────────────
+
+function MasterView({
+  accountsList,
+  vendorsList,
+  onReloadAccounts,
+  onReloadVendors,
+  onCreateAccount,
+  onCreateVendor,
+}: {
+  accountsList: AccountOption[];
+  vendorsList: AccountOption[];
+  onReloadAccounts: () => void;
+  onReloadVendors: () => void;
+  onCreateAccount: (name: string, reading?: string) => Promise<AccountOption | null>;
+  onCreateVendor: (name: string, reading?: string) => Promise<AccountOption | null>;
+}) {
+  const [newAcc, setNewAcc] = useState({ name: '', reading: '' });
+  const [newVen, setNewVen] = useState({ name: '', reading: '' });
+
+  const patchAccount = async (id: string, patch: Partial<AccountOption>) => {
+    const res = await fetch(`/api/accounts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || '更新失敗');
+      return;
+    }
+    onReloadAccounts();
+  };
+
+  const deleteAccount = async (id: string) => {
+    if (!confirm('この勘定科目を削除しますか？')) return;
+    const res = await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || '削除失敗');
+      return;
+    }
+    onReloadAccounts();
+  };
+
+  const patchVendor = async (id: string, patch: Partial<AccountOption>, previousName: string) => {
+    const res = await fetch(`/api/vendors/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...patch, previousName }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || '更新失敗');
+      return;
+    }
+    onReloadVendors();
+  };
+
+  const deleteVendor = async (id: string) => {
+    if (!confirm('この取引先を削除しますか？（既存の仕訳は残ります）')) return;
+    const res = await fetch(`/api/vendors/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || '削除失敗');
+      return;
+    }
+    onReloadVendors();
+  };
+
+  const handleAddAcc = async () => {
+    if (!newAcc.name.trim()) return;
+    const acc = await onCreateAccount(newAcc.name, newAcc.reading);
+    if (acc) setNewAcc({ name: '', reading: '' });
+  };
+  const handleAddVen = async () => {
+    if (!newVen.name.trim()) return;
+    const v = await onCreateVendor(newVen.name, newVen.reading);
+    if (v) setNewVen({ name: '', reading: '' });
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* 勘定科目マスタ */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
+          <p className="text-sm font-semibold text-sky-700 tracking-tight">勘定科目マスタ</p>
+          <p className="text-[10px] text-sky-500/70 mt-0.5">{accountsList.length} 件</p>
+        </div>
+        <div className="p-4 border-b border-slate-50 flex gap-2">
+          <input
+            value={newAcc.name}
+            onChange={(e) => setNewAcc({ ...newAcc, name: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAddAcc(); }}
+            placeholder="科目名"
+            className="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
+          />
+          <input
+            value={newAcc.reading}
+            onChange={(e) => setNewAcc({ ...newAcc, reading: e.target.value.toLowerCase() })}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAddAcc(); }}
+            placeholder="読み（ローマ字）"
+            className="flex-1 text-xs font-mono border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
+          />
+          <button
+            onClick={handleAddAcc}
+            disabled={!newAcc.name.trim()}
+            className="text-xs text-white bg-sky-500 rounded-lg px-3 font-semibold hover:bg-sky-600 disabled:opacity-40"
+          >
+            追加
+          </button>
+        </div>
+        <div className="max-h-[500px] overflow-y-auto">
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-slate-50">
+              {accountsList.map((a) => (
+                <MasterRow
+                  key={a.id}
+                  item={a}
+                  onSave={(patch) => patchAccount(a.id!, patch)}
+                  onDelete={() => deleteAccount(a.id!)}
+                />
+              ))}
+              {accountsList.length === 0 && (
+                <tr><td className="px-4 py-6 text-center text-xs text-slate-400">勘定科目がありません</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 取引先マスタ */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 bg-lime-50/40">
+          <p className="text-sm font-semibold text-lime-700 tracking-tight">取引先マスタ</p>
+          <p className="text-[10px] text-lime-600/70 mt-0.5">
+            {vendorsList.length} 件 · 株式会社/㈱/空白は自動で同一視
+          </p>
+        </div>
+        <div className="p-4 border-b border-slate-50 flex gap-2">
+          <input
+            value={newVen.name}
+            onChange={(e) => setNewVen({ ...newVen, name: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAddVen(); }}
+            placeholder="取引先名"
+            className="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
+          />
+          <input
+            value={newVen.reading}
+            onChange={(e) => setNewVen({ ...newVen, reading: e.target.value.toLowerCase() })}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAddVen(); }}
+            placeholder="読み（ローマ字）"
+            className="flex-1 text-xs font-mono border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
+          />
+          <button
+            onClick={handleAddVen}
+            disabled={!newVen.name.trim()}
+            className="text-xs text-white bg-lime-500 rounded-lg px-3 font-semibold hover:bg-lime-600 disabled:opacity-40"
+          >
+            追加
+          </button>
+        </div>
+        <div className="max-h-[500px] overflow-y-auto">
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-slate-50">
+              {vendorsList.map((v) => (
+                <MasterRow
+                  key={v.id}
+                  item={v}
+                  onSave={(patch) => patchVendor(v.id!, patch, v.name)}
+                  onDelete={() => deleteVendor(v.id!)}
+                />
+              ))}
+              {vendorsList.length === 0 && (
+                <tr><td className="px-4 py-6 text-center text-xs text-slate-400">取引先がありません</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MasterRow({
+  item,
+  onSave,
+  onDelete,
+}: {
+  item: AccountOption;
+  onSave: (patch: Partial<AccountOption>) => void;
+  onDelete: () => void;
+}) {
+  const [name, setName] = useState(item.name);
+  const [reading, setReading] = useState(item.reading ?? '');
+
+  return (
+    <tr className="hover:bg-slate-50/30">
+      <td className="px-4 py-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => { if (name !== item.name) onSave({ name }); }}
+          className="w-full text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+        />
+      </td>
+      <td className="px-4 py-2" style={{ width: '40%' }}>
+        <input
+          value={reading}
+          onChange={(e) => setReading(e.target.value.toLowerCase())}
+          onBlur={() => { if (reading !== (item.reading ?? '')) onSave({ reading }); }}
+          placeholder="ローマ字"
+          className="w-full text-[11px] font-mono border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent text-slate-500"
+        />
+      </td>
+      <td className="px-4 py-2 text-right" style={{ width: '80px' }}>
+        <button
+          onClick={onDelete}
+          className="text-[10px] text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50"
+        >
+          削除
+        </button>
+      </td>
+    </tr>
   );
 }

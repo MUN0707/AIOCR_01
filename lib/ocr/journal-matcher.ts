@@ -151,13 +151,20 @@ function parseDate(s: string): Date | null {
 
 // ─── メイン照合関数 ────────────────────────────────────────────────────────
 
+export type AccountingMethod = 'accrual' | 'cash';
+
 /**
  * 証票リスト × 入出金リストを照合して仕訳を生成する。
  * 各証票に対して最もスコアの高い出金トランザクションを1対1で対応付ける。
+ *
+ * accountingMethod:
+ *   - 'accrual': 発生主義（既定） — 請求書日で費用計上 + 支払日で未払消込
+ *   - 'cash':    現金主義 — 支払日に費用/普通預金 で1本のみ生成（未払費用を経由しない）
  */
 export function matchVouchersToTransactions(
   vouchers: VoucherInput[],
-  transactions: TransactionInput[]
+  transactions: TransactionInput[],
+  accountingMethod: AccountingMethod = 'accrual'
 ): { results: MatchResult[]; summary: MatchSummary } {
   const usedTxIndices = new Set<number>();
 
@@ -184,6 +191,43 @@ export function matchVouchersToTransactions(
       : best.score >= 0.4 ? 'needs_review'
       : 'unmatched';
 
+    // ─── 現金主義: 支払日で1本だけ生成（未払費用を経由しない） ───
+    if (accountingMethod === 'cash') {
+      if (matchStatus === 'unmatched' || !best) {
+        // 支払が見つからない場合は仕訳を生成しない（未払を作らない）
+        const placeholder: AccrualEntry = {
+          entryType:     'accrual',
+          date:          voucher.invoiceDate,
+          debitAccount:  voucher.debitAccount || '仕入高',
+          creditAccount: '未払費用',
+          amount:        voucher.amountInclTax,
+          description:   [voucher.vendorName, voucher.description].filter(Boolean).join(' ').trim(),
+          taxType:       voucher.taxType,
+          matchStatus:   'unmatched',
+          voucher,
+        };
+        return { accrualEntry: placeholder };
+      }
+      usedTxIndices.add(best.idx);
+      // accrualEntry を「支払日付・費用/普通預金」として扱う（既存スキーマを流用）
+      const cashEntry: AccrualEntry = {
+        entryType:     'accrual',
+        date:          best.tx.transactionDate,
+        debitAccount:  voucher.debitAccount || '仕入高',
+        creditAccount: '未払費用', // 表記のみ。実体は普通預金として下で上書きする
+        amount:        best.tx.debit ?? voucher.amountInclTax,
+        description:   [voucher.vendorName, voucher.description].filter(Boolean).join(' ').trim(),
+        taxType:       voucher.taxType,
+        matchStatus:   best.score >= 0.7 ? 'auto' : 'needs_review',
+        voucher,
+      };
+      // 型上 creditAccount は '未払費用' リテラルだが、現金主義では普通預金で出力したいので
+      // ランタイム上書き（ledger 出力では string として扱われる）
+      (cashEntry as unknown as { creditAccount: string }).creditAccount = '普通預金';
+      return { accrualEntry: cashEntry };
+    }
+
+    // ─── 発生主義（既定） ───
     // 費用計上仕訳（常に生成）
     const accrualEntry: AccrualEntry = {
       entryType:     'accrual',
