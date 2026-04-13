@@ -506,7 +506,6 @@ export default function Home() {
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerAccountFilter, setLedgerAccountFilter] = useState<string>('');
   const [closedUntil, setClosedUntil] = useState<string | null>(null);
-  const [editingEntry, setEditingEntry] = useState<LedgerEntry | null>(null);
 
   const fetchLedger = useCallback(async () => {
     setLedgerLoading(true);
@@ -533,31 +532,36 @@ export default function Home() {
     }
   }, [mode, journalSubView, fetchLedger]);
 
-  const handleDeleteEntry = async (entry: LedgerEntry) => {
-    if (entry.locked) return;
-    if (!confirm('この仕訳を削除しますか？')) return;
-    const res = await fetch(`/api/journal-entries/${entry.id}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || '削除失敗');
-      return;
-    }
-    fetchLedger();
-  };
-
-  const handleSaveEntry = async (patch: Partial<LedgerEntry>) => {
-    if (!editingEntry) return;
-    const res = await fetch(`/api/journal-entries/${editingEntry.id}`, {
+  const handleSaveField = async (id: string, patch: Partial<LedgerEntry>) => {
+    const res = await fetch(`/api/journal-entries/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
     });
-    const data = await res.json();
     if (!res.ok) {
+      const data = await res.json();
       alert(data.error || '更新失敗');
       return;
     }
-    setEditingEntry(null);
+    // 楽観的更新: 直ちに再フェッチせず、ローカル state だけ更新するのが理想だが
+    // シンプルに静かに再フェッチ（行単位で再描画されるが入力中の他フィールドには干渉しない）
+    fetchLedger();
+  };
+
+  const handleBulkDelete = async (ids: string[]) => {
+    const res = await fetch('/api/journal-entries/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || '一括削除失敗');
+      return;
+    }
+    if (data.skipped > 0) {
+      alert(`${data.deleted} 件削除しました（${data.skipped} 件は締め済みのためスキップ）`);
+    }
     fetchLedger();
   };
 
@@ -1415,10 +1419,12 @@ export default function Home() {
                 onRefresh={fetchLedger}
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
                 closedUntil={closedUntil}
-                onEdit={setEditingEntry}
-                onDelete={handleDeleteEntry}
+                onSaveField={handleSaveField}
+                onBulkDelete={handleBulkDelete}
                 onClose={handleCloseAt}
                 onReopen={handleReopenClosing}
+                accountsList={accountsList}
+                addAccountLocal={addAccountLocal}
               />
             ) : journalSubView === 'balance' ? (
               <BalanceView
@@ -2282,17 +2288,6 @@ export default function Home() {
         </p>
       </footer>
 
-      {/* ─── 仕訳編集モーダル ──────────────────────────────────────── */}
-      {editingEntry && (
-        <EditEntryModal
-          entry={editingEntry}
-          onCancel={() => setEditingEntry(null)}
-          onSave={handleSaveEntry}
-          accounts={accountsList}
-          onCreateAccount={addAccountLocal}
-        />
-      )}
-
       {/* ─── PDFプレビューモーダル ───────────────────────────────────── */}
       {pdfPreview && (
         <div
@@ -2462,10 +2457,12 @@ function LedgerView({
   onRefresh,
   clientName,
   closedUntil,
-  onEdit,
-  onDelete,
+  onSaveField,
+  onBulkDelete,
   onClose,
   onReopen,
+  accountsList,
+  addAccountLocal,
 }: {
   entries: LedgerEntry[] | null;
   loading: boolean;
@@ -2475,12 +2472,15 @@ function LedgerView({
   onRefresh: () => void;
   clientName: string | null;
   closedUntil: string | null;
-  onEdit: (entry: LedgerEntry) => void;
-  onDelete: (entry: LedgerEntry) => void;
+  onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
+  onBulkDelete: (ids: string[]) => Promise<void>;
   onClose: (closedUntil: string) => void;
   onReopen: () => void;
+  accountsList: AccountOption[];
+  addAccountLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
 }) {
   const [closingInput, setClosingInput] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   if (loading) {
     return (
@@ -2517,6 +2517,33 @@ function LedgerView({
     ? entries.filter((e) => e.debit_account === accountFilter || e.credit_account === accountFilter)
     : entries;
 
+  const editableFiltered = filtered.filter((e) => !e.locked);
+  const allSelected = editableFiltered.length > 0 && editableFiltered.every((e) => selectedIds.has(e.id));
+  const toggleAll = () => {
+    setSelectedIds((prev) => {
+      if (allSelected) return new Set();
+      const next = new Set(prev);
+      for (const e of editableFiltered) next.add(e.id);
+      return next;
+    });
+  };
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulk = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!confirm(`${ids.length} 件の仕訳を削除しますか？`)) return;
+    await onBulkDelete(ids);
+    setSelectedIds(new Set());
+  };
+
   return (
     <div className="space-y-5">
       {/* ヘッダ */}
@@ -2527,6 +2554,7 @@ function LedgerView({
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
             全 {entries.length} 件 · {filtered.length} 件表示
+            {selectedIds.size > 0 && <span className="ml-2 text-sky-600">· {selectedIds.size} 件選択中</span>}
             {closedUntil && (
               <span className="ml-2 text-amber-600">
                 · 締め日 {formatDateYmd(closedUntil)} まで
@@ -2534,7 +2562,7 @@ function LedgerView({
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <select
             value={accountFilter}
             onChange={(e) => setAccountFilter(e.target.value)}
@@ -2543,6 +2571,14 @@ function LedgerView({
             <option value="">全勘定科目</option>
             {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleBulk}
+              className="text-xs text-white bg-red-500 rounded-xl px-4 py-2 font-semibold hover:bg-red-600 transition-all"
+            >
+              選択削除（{selectedIds.size}）
+            </button>
+          )}
           <button
             onClick={onRefresh}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
@@ -2598,84 +2634,208 @@ function LedgerView({
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
           <p className="text-sm font-semibold text-slate-700 tracking-tight">仕訳明細</p>
         </div>
-        <div className="max-h-[640px] overflow-y-auto">
-          <table className="w-full text-sm table-fixed">
-            <colgroup>
-              <col style={{ width: '92px' }} />   {/* 日付 */}
-              <col style={{ width: '76px' }} />   {/* 種別 */}
-              <col style={{ width: '120px' }} />  {/* 借方 */}
-              <col style={{ width: '120px' }} />  {/* 貸方 */}
-              <col style={{ width: '110px' }} />  {/* 金額 */}
-              <col />                              {/* 取引先 / 摘要（残り） */}
-              <col style={{ width: '128px' }} />  {/* 操作 */}
-            </colgroup>
-            <thead className="sticky top-0 bg-white z-10">
-              <tr className="border-b border-slate-100">
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
-                <th className="px-3 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
-                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先 / 摘要</th>
-                <th className="px-3 py-3 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filtered.map((e) => (
-                <tr key={e.id} className={`hover:bg-slate-50/30 ${e.locked ? 'bg-amber-50/20' : ''}`}>
-                  <td className="px-3 py-3 text-xs font-mono text-slate-500">{formatDateYmd(e.entry_date)}</td>
-                  <td className="px-3 py-3">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      e.entry_type === 'accrual' ? 'bg-sky-100 text-sky-600'
-                      : e.entry_type === 'payment' ? 'bg-lime-100 text-lime-700'
-                      : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {e.entry_type === 'accrual' ? '費用計上' : e.entry_type === 'payment' ? '支払消込' : '手動'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3">
-                    <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{e.debit_account}</span>
-                  </td>
-                  <td className="px-3 py-3">
-                    <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{e.credit_account}</span>
-                  </td>
-                  <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
-                    {e.amount != null ? `¥${Number(e.amount).toLocaleString()}` : '—'}
-                  </td>
-                  <td className="px-3 py-3 text-xs text-slate-500 truncate" title={`${e.vendor_name} / ${e.description}`}>
-                    {e.vendor_name && <span className="text-slate-700 font-medium">{e.vendor_name}</span>}
-                    {e.vendor_name && e.description && <span className="text-slate-300 mx-1">·</span>}
-                    {e.description}
-                  </td>
-                  <td className="px-3 py-3 text-center">
-                    {e.locked ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded-full" title="締め済み">
-                        <IconLock className="w-3 h-3" /> 締済
-                      </span>
-                    ) : (
-                      <div className="flex justify-center gap-1">
-                        <button
-                          onClick={() => onEdit(e)}
-                          className="text-[10px] text-sky-600 border border-sky-200 rounded-md px-2 py-1 hover:bg-sky-50"
-                        >
-                          編集
-                        </button>
-                        <button
-                          onClick={() => onDelete(e)}
-                          className="text-[10px] text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50"
-                        >
-                          削除
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col style={{ width: '40px' }} />   {/* チェック */}
+            <col style={{ width: '128px' }} />  {/* 日付 */}
+            <col style={{ width: '76px' }} />   {/* 種別 */}
+            <col style={{ width: '160px' }} />  {/* 借方 */}
+            <col style={{ width: '160px' }} />  {/* 貸方 */}
+            <col style={{ width: '120px' }} />  {/* 金額 */}
+            <col style={{ width: '180px' }} />  {/* 取引先 */}
+            <col />                              {/* 摘要 */}
+          </colgroup>
+          <thead className="bg-white">
+            <tr className="border-b border-slate-100">
+              <th className="px-2 py-3 text-center">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  className="cursor-pointer"
+                />
+              </th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
+              <th className="px-2 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {filtered.map((e) => (
+              <EditableRow
+                key={`${e.id}_${e.updated_at}`}
+                entry={e}
+                selected={selectedIds.has(e.id)}
+                onToggleSelect={() => toggleOne(e.id)}
+                onSaveField={onSaveField}
+                accountsList={accountsList}
+                addAccountLocal={addAccountLocal}
+              />
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
+  );
+}
+
+// ─── インライン編集行 ──────────────────────────────────────────────────────
+
+function EditableRow({
+  entry,
+  selected,
+  onToggleSelect,
+  onSaveField,
+  accountsList,
+  addAccountLocal,
+}: {
+  entry: LedgerEntry;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
+  accountsList: AccountOption[];
+  addAccountLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
+}) {
+  const [date, setDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
+  const [debitAccount, setDebitAccount] = useState(entry.debit_account);
+  const [creditAccount, setCreditAccount] = useState(entry.credit_account);
+  const [amount, setAmount] = useState(entry.amount != null ? String(entry.amount) : '');
+  const [vendorName, setVendorName] = useState(entry.vendor_name);
+  const [description, setDescription] = useState(entry.description);
+
+  const dateInputValue = date.length === 8
+    ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}`
+    : '';
+
+  const saveIfChanged = (patch: Partial<LedgerEntry>) => {
+    if (entry.locked) return;
+    onSaveField(entry.id, patch);
+  };
+
+  if (entry.locked) {
+    return (
+      <tr className="bg-amber-50/20">
+        <td className="px-2 py-2 text-center">
+          <IconLock className="w-3 h-3 text-amber-500 mx-auto" />
+        </td>
+        <td className="px-2 py-2 text-xs font-mono text-slate-500">{formatDateYmd(entry.entry_date)}</td>
+        <td className="px-2 py-2">
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+            entry.entry_type === 'accrual' ? 'bg-sky-100 text-sky-600'
+            : entry.entry_type === 'payment' ? 'bg-lime-100 text-lime-700'
+            : 'bg-slate-100 text-slate-600'
+          }`}>
+            {entry.entry_type === 'accrual' ? '費用計上' : entry.entry_type === 'payment' ? '支払消込' : '手動'}
+          </span>
+        </td>
+        <td className="px-2 py-2 text-xs text-slate-600">{entry.debit_account}</td>
+        <td className="px-2 py-2 text-xs text-slate-600">{entry.credit_account}</td>
+        <td className="px-2 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
+          {entry.amount != null ? `¥${Number(entry.amount).toLocaleString()}` : '—'}
+        </td>
+        <td className="px-2 py-2 text-xs text-slate-600 truncate" title={entry.vendor_name}>{entry.vendor_name}</td>
+        <td className="px-2 py-2 text-xs text-slate-500 truncate" title={entry.description}>{entry.description}</td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className={`${selected ? 'bg-sky-50/40' : 'hover:bg-slate-50/30'}`}>
+      <td className="px-2 py-1.5 text-center">
+        <input type="checkbox" checked={selected} onChange={onToggleSelect} className="cursor-pointer" />
+      </td>
+      <td className="px-2 py-1.5">
+        <input
+          type="date"
+          value={dateInputValue}
+          onChange={(e) => setDate(e.target.value.replace(/-/g, ''))}
+          onBlur={() => {
+            const next = date || '不明';
+            if (next !== entry.entry_date) saveIfChanged({ entry_date: next });
+          }}
+          className="w-full text-xs font-mono border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+          entry.entry_type === 'accrual' ? 'bg-sky-100 text-sky-600'
+          : entry.entry_type === 'payment' ? 'bg-lime-100 text-lime-700'
+          : 'bg-slate-100 text-slate-600'
+        }`}>
+          {entry.entry_type === 'accrual' ? '費用計上' : entry.entry_type === 'payment' ? '支払消込' : '手動'}
+        </span>
+      </td>
+      <td className="px-2 py-1.5">
+        <AccountCombobox
+          value={debitAccount}
+          onChange={(v) => {
+            setDebitAccount(v);
+            if (v !== entry.debit_account && accountsList.some((a) => a.name === v)) {
+              saveIfChanged({ debit_account: v });
+            }
+          }}
+          onCommit={(v) => {
+            if (v !== entry.debit_account) saveIfChanged({ debit_account: v });
+          }}
+          accounts={accountsList}
+          onCreate={addAccountLocal}
+          dense
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <AccountCombobox
+          value={creditAccount}
+          onChange={(v) => {
+            setCreditAccount(v);
+            if (v !== entry.credit_account && accountsList.some((a) => a.name === v)) {
+              saveIfChanged({ credit_account: v });
+            }
+          }}
+          onCommit={(v) => {
+            if (v !== entry.credit_account) saveIfChanged({ credit_account: v });
+          }}
+          accounts={accountsList}
+          onCreate={addAccountLocal}
+          dense
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <input
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          onBlur={() => {
+            const next = amount === '' ? null : Number(amount);
+            if (next !== entry.amount) saveIfChanged({ amount: next });
+          }}
+          className="w-full text-sm text-right tabular-nums border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <input
+          value={vendorName}
+          onChange={(e) => setVendorName(e.target.value)}
+          onBlur={() => {
+            if (vendorName !== entry.vendor_name) saveIfChanged({ vendor_name: vendorName });
+          }}
+          className="w-full text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onBlur={() => {
+            if (description !== entry.description) saveIfChanged({ description });
+          }}
+          className="w-full text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+        />
+      </td>
+    </tr>
   );
 }
 
@@ -2791,142 +2951,6 @@ function BalanceView({
   );
 }
 
-// ─── 仕訳編集モーダル ───────────────────────────────────────────────────────
-
-function EditEntryModal({
-  entry,
-  onCancel,
-  onSave,
-  accounts,
-  onCreateAccount,
-}: {
-  entry: LedgerEntry;
-  onCancel: () => void;
-  onSave: (patch: Partial<LedgerEntry>) => void;
-  accounts: AccountOption[];
-  onCreateAccount: (name: string) => Promise<AccountOption | null>;
-}) {
-  const [entryDate, setEntryDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
-  const [debitAccount, setDebitAccount] = useState(entry.debit_account);
-  const [creditAccount, setCreditAccount] = useState(entry.credit_account);
-  const [amount, setAmount] = useState(entry.amount != null ? String(entry.amount) : '');
-  const [description, setDescription] = useState(entry.description);
-  const [vendorName, setVendorName] = useState(entry.vendor_name);
-  const [taxType, setTaxType] = useState(entry.tax_type);
-
-  const dateInput = entryDate.length === 8
-    ? `${entryDate.slice(0,4)}-${entryDate.slice(4,6)}-${entryDate.slice(6,8)}`
-    : '';
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
-      onClick={onCancel}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-6 pt-6 pb-4 border-b border-slate-100">
-          <h3 className="text-base font-semibold text-slate-900 tracking-tight">仕訳を編集</h3>
-        </div>
-        <div className="px-6 py-5 space-y-3 text-sm">
-          <label className="block">
-            <span className="text-xs text-slate-500">日付</span>
-            <input
-              type="date"
-              value={dateInput}
-              onChange={(e) => setEntryDate(e.target.value.replace(/-/g, ''))}
-              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <span className="text-xs text-slate-500">借方科目</span>
-              <div className="mt-1">
-                <AccountCombobox
-                  value={debitAccount}
-                  onChange={setDebitAccount}
-                  accounts={accounts}
-                  onCreate={onCreateAccount}
-                  placeholder="科目名 / ローマ字"
-                />
-              </div>
-            </div>
-            <div>
-              <span className="text-xs text-slate-500">貸方科目</span>
-              <div className="mt-1">
-                <AccountCombobox
-                  value={creditAccount}
-                  onChange={setCreditAccount}
-                  accounts={accounts}
-                  onCreate={onCreateAccount}
-                  placeholder="科目名 / ローマ字"
-                />
-              </div>
-            </div>
-          </div>
-          <label className="block">
-            <span className="text-xs text-slate-500">金額</span>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400 tabular-nums"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs text-slate-500">取引先</span>
-            <input
-              value={vendorName}
-              onChange={(e) => setVendorName(e.target.value)}
-              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs text-slate-500">摘要</span>
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs text-slate-500">消費税区分</span>
-            <input
-              value={taxType}
-              onChange={(e) => setTaxType(e.target.value)}
-              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-sky-400"
-            />
-          </label>
-        </div>
-        <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="text-xs text-slate-500 border border-slate-200 rounded-xl px-4 py-2.5 hover:bg-slate-50"
-          >
-            キャンセル
-          </button>
-          <button
-            onClick={() => onSave({
-              entry_date: entryDate || '不明',
-              debit_account: debitAccount,
-              credit_account: creditAccount,
-              amount: amount === '' ? null : Number(amount),
-              description,
-              vendor_name: vendorName,
-              tax_type: taxType,
-            })}
-            className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2.5 font-semibold hover:bg-sky-600"
-          >
-            保存
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── 勘定科目コンボボックス（補完つきインライン入力） ────────────────────────
 
 interface AccountOption { id?: string; name: string; reading?: string; category?: string }
@@ -2934,21 +2958,39 @@ interface AccountOption { id?: string; name: string; reading?: string; category?
 function AccountCombobox({
   value,
   onChange,
+  onCommit,
   accounts,
   onCreate,
   placeholder,
+  dense,
 }: {
   value: string;
   onChange: (next: string) => void;
+  onCommit?: (next: string) => void;
   accounts: AccountOption[];
   onCreate?: (name: string, reading?: string) => Promise<AccountOption | null> | void;
   placeholder?: string;
+  dense?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   // 新規作成モード: 名前と読みの2段階入力
   const [creating, setCreating] = useState<{ name: string; reading: string } | null>(null);
   const readingInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // 外側クリック検知（blur ではなく mousedown でドラッグ選択でも閉じない）
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        if (creating) setCreating(null);
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, creating]);
 
   // 補完候補（前方一致）— name または reading が入力で始まるもの
   const q = value.trim().toLowerCase();
@@ -2971,48 +3013,70 @@ function AccountCombobox({
   const confirmCreate = async () => {
     if (!creating || !onCreate) return;
     const acc = await Promise.resolve(onCreate(creating.name, creating.reading));
-    if (acc) onChange(acc.name);
+    if (acc) {
+      onChange(acc.name);
+      onCommit?.(acc.name);
+    }
     setCreating(null);
     setOpen(false);
   };
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <input
         value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true); setHighlight(0); }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => { if (!creating) setOpen(false); }, 150)}
         onKeyDown={(e) => {
-          if (!open || creating) return;
+          if (creating) return;
+          if (!open && (e.key === 'Enter' || e.key === 'ArrowDown')) {
+            setOpen(true);
+            return;
+          }
+          if (!open) return;
           const total = candidates.length + (showCreate ? 1 : 0);
           if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => (h + 1) % Math.max(total, 1)); }
           else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => (h - 1 + total) % Math.max(total, 1)); }
           else if (e.key === 'Enter') {
-            if (highlight < candidates.length) {
+            // 既存科目に完全一致する場合はそのまま確定
+            if (exact) {
               e.preventDefault();
-              onChange(candidates[highlight].name);
+              onCommit?.(value);
+              setOpen(false);
+              return;
+            }
+            // ハイライトされている候補を選択
+            if (candidates.length > 0 && highlight < candidates.length) {
+              e.preventDefault();
+              const picked = candidates[highlight].name;
+              onChange(picked);
+              onCommit?.(picked);
               setOpen(false);
             } else if (showCreate) {
+              // 候補なしまたは「+ 新規追加」がハイライトされている場合は即作成モードへ
               e.preventDefault();
               startCreate();
             }
           } else if (e.key === 'Escape') {
             setOpen(false);
+          } else if (e.key === 'Tab') {
+            // Tab で確定
+            if (value.trim() && exact) onCommit?.(value);
+            setOpen(false);
           }
         }}
         placeholder={placeholder}
-        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-sky-400"
+        className={`w-full border ${dense ? 'border-transparent hover:border-slate-200' : 'border-slate-200'} rounded${dense ? '' : '-xl'} ${dense ? 'px-1.5 py-1 text-xs' : 'px-3 py-2 text-sm'} focus:outline-none focus:border-sky-400 bg-transparent`}
       />
       {open && !creating && (candidates.length > 0 || showCreate) && (
-        <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+        <div className="absolute z-30 mt-1 w-[220px] max-w-[260px] bg-white border border-slate-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
           {candidates.map((a, i) => (
             <button
               key={a.name}
               type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 onChange(a.name);
+                onCommit?.(a.name);
                 setOpen(false);
               }}
               className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between ${
@@ -3026,7 +3090,7 @@ function AccountCombobox({
           {showCreate && (
             <button
               type="button"
-              onMouseDown={(e) => { e.preventDefault(); startCreate(); }}
+              onClick={startCreate}
               className={`w-full text-left px-3 py-2 text-xs border-t border-slate-100 ${
                 highlight === candidates.length ? 'bg-lime-50' : 'hover:bg-lime-50'
               } text-lime-700 font-medium`}
@@ -3037,10 +3101,7 @@ function AccountCombobox({
         </div>
       )}
       {open && creating && (
-        <div
-          className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg p-3 space-y-2"
-          onMouseDown={(e) => e.preventDefault()}
-        >
+        <div className="absolute z-30 mt-1 w-[280px] bg-white border border-slate-200 rounded-xl shadow-lg p-3 space-y-2">
           <p className="text-[11px] text-lime-700 font-semibold">新しい科目を追加</p>
           <div className="grid grid-cols-[1fr_1.2fr] gap-2">
             <div>
