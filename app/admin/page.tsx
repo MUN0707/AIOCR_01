@@ -111,12 +111,20 @@ export default function AdminPage() {
               <p className="text-xs text-sky-400">管理者ダッシュボード</p>
             </div>
           </div>
-          <a
-            href="/"
-            className="text-sm text-sky-500 hover:text-sky-700 border border-sky-200 rounded-full px-4 py-1.5 transition-colors"
-          >
-            アプリへ戻る
-          </a>
+          <div className="flex items-center gap-2">
+            <a
+              href="/admin/error-reports"
+              className="text-sm text-amber-600 hover:text-amber-800 border border-amber-200 bg-amber-50 rounded-full px-4 py-1.5 transition-colors"
+            >
+              エラー報告
+            </a>
+            <a
+              href="/"
+              className="text-sm text-sky-500 hover:text-sky-700 border border-sky-200 rounded-full px-4 py-1.5 transition-colors"
+            >
+              アプリへ戻る
+            </a>
+          </div>
         </div>
       </header>
 

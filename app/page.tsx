@@ -442,6 +442,77 @@ export default function Home() {
   const [bankDragOver, setBankDragOver] = useState(false);
   const [invoiceDragOver, setInvoiceDragOver] = useState(false);
 
+  // ─── エラー報告 State ─────────────────────────────────────────────────────
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportComment, setReportComment] = useState('');
+  const [reportScreenshot, setReportScreenshot] = useState<string | null>(null);
+  const [reportSending, setReportSending] = useState(false);
+  const [reportMessage, setReportMessage] = useState<string | null>(null);
+
+  const openReportModal = () => {
+    setReportComment('');
+    setReportScreenshot(null);
+    setReportMessage(null);
+    setShowReportModal(true);
+  };
+
+  const handleReportPaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (!file) continue;
+        const reader = new FileReader();
+        reader.onload = () => setReportScreenshot(typeof reader.result === 'string' ? reader.result : null);
+        reader.readAsDataURL(file);
+        e.preventDefault();
+        return;
+      }
+    }
+  };
+
+  const handleReportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => setReportScreenshot(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSendReport = async () => {
+    if (!reportComment.trim() || reportSending) return;
+    setReportSending(true);
+    setReportMessage(null);
+    try {
+      const res = await fetch('/api/report-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          comment: reportComment,
+          screenshot: reportScreenshot,
+          mode,
+          context: {
+            summary: journalMatchResult?.summary ?? null,
+            bankCount: bankOcr?.transactions.length ?? 0,
+            invoiceCount: invoiceOcr?.vouchers.length ?? 0,
+            clientId: selectedClientId,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '送信失敗');
+      setReportMessage('送信しました。管理者に届きました。');
+      setReportComment('');
+      setReportScreenshot(null);
+      setTimeout(() => setShowReportModal(false), 1500);
+    } catch (e) {
+      setReportMessage(e instanceof Error ? e.message : '送信に失敗しました');
+    } finally {
+      setReportSending(false);
+    }
+  };
+
   const addPdfFiles = (
     incoming: FileList | File[] | null,
     setter: React.Dispatch<React.SetStateAction<File[]>>
@@ -749,7 +820,7 @@ export default function Home() {
       const res = await fetch('/api/match-journal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: bankOcr.transactions, vouchers: invoiceOcr.vouchers }),
+        body: JSON.stringify({ transactions: bankOcr.transactions, vouchers: invoiceOcr.vouchers, clientId: selectedClientId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -1145,6 +1216,13 @@ export default function Home() {
                       className="text-xs text-slate-500 border border-slate-200 rounded-xl px-4 py-2.5 hover:bg-slate-50 transition-all duration-200 tracking-wide"
                     >
                       最初からやり直す
+                    </button>
+                    <button
+                      onClick={openReportModal}
+                      className="inline-flex items-center gap-1.5 text-xs text-amber-700 border border-amber-200 bg-amber-50 rounded-xl px-4 py-2.5 hover:bg-amber-100 transition-all duration-200 tracking-wide"
+                    >
+                      <IconAlertCircle className="w-3.5 h-3.5" />
+                      エラー報告
                     </button>
                     <button
                       onClick={handleDownloadJournal}
@@ -1898,6 +1976,93 @@ export default function Home() {
           </a>
         </p>
       </footer>
+
+      {/* ─── エラー報告モーダル ───────────────────────────────────────── */}
+      {showReportModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4"
+          onClick={() => !reportSending && setShowReportModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+            onPaste={handleReportPaste}
+          >
+            <div className="px-6 pt-6 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <IconAlertCircle className="w-4 h-4 text-amber-500" />
+                <h3 className="text-base font-semibold text-slate-900 tracking-tight">エラー報告</h3>
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                スクショとコメントを管理者に送信します。<br />
+                スクショは <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px]">Win+Shift+S</kbd> で切り取り後、下の枠内に <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px]">Ctrl+V</kbd> で貼付、またはファイル選択。
+              </p>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-600 tracking-wide">スクリーンショット</label>
+                <div className="mt-2">
+                  {reportScreenshot ? (
+                    <div className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={reportScreenshot} alt="screenshot" className="w-full rounded-xl border border-slate-200" />
+                      <button
+                        onClick={() => setReportScreenshot(null)}
+                        className="absolute top-2 right-2 bg-white/90 border border-slate-200 rounded-full p-1.5 hover:bg-white"
+                      >
+                        <IconX className="w-3.5 h-3.5 text-slate-500" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed border-slate-200 rounded-xl px-4 py-6 text-center">
+                      <p className="text-xs text-slate-400 mb-2">ここに Ctrl+V で貼付</p>
+                      <label className="inline-block text-xs text-sky-600 border border-sky-200 rounded-lg px-3 py-1.5 cursor-pointer hover:bg-sky-50">
+                        またはファイルを選択
+                        <input type="file" accept="image/*" className="hidden" onChange={handleReportFileChange} />
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-600 tracking-wide">コメント <span className="text-red-500">*</span></label>
+                <textarea
+                  value={reportComment}
+                  onChange={(e) => setReportComment(e.target.value)}
+                  rows={5}
+                  placeholder="何がおかしかったか、期待した結果などをご記入ください"
+                  className="mt-2 w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 resize-none"
+                />
+              </div>
+
+              {reportMessage && (
+                <div className={`text-xs rounded-xl px-3 py-2 ${reportMessage.includes('送信しました') ? 'bg-lime-50 text-lime-700 border border-lime-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                  {reportMessage}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowReportModal(false)}
+                disabled={reportSending}
+                className="text-xs text-slate-500 border border-slate-200 rounded-xl px-4 py-2.5 hover:bg-slate-50 transition-all disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleSendReport}
+                disabled={reportSending || !reportComment.trim()}
+                className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2.5 font-semibold hover:bg-sky-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {reportSending ? '送信中...' : '管理者に送信'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
