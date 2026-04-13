@@ -479,7 +479,7 @@ export default function Home() {
     }
   }, []);
 
-  const addAccountLocal = useCallback(async (name: string): Promise<AccountItem | null> => {
+  const addAccountLocal = useCallback(async (name: string, reading?: string): Promise<AccountItem | null> => {
     const trimmed = name.trim();
     if (!trimmed) return null;
     // 既存に同名があれば再利用
@@ -488,7 +488,7 @@ export default function Home() {
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: trimmed }),
+      body: JSON.stringify({ name: trimmed, reading: reading?.trim() ?? '' }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -2941,11 +2941,14 @@ function AccountCombobox({
   value: string;
   onChange: (next: string) => void;
   accounts: AccountOption[];
-  onCreate?: (name: string) => Promise<AccountOption | null> | void;
+  onCreate?: (name: string, reading?: string) => Promise<AccountOption | null> | void;
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  // 新規作成モード: 名前と読みの2段階入力
+  const [creating, setCreating] = useState<{ name: string; reading: string } | null>(null);
+  const readingInputRef = useRef<HTMLInputElement>(null);
 
   // 補完候補（前方一致）— name または reading が入力で始まるもの
   const q = value.trim().toLowerCase();
@@ -2960,15 +2963,28 @@ function AccountCombobox({
   const exact = accounts.some((a) => a.name === value.trim());
   const showCreate = !!value.trim() && !exact && !!onCreate;
 
+  const startCreate = () => {
+    setCreating({ name: value.trim(), reading: '' });
+    setTimeout(() => readingInputRef.current?.focus(), 0);
+  };
+
+  const confirmCreate = async () => {
+    if (!creating || !onCreate) return;
+    const acc = await Promise.resolve(onCreate(creating.name, creating.reading));
+    if (acc) onChange(acc.name);
+    setCreating(null);
+    setOpen(false);
+  };
+
   return (
     <div className="relative">
       <input
         value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true); setHighlight(0); }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onBlur={() => setTimeout(() => { if (!creating) setOpen(false); }, 150)}
         onKeyDown={(e) => {
-          if (!open) return;
+          if (!open || creating) return;
           const total = candidates.length + (showCreate ? 1 : 0);
           if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => (h + 1) % Math.max(total, 1)); }
           else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => (h - 1 + total) % Math.max(total, 1)); }
@@ -2977,12 +2993,9 @@ function AccountCombobox({
               e.preventDefault();
               onChange(candidates[highlight].name);
               setOpen(false);
-            } else if (showCreate && onCreate) {
+            } else if (showCreate) {
               e.preventDefault();
-              Promise.resolve(onCreate(value.trim())).then((acc) => {
-                if (acc) onChange(acc.name);
-                setOpen(false);
-              });
+              startCreate();
             }
           } else if (e.key === 'Escape') {
             setOpen(false);
@@ -2991,7 +3004,7 @@ function AccountCombobox({
         placeholder={placeholder}
         className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-sky-400"
       />
-      {open && (candidates.length > 0 || showCreate) && (
+      {open && !creating && (candidates.length > 0 || showCreate) && (
         <div className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
           {candidates.map((a, i) => (
             <button
@@ -3013,14 +3026,7 @@ function AccountCombobox({
           {showCreate && (
             <button
               type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                if (!onCreate) return;
-                Promise.resolve(onCreate(value.trim())).then((acc) => {
-                  if (acc) onChange(acc.name);
-                  setOpen(false);
-                });
-              }}
+              onMouseDown={(e) => { e.preventDefault(); startCreate(); }}
               className={`w-full text-left px-3 py-2 text-xs border-t border-slate-100 ${
                 highlight === candidates.length ? 'bg-lime-50' : 'hover:bg-lime-50'
               } text-lime-700 font-medium`}
@@ -3028,6 +3034,55 @@ function AccountCombobox({
               + 新規追加: {value.trim()}
             </button>
           )}
+        </div>
+      )}
+      {open && creating && (
+        <div
+          className="absolute z-30 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg p-3 space-y-2"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <p className="text-[11px] text-lime-700 font-semibold">新しい科目を追加</p>
+          <div className="grid grid-cols-[1fr_1.2fr] gap-2">
+            <div>
+              <span className="text-[10px] text-slate-400">科目名</span>
+              <input
+                value={creating.name}
+                onChange={(e) => setCreating({ ...creating, name: e.target.value })}
+                className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-sky-400"
+              />
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400">読み（ローマ字 例: gyoumuitakuhi）</span>
+              <input
+                ref={readingInputRef}
+                value={creating.reading}
+                onChange={(e) => setCreating({ ...creating, reading: e.target.value.toLowerCase() })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); confirmCreate(); }
+                  else if (e.key === 'Escape') { e.preventDefault(); setCreating(null); }
+                }}
+                placeholder="補完用（任意）"
+                className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-1.5 pt-1">
+            <button
+              type="button"
+              onClick={() => setCreating(null)}
+              className="text-[10px] text-slate-500 border border-slate-200 rounded-md px-2 py-1 hover:bg-slate-50"
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              onClick={confirmCreate}
+              disabled={!creating.name.trim()}
+              className="text-[10px] text-white bg-lime-500 rounded-md px-3 py-1 font-semibold hover:bg-lime-600 disabled:opacity-50"
+            >
+              追加
+            </button>
+          </div>
         </div>
       )}
     </div>
