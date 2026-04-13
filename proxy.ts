@@ -113,6 +113,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(homeUrl);
   }
 
+  // /pricing はサブスクチェック対象外（リダイレクトループ防止）
+  if (pathname.startsWith('/pricing')) {
+    return supabaseResponse;
+  }
+
   // サブスクリプションチェック（メインアプリと /api/ ルート）
   const { data: subscription } = await supabase
     .from('subscriptions')
