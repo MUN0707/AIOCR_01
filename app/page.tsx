@@ -439,6 +439,21 @@ export default function Home() {
   const [journalError, setJournalError] = useState<string | null>(null);
   const bankFileInputRef = useRef<HTMLInputElement>(null);
   const invoiceFileInputRef = useRef<HTMLInputElement>(null);
+  const [bankDragOver, setBankDragOver] = useState(false);
+  const [invoiceDragOver, setInvoiceDragOver] = useState(false);
+
+  const addPdfFiles = (
+    incoming: FileList | File[] | null,
+    setter: React.Dispatch<React.SetStateAction<File[]>>
+  ) => {
+    const sel = Array.from(incoming || []).filter((f) => f.type === 'application/pdf');
+    if (sel.length === 0) return false;
+    setter((prev) => {
+      const ex = new Set(prev.map((f) => f.name + f.size));
+      return [...prev, ...sel.filter((f) => !ex.has(f.name + f.size))];
+    });
+    return true;
+  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1244,20 +1259,28 @@ export default function Home() {
                     multiple
                     className="hidden"
                     onChange={(e) => {
-                      const sel = Array.from(e.target.files || []).filter(f => f.type === 'application/pdf');
-                      setBankFiles(prev => {
-                        const ex = new Set(prev.map(f => f.name + f.size));
-                        return [...prev, ...sel.filter(f => !ex.has(f.name + f.size))];
-                      });
+                      addPdfFiles(e.target.files, setBankFiles);
                       e.target.value = '';
                     }}
                   />
                   <button
+                    type="button"
                     onClick={() => bankFileInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-slate-200 rounded-xl p-4 text-xs text-slate-400 hover:border-sky-300 hover:text-sky-500 transition-all duration-200"
+                    onDragOver={(e) => { e.preventDefault(); setBankDragOver(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); setBankDragOver(false); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setBankDragOver(false);
+                      addPdfFiles(e.dataTransfer.files, setBankFiles);
+                    }}
+                    className={`w-full border-2 border-dashed rounded-xl p-4 text-xs transition-all duration-200 ${
+                      bankDragOver
+                        ? 'border-sky-400 bg-sky-50 text-sky-600'
+                        : 'border-slate-200 text-slate-400 hover:border-sky-300 hover:text-sky-500'
+                    }`}
                   >
                     <IconUpload className="w-6 h-6 mx-auto mb-2" />
-                    PDFを選択
+                    PDFをドラッグ＆ドロップ または クリックで選択
                   </button>
                   {bankFiles.length > 0 && (
                     <div className="space-y-1">
@@ -1300,20 +1323,28 @@ export default function Home() {
                     multiple
                     className="hidden"
                     onChange={(e) => {
-                      const sel = Array.from(e.target.files || []).filter(f => f.type === 'application/pdf');
-                      setInvoiceFiles(prev => {
-                        const ex = new Set(prev.map(f => f.name + f.size));
-                        return [...prev, ...sel.filter(f => !ex.has(f.name + f.size))];
-                      });
+                      addPdfFiles(e.target.files, setInvoiceFiles);
                       e.target.value = '';
                     }}
                   />
                   <button
+                    type="button"
                     onClick={() => invoiceFileInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-slate-200 rounded-xl p-4 text-xs text-slate-400 hover:border-sky-300 hover:text-sky-500 transition-all duration-200"
+                    onDragOver={(e) => { e.preventDefault(); setInvoiceDragOver(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); setInvoiceDragOver(false); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setInvoiceDragOver(false);
+                      addPdfFiles(e.dataTransfer.files, setInvoiceFiles);
+                    }}
+                    className={`w-full border-2 border-dashed rounded-xl p-4 text-xs transition-all duration-200 ${
+                      invoiceDragOver
+                        ? 'border-sky-400 bg-sky-50 text-sky-600'
+                        : 'border-slate-200 text-slate-400 hover:border-sky-300 hover:text-sky-500'
+                    }`}
                   >
                     <IconUpload className="w-6 h-6 mx-auto mb-2" />
-                    PDFを選択
+                    PDFをドラッグ＆ドロップ または クリックで選択
                   </button>
                   {invoiceFiles.length > 0 && (
                     <div className="space-y-1">
