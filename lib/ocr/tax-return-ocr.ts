@@ -89,20 +89,21 @@ export async function processTaxReturnPdf(
   const totalPages = pdfDoc.getPageCount();
 
   const items = await Promise.all(
-    claudeData.documents.map(async (doc) => {
-      const splitBuffer = await extractPages(
-        pdfBuffer,
-        doc.pageStart || 1,
-        doc.pageEnd || doc.pageStart || 1
-      );
+    claudeData.documents.map(async (doc, idx) => {
+      const pStart = doc.pageStart || 1;
+      const pEnd = doc.pageEnd || pStart;
+      const splitBuffer = await extractPages(pdfBuffer, pStart, pEnd);
 
       const year = sanitizeFileName(String(doc.year || '不明'));
       const name = sanitizeFileName(String(doc.taxpayerName || '不明'));
       const type = sanitizeFileName(String(doc.documentType || 'その他'));
+      // ページ範囲 + 連番でユニーク化（同名衝突でZIP上書きを防ぐ）
+      const pageLabel = pStart === pEnd ? `p${pStart}` : `p${pStart}-${pEnd}`;
+      const seq = String(idx + 1).padStart(2, '0');
 
       return {
         ...doc,
-        fileName: `${year}_${name}_${type}.pdf`,
+        fileName: `${year}_${name}_${seq}_${pageLabel}_${type}.pdf`,
         pdfBase64: splitBuffer.toString('base64'),
       };
     })
