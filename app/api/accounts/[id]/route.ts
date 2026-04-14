@@ -22,6 +22,8 @@ export async function PATCH(
   }
   if (typeof body.reading === 'string') update.reading = body.reading.trim().toLowerCase();
   if (typeof body.category === 'string') update.category = body.category;
+  if (typeof body.sub_category === 'string') update.sub_category = body.sub_category || null;
+  if (typeof body.display_order === 'number') update.display_order = body.display_order;
 
   const service = createServiceClient();
 
@@ -42,7 +44,7 @@ export async function PATCH(
     .update(update)
     .eq('id', id)
     .eq('user_id', user.id)
-    .select('id, name, reading, category')
+    .select('id, name, reading, category, sub_category, display_order')
     .single();
 
   if (error) {

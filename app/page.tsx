@@ -426,7 +426,7 @@ export default function Home() {
   const supabase = createClient();
 
   // ─── State ───────────────────────────────────────────────────────────────
-  type AppMode = OcrMode | 'journal-entry';
+  type AppMode = OcrMode | 'journal-entry' | 'financial-statement';
   const [mode, setMode] = useState<AppMode>('invoice');
   const [files, setFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -473,7 +473,7 @@ export default function Home() {
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
 
   // ─── 勘定科目マスタ State（起動時に1回だけロード） ────────────────────────
-  interface AccountItem { id: string; name: string; reading: string; category: string }
+  interface AccountItem { id: string; name: string; reading: string; category: string; sub_category?: string | null; display_order?: number | null }
   const [accountsList, setAccountsList] = useState<AccountItem[]>([]);
 
   const fetchAccounts = useCallback(async () => {
@@ -823,7 +823,7 @@ export default function Home() {
   // ─── OCR処理（既存ロジックと同じ） ────────────────────────────────────────
 
   const handleProcess = async () => {
-    if (mode === 'journal-entry' || files.length === 0) return;
+    if (mode === 'journal-entry' || mode === 'financial-statement' || files.length === 0) return;
 
     if (isGuest) {
       const count = parseInt(localStorage.getItem('guestUseCount') || '0');
@@ -908,7 +908,9 @@ export default function Home() {
         if (count + 1 >= GUEST_MAX_USES) setGuestLimitReached(true);
       }
 
-      setResult({ invoices: allInvoices, totalPages, processedFiles: files.length, mode });
+      if (mode === 'invoice' || mode === 'tax-return') {
+        setResult({ invoices: allInvoices, totalPages, processedFiles: files.length, mode });
+      }
 
       // ログインユーザーの使用量を再取得
       if (!isGuest) {
@@ -1250,7 +1252,7 @@ export default function Home() {
 
       {/* ─── メインコンテンツ ──────────────────────────────────────────────── */}
       <main className={`mx-auto px-4 sm:px-6 py-10 sm:py-14 relative space-y-6 ${
-        mode === 'journal-entry' && (journalSubView === 'ledger' || journalSubView === 'master') ? 'max-w-[1280px]' : 'max-w-[900px]'
+        (mode === 'journal-entry' && (journalSubView === 'ledger' || journalSubView === 'master')) || mode === 'financial-statement' ? 'max-w-[1280px]' : 'max-w-[900px]'
       }`}>
 
         {/* ─── モード切替タブ ──────────────────────────────────────────────── */}
@@ -1263,6 +1265,7 @@ export default function Home() {
                   { key: 'tax-return', label: '確定申告' },
                   { key: 'bank-statement', label: '通帳OCR' },
                   { key: 'journal-entry', label: '自動仕訳' },
+                  { key: 'financial-statement', label: '決算書' },
                 ] as const
               ).map(({ key, label }) => (
                 <button
@@ -1437,6 +1440,16 @@ export default function Home() {
                 </h2>
                 <p className="text-sm text-slate-400 mt-2 tracking-wider">
                   通帳と請求書をそれぞれアップロード → 金額・日付・相手先で照合 → 仕訳CSV出力
+                </p>
+              </>
+            )}
+            {mode === 'financial-statement' && (
+              <>
+                <h2 className="text-2xl sm:text-[2rem] font-light text-slate-800 tracking-tight leading-snug">
+                  仕訳日記帳から<span className="text-sky-400 font-semibold"> 決算書 </span>を自動生成
+                </h2>
+                <p className="text-sm text-slate-400 mt-2 tracking-wider">
+                  会計期間を指定 → P/L・B/S を集計 → PDF 出力
                 </p>
               </>
             )}
@@ -1902,8 +1915,15 @@ export default function Home() {
           </section>
         )}
 
+        {/* ─── 決算書モード ──────────────────────────────────────────────── */}
+        {mode === 'financial-statement' && (
+          <FinancialStatementView
+            selectedClientId={selectedClientId}
+          />
+        )}
+
         {/* ─── アップロードセクション ─────────────────────────────────────── */}
-        {mode !== 'journal-entry' && !result && (
+        {mode !== 'journal-entry' && mode !== 'financial-statement' && !result && (
           <section>
             {guestLimitReached ? (
 
@@ -3165,7 +3185,7 @@ function BalanceView({
 
 // ─── 勘定科目コンボボックス（補完つきインライン入力） ────────────────────────
 
-interface AccountOption { id?: string; name: string; reading?: string; category?: string }
+interface AccountOption { id?: string; name: string; reading?: string; category?: string; sub_category?: string | null; display_order?: number | null }
 
 function AccountCombobox({
   value,
@@ -3379,7 +3399,7 @@ function MasterView({
   onCreateAccount: (name: string, reading?: string) => Promise<AccountOption | null>;
   onCreateVendor: (name: string, reading?: string) => Promise<AccountOption | null>;
 }) {
-  const [newAcc, setNewAcc] = useState({ name: '', reading: '' });
+  const [newAcc, setNewAcc] = useState({ name: '', reading: '', sub_category: '' });
   const [newVen, setNewVen] = useState({ name: '', reading: '' });
 
   const patchAccount = async (id: string, patch: Partial<AccountOption>) => {
@@ -3435,7 +3455,18 @@ function MasterView({
   const handleAddAcc = async () => {
     if (!newAcc.name.trim()) return;
     const acc = await onCreateAccount(newAcc.name, newAcc.reading);
-    if (acc) setNewAcc({ name: '', reading: '' });
+    if (acc) {
+      if (newAcc.sub_category && acc.id) {
+        const cat = SUB_CATEGORY_OPTIONS.find((o) => o.value === newAcc.sub_category)?.category ?? '';
+        await fetch(`/api/accounts/${acc.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sub_category: newAcc.sub_category, category: cat }),
+        });
+        onReloadAccounts();
+      }
+      setNewAcc({ name: '', reading: '', sub_category: '' });
+    }
   };
   const handleAddVen = async () => {
     if (!newVen.name.trim()) return;
@@ -3451,28 +3482,42 @@ function MasterView({
           <p className="text-sm font-semibold text-sky-700 tracking-tight">勘定科目マスタ</p>
           <p className="text-[10px] text-sky-500/70 mt-0.5">{accountsList.length} 件</p>
         </div>
-        <div className="p-4 border-b border-slate-50 flex gap-2">
-          <input
-            value={newAcc.name}
-            onChange={(e) => setNewAcc({ ...newAcc, name: e.target.value })}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleAddAcc(); }}
-            placeholder="科目名"
-            className="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
-          />
-          <input
-            value={newAcc.reading}
-            onChange={(e) => setNewAcc({ ...newAcc, reading: e.target.value.toLowerCase() })}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleAddAcc(); }}
-            placeholder="読み（ローマ字）"
-            className="flex-1 text-xs font-mono border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
-          />
-          <button
-            onClick={handleAddAcc}
-            disabled={!newAcc.name.trim()}
-            className="text-xs text-white bg-sky-500 rounded-lg px-3 font-semibold hover:bg-sky-600 disabled:opacity-40"
-          >
-            追加
-          </button>
+        <div className="p-4 border-b border-slate-50 space-y-2">
+          <div className="flex gap-2">
+            <input
+              value={newAcc.name}
+              onChange={(e) => setNewAcc({ ...newAcc, name: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddAcc(); }}
+              placeholder="科目名"
+              className="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
+            />
+            <input
+              value={newAcc.reading}
+              onChange={(e) => setNewAcc({ ...newAcc, reading: e.target.value.toLowerCase() })}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddAcc(); }}
+              placeholder="読み（ローマ字）"
+              className="flex-1 text-xs font-mono border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
+            />
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={newAcc.sub_category}
+              onChange={(e) => setNewAcc({ ...newAcc, sub_category: e.target.value })}
+              className="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400 bg-white text-slate-600"
+            >
+              <option value="">中区分を選択（任意）</option>
+              {SUB_CATEGORY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleAddAcc}
+              disabled={!newAcc.name.trim()}
+              className="text-xs text-white bg-sky-500 rounded-lg px-3 font-semibold hover:bg-sky-600 disabled:opacity-40"
+            >
+              追加
+            </button>
+          </div>
         </div>
         <div className="max-h-[500px] overflow-y-auto">
           <table className="w-full text-sm">
@@ -3483,6 +3528,7 @@ function MasterView({
                   item={a}
                   onSave={(patch) => patchAccount(a.id!, patch)}
                   onDelete={() => deleteAccount(a.id!)}
+                  showSubCategory
                 />
               ))}
               {accountsList.length === 0 && (
@@ -3546,14 +3592,32 @@ function MasterView({
   );
 }
 
+const SUB_CATEGORY_OPTIONS: { value: string; label: string; category: string }[] = [
+  { value: '流動資産', label: '流動資産', category: 'asset' },
+  { value: '固定資産', label: '固定資産', category: 'asset' },
+  { value: '繰延資産', label: '繰延資産', category: 'asset' },
+  { value: '流動負債', label: '流動負債', category: 'liability' },
+  { value: '固定負債', label: '固定負債', category: 'liability' },
+  { value: '純資産', label: '純資産', category: 'equity' },
+  { value: '売上高', label: '売上高', category: 'revenue' },
+  { value: '売上原価', label: '売上原価', category: 'expense' },
+  { value: '販管費', label: '販管費', category: 'expense' },
+  { value: '営業外収益', label: '営業外収益', category: 'revenue' },
+  { value: '営業外費用', label: '営業外費用', category: 'expense' },
+  { value: '特別利益', label: '特別利益', category: 'revenue' },
+  { value: '特別損失', label: '特別損失', category: 'expense' },
+];
+
 function MasterRow({
   item,
   onSave,
   onDelete,
+  showSubCategory = false,
 }: {
   item: AccountOption;
   onSave: (patch: Partial<AccountOption>) => void;
   onDelete: () => void;
+  showSubCategory?: boolean;
 }) {
   const [name, setName] = useState(item.name);
   const [reading, setReading] = useState(item.reading ?? '');
@@ -3568,7 +3632,7 @@ function MasterRow({
           className="w-full text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
         />
       </td>
-      <td className="px-4 py-2" style={{ width: '40%' }}>
+      <td className="px-4 py-2" style={{ width: showSubCategory ? '28%' : '40%' }}>
         <input
           value={reading}
           onChange={(e) => setReading(e.target.value.toLowerCase())}
@@ -3577,6 +3641,24 @@ function MasterRow({
           className="w-full text-[11px] font-mono border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent text-slate-500"
         />
       </td>
+      {showSubCategory && (
+        <td className="px-2 py-2" style={{ width: '130px' }}>
+          <select
+            value={item.sub_category ?? ''}
+            onChange={(e) => {
+              const sub = e.target.value;
+              const cat = SUB_CATEGORY_OPTIONS.find((o) => o.value === sub)?.category ?? item.category;
+              onSave({ sub_category: sub, category: cat });
+            }}
+            className="w-full text-[11px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white text-slate-600"
+          >
+            <option value="">（未設定）</option>
+            {SUB_CATEGORY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </td>
+      )}
       <td className="px-4 py-2 text-right" style={{ width: '80px' }}>
         <button
           onClick={onDelete}
@@ -3586,5 +3668,399 @@ function MasterRow({
         </button>
       </td>
     </tr>
+  );
+}
+
+// ─── 決算書ビュー ───────────────────────────────────────────────────────────
+
+interface FiscalPeriod {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  client_id: string | null;
+  created_at: string;
+}
+
+interface FsBreakdown { name: string; amount: number }
+interface FsGroup { sub_category: string; total: number; items: FsBreakdown[] }
+interface FsResult {
+  period: { start: string; end: string };
+  pl: {
+    groups: FsGroup[];
+    salesTotal: number;
+    cogsTotal: number;
+    grossProfit: number;
+    sgaTotal: number;
+    operatingProfit: number;
+    nonOpIncome: number;
+    nonOpExpense: number;
+    ordinaryProfit: number;
+    extraIncome: number;
+    extraLoss: number;
+    netIncomeBeforeTax: number;
+    netIncome: number;
+  };
+  bs: {
+    groups: FsGroup[];
+    assetsTotal: number;
+    liabilitiesTotal: number;
+    equityTotal: number;
+    liabilitiesAndEquityTotal: number;
+  };
+  unclassified: FsBreakdown[];
+}
+
+function formatYen(n: number): string {
+  const sign = n < 0 ? '△' : '';
+  return sign + Math.abs(Math.round(n)).toLocaleString();
+}
+
+function FinancialStatementView({ selectedClientId }: { selectedClientId: string | null }) {
+  const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<FsResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // 新規期間追加フォーム
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newPeriod, setNewPeriod] = useState({ name: '', start_date: '', end_date: '' });
+
+  const fetchPeriods = useCallback(async () => {
+    try {
+      const url = selectedClientId
+        ? `/api/fiscal-periods?clientId=${encodeURIComponent(selectedClientId)}`
+        : '/api/fiscal-periods';
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      setPeriods(data.periods ?? []);
+    } catch {
+      // silent
+    }
+  }, [selectedClientId]);
+
+  useEffect(() => {
+    fetchPeriods();
+  }, [fetchPeriods]);
+
+  const selectedPeriod = periods.find((p) => p.id === selectedPeriodId);
+
+  const handleGenerate = async () => {
+    if (!selectedPeriod) { setError('会計期間を選択してください'); return; }
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const params = new URLSearchParams({
+        start: selectedPeriod.start_date,
+        end: selectedPeriod.end_date,
+      });
+      if (selectedClientId) params.set('clientId', selectedClientId);
+      const res = await fetch(`/api/financial-statement?${params}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '集計失敗');
+      setResult(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '集計に失敗しました');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddPeriod = async () => {
+    if (!newPeriod.name.trim() || !newPeriod.start_date || !newPeriod.end_date) return;
+    const res = await fetch('/api/fiscal-periods', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...newPeriod,
+        client_id: selectedClientId,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || '追加失敗');
+      return;
+    }
+    setPeriods((prev) => [data.period, ...prev]);
+    setSelectedPeriodId(data.period.id);
+    setNewPeriod({ name: '', start_date: '', end_date: '' });
+    setShowAddForm(false);
+  };
+
+  const handleDeletePeriod = async (id: string) => {
+    if (!confirm('この会計期間を削除しますか？')) return;
+    const res = await fetch(`/api/fiscal-periods/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || '削除失敗');
+      return;
+    }
+    setPeriods((prev) => prev.filter((p) => p.id !== id));
+    if (selectedPeriodId === id) setSelectedPeriodId('');
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  return (
+    <section className="space-y-5">
+      {/* 印刷時のCSS */}
+      <style jsx global>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          .fs-print-area, .fs-print-area * { visibility: visible !important; }
+          .fs-print-area { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 20px !important; }
+          .fs-no-print { display: none !important; }
+          @page { size: A4; margin: 15mm; }
+        }
+      `}</style>
+
+      {/* 期間選択 & 操作パネル */}
+      <div className="fs-no-print bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs text-slate-500 tracking-wide">会計期間</span>
+          <select
+            value={selectedPeriodId}
+            onChange={(e) => setSelectedPeriodId(e.target.value)}
+            className="text-sm bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300 min-w-[260px]"
+          >
+            <option value="">選択してください</option>
+            {periods.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}（{p.start_date} 〜 {p.end_date}）
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="text-xs font-medium text-sky-500 border border-sky-200 rounded-xl px-3 py-2 hover:bg-sky-50 hover:border-sky-300 transition-all duration-200"
+          >
+            {showAddForm ? 'キャンセル' : '+ 期を追加'}
+          </button>
+          {selectedPeriodId && (
+            <button
+              onClick={() => handleDeletePeriod(selectedPeriodId)}
+              className="text-xs text-red-500 border border-red-200 rounded-xl px-3 py-2 hover:bg-red-50 transition-all duration-200"
+            >
+              この期を削除
+            </button>
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={handleGenerate}
+            disabled={!selectedPeriodId || loading}
+            className="text-sm text-white bg-sky-500 rounded-xl px-5 py-2 font-semibold hover:bg-sky-600 disabled:opacity-40 transition-all duration-200 shadow-sm shadow-sky-200/60"
+          >
+            {loading ? '集計中...' : '決算書を生成'}
+          </button>
+          {result && (
+            <button
+              onClick={handlePrint}
+              className="text-sm text-white bg-lime-500 rounded-xl px-5 py-2 font-semibold hover:bg-lime-600 transition-all duration-200 shadow-sm shadow-lime-200/60"
+            >
+              PDFで出力
+            </button>
+          )}
+        </div>
+
+        {showAddForm && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+            <input
+              value={newPeriod.name}
+              onChange={(e) => setNewPeriod({ ...newPeriod, name: e.target.value })}
+              placeholder="期の名前（例: 第3期）"
+              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+            <input
+              type="date"
+              value={newPeriod.start_date}
+              onChange={(e) => setNewPeriod({ ...newPeriod, start_date: e.target.value })}
+              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+            <input
+              type="date"
+              value={newPeriod.end_date}
+              onChange={(e) => setNewPeriod({ ...newPeriod, end_date: e.target.value })}
+              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+            <button
+              onClick={handleAddPeriod}
+              disabled={!newPeriod.name.trim() || !newPeriod.start_date || !newPeriod.end_date}
+              className="text-xs text-white bg-sky-500 rounded-lg px-4 py-2 font-semibold hover:bg-sky-600 disabled:opacity-40"
+            >
+              追加
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div>
+        )}
+      </div>
+
+      {/* 決算書本体 */}
+      {result && (
+        <div className="fs-print-area space-y-6">
+          <div className="text-center">
+            <h2 className="text-xl font-semibold text-slate-800 tracking-tight">決算書</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              {result.period.start} 〜 {result.period.end}
+              {selectedPeriod ? `（${selectedPeriod.name}）` : ''}
+            </p>
+          </div>
+
+          {/* 損益計算書 */}
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="px-5 py-3 bg-sky-50/40 border-b border-slate-100">
+              <p className="text-sm font-semibold text-sky-700 tracking-tight">損益計算書（P/L）</p>
+            </div>
+            <table className="w-full text-sm">
+              <tbody>
+                <PlRow label="売上高" amount={result.pl.salesTotal} bold />
+                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '売上高')} />
+                <PlRow label="売上原価" amount={result.pl.cogsTotal} bold />
+                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '売上原価')} />
+                <PlRow label="売上総利益" amount={result.pl.grossProfit} highlight />
+                <PlRow label="販売費及び一般管理費" amount={result.pl.sgaTotal} bold />
+                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '販管費')} />
+                <PlRow label="営業利益" amount={result.pl.operatingProfit} highlight />
+                <PlRow label="営業外収益" amount={result.pl.nonOpIncome} bold />
+                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '営業外収益')} />
+                <PlRow label="営業外費用" amount={result.pl.nonOpExpense} bold />
+                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '営業外費用')} />
+                <PlRow label="経常利益" amount={result.pl.ordinaryProfit} highlight />
+                <PlRow label="特別利益" amount={result.pl.extraIncome} bold />
+                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '特別利益')} />
+                <PlRow label="特別損失" amount={result.pl.extraLoss} bold />
+                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '特別損失')} />
+                <PlRow label="税引前当期純利益" amount={result.pl.netIncomeBeforeTax} highlight />
+                <PlRow label="当期純利益" amount={result.pl.netIncome} highlight double />
+              </tbody>
+            </table>
+          </div>
+
+          {/* 貸借対照表 */}
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+            <div className="px-5 py-3 bg-lime-50/40 border-b border-slate-100">
+              <p className="text-sm font-semibold text-lime-700 tracking-tight">貸借対照表（B/S）</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+              {/* 資産の部 */}
+              <div>
+                <div className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600 tracking-wide">資産の部</div>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {result.bs.groups.filter((g) => ['流動資産','固定資産','繰延資産'].includes(g.sub_category)).map((g) => (
+                      <BsGroupRows key={g.sub_category} group={g} />
+                    ))}
+                    <BsRow label="資産合計" amount={result.bs.assetsTotal} highlight double />
+                  </tbody>
+                </table>
+              </div>
+              {/* 負債・純資産の部 */}
+              <div>
+                <div className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600 tracking-wide">負債・純資産の部</div>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {result.bs.groups.filter((g) => ['流動負債','固定負債'].includes(g.sub_category)).map((g) => (
+                      <BsGroupRows key={g.sub_category} group={g} />
+                    ))}
+                    <BsRow label="負債合計" amount={result.bs.liabilitiesTotal} highlight />
+                    {result.bs.groups.filter((g) => g.sub_category === '純資産').map((g) => (
+                      <BsGroupRows key={g.sub_category} group={g} />
+                    ))}
+                    <BsRow label="純資産合計" amount={result.bs.equityTotal} highlight />
+                    <BsRow label="負債・純資産合計" amount={result.bs.liabilitiesAndEquityTotal} highlight double />
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* 未分類（警告） */}
+          {result.unclassified.length > 0 && (
+            <div className="fs-no-print bg-amber-50 border border-amber-200 rounded-2xl p-4">
+              <p className="text-xs font-semibold text-amber-700 mb-2">
+                ⚠ 中区分が未設定の科目が {result.unclassified.length} 件あります（決算書に含まれていません）
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {result.unclassified.map((u) => (
+                  <span key={u.name} className="text-[11px] bg-white border border-amber-200 rounded-md px-2 py-1 text-amber-700">
+                    {u.name}
+                  </span>
+                ))}
+              </div>
+              <p className="text-[11px] text-amber-600 mt-2">「マスタ」タブから中区分を設定してください。</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!result && !loading && (
+        <div className="fs-no-print bg-white border border-slate-100 rounded-2xl p-10 text-center shadow-sm">
+          <p className="text-sm text-slate-400">
+            会計期間を選択して「決算書を生成」ボタンを押してください
+          </p>
+          <p className="text-xs text-slate-300 mt-2">
+            期が未登録の場合は「+ 期を追加」から登録できます
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PlRow({ label, amount, bold, highlight, double }: { label: string; amount: number; bold?: boolean; highlight?: boolean; double?: boolean }) {
+  return (
+    <tr className={`${highlight ? 'bg-sky-50/40' : ''} border-t ${double ? 'border-t-2 border-slate-300' : 'border-slate-100'}`}>
+      <td className={`px-5 py-2 text-slate-700 ${bold || highlight ? 'font-semibold' : ''}`}>{label}</td>
+      <td className={`px-5 py-2 text-right tabular-nums text-slate-900 ${bold || highlight ? 'font-semibold' : ''}`}>
+        {formatYen(amount)}
+      </td>
+    </tr>
+  );
+}
+
+function PlGroupRows({ group }: { group: FsGroup | undefined }) {
+  if (!group || group.items.length === 0) return null;
+  return (
+    <>
+      {group.items.map((it) => (
+        <tr key={it.name} className="border-t border-slate-50">
+          <td className="px-10 py-1.5 text-xs text-slate-500">{it.name}</td>
+          <td className="px-5 py-1.5 text-right text-xs text-slate-500 tabular-nums">{formatYen(it.amount)}</td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function BsRow({ label, amount, highlight, double }: { label: string; amount: number; highlight?: boolean; double?: boolean }) {
+  return (
+    <tr className={`${highlight ? 'bg-lime-50/40' : ''} border-t ${double ? 'border-t-2 border-slate-300' : 'border-slate-100'}`}>
+      <td className="px-5 py-2 text-slate-700 font-semibold">{label}</td>
+      <td className="px-5 py-2 text-right tabular-nums text-slate-900 font-semibold">{formatYen(amount)}</td>
+    </tr>
+  );
+}
+
+function BsGroupRows({ group }: { group: FsGroup }) {
+  return (
+    <>
+      <tr className="bg-slate-50/30 border-t border-slate-100">
+        <td className="px-5 py-1.5 text-xs font-semibold text-slate-600">{group.sub_category}</td>
+        <td className="px-5 py-1.5 text-right text-xs font-semibold text-slate-700 tabular-nums">{formatYen(group.total)}</td>
+      </tr>
+      {group.items.map((it) => (
+        <tr key={it.name} className="border-t border-slate-50">
+          <td className="px-10 py-1.5 text-xs text-slate-500">{it.name}</td>
+          <td className="px-5 py-1.5 text-right text-xs text-slate-500 tabular-nums">{formatYen(it.amount)}</td>
+        </tr>
+      ))}
+    </>
   );
 }
