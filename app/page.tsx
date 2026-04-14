@@ -1216,7 +1216,19 @@ export default function Home() {
         <div className="max-w-[900px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
 
           {/* ロゴ */}
-          <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setMode('invoice');
+              setResult(null);
+              setFiles([]);
+              setError(null);
+              setJournalSubView('execute');
+            }}
+            className="flex items-center gap-3 rounded-xl hover:opacity-80 transition-opacity
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+            aria-label="ホームへ戻る"
+          >
             {/* ロゴアイコン */}
             <div className="w-8 h-8 bg-sky-400 rounded-xl flex items-center justify-center
               shadow-sm shadow-sky-200 flex-shrink-0">
@@ -1236,7 +1248,7 @@ export default function Home() {
                 <line x1="16" y1="17" x2="8" y2="17" />
               </svg>
             </div>
-            <div>
+            <div className="text-left">
               <p className="text-sm font-semibold text-slate-900 leading-tight tracking-tight">
                 Invoice OCR
               </p>
@@ -1244,7 +1256,7 @@ export default function Home() {
                 AI-Powered PDF Splitter
               </p>
             </div>
-          </div>
+          </button>
 
           {/* 認証ボタン */}
           {user === undefined ? null : isGuest ? (
