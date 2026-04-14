@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
 
     let trackUsage = false;
-    let userId: string | null = null;
+    let userId: string | null = user?.id ?? null;
     const yearMonth = new Date().toISOString().slice(0, 7); // '2026-03'
 
     if (user && user.email !== process.env.ADMIN_EMAIL) {
