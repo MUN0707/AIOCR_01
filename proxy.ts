@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 
 // 営業ページのトークン保護
-const SALES_PROTECTED = ['/sales', '/security', '/guide', '/faq'];
+const SALES_PROTECTED = ['/security', '/guide', '/faq'];
 const SALES_COOKIE = 'sales_access';
 
 function handleSalesToken(request: NextRequest): NextResponse | null {
@@ -82,7 +82,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/auth') ||
     pathname.startsWith('/subscribe') ||
     pathname.startsWith('/tokusho') ||
-    pathname.startsWith('/denied')
+    pathname.startsWith('/denied') ||
+    pathname.startsWith('/lp')
   ) {
     return supabaseResponse;
   }

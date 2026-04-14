@@ -1,21 +1,31 @@
 import Link from 'next/link';
 
-export default function SalesPage() {
+// YouTube動画ID（後で差し替え）。空文字の間はプレースホルダー表示。
+const YOUTUBE_VIDEO_ID = '';
+
+// 他LPへのクロスナビ。href が null のものは「準備中」として非活性表示。
+const OTHER_LPS: { label: string; href: string | null }[] = [
+  { label: '個人の確定申告OCR', href: null },
+  { label: '記帳自動化', href: null },
+];
+
+export default function InvoiceLpPage() {
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #f0f9ff 0%, #f7fee7 100%)' }}>
       {/* ヘッダー */}
       <header className="bg-white/80 backdrop-blur border-b border-sky-100 px-6 py-4 shadow-sm sticky top-0 z-10">
         <div className="max-w-[900px] mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <Link href="/login" className="flex items-center gap-2">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             <span className="text-lg font-bold text-sky-700">Invoice OCR</span>
-          </div>
+          </Link>
           <nav className="flex items-center gap-6 text-sm text-sky-600 font-medium">
-            <Link href="/security" className="hover:text-sky-800 transition-colors">セキュリティ</Link>
-            <Link href="/guide" className="hover:text-sky-800 transition-colors">使い方</Link>
             <Link href="/pricing" className="hover:text-sky-800 transition-colors">料金</Link>
             <Link href="/faq" className="hover:text-sky-800 transition-colors">FAQ</Link>
-            <Link href="/subscribe" className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-full font-bold transition-colors text-xs">
+            <Link
+              href="/"
+              className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-full font-bold transition-colors text-xs"
+            >
               無料で試す
             </Link>
           </nav>
@@ -30,7 +40,7 @@ export default function SalesPage() {
             税理士事務所向け AI OCRツール
           </div>
           <h1 className="text-5xl font-extrabold text-sky-900 leading-tight">
-            請求書の仕分け、<br />
+            法人請求書の仕分け、<br />
             <span className="text-sky-500">AIに任せてみませんか？</span>
           </h1>
           <p className="text-sky-600 text-xl max-w-2xl mx-auto leading-relaxed">
@@ -39,19 +49,42 @@ export default function SalesPage() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <Link
-              href="/subscribe"
+              href="/"
               className="bg-sky-500 hover:bg-sky-600 text-white font-bold px-10 py-4 rounded-full text-lg shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
             >
-              3日間無料で試してみる →
+              無料で5回試してみる →
             </Link>
             <Link
-              href="/guide"
+              href="/pricing"
               className="text-sky-600 hover:text-sky-800 font-semibold text-sm underline underline-offset-4 transition-colors"
             >
-              使い方を見る
+              料金プランを見る
             </Link>
           </div>
-          <p className="text-sky-400 text-sm">カード登録不要・自動課金なし</p>
+          <p className="text-sky-400 text-sm">ログイン不要・カード登録不要</p>
+        </section>
+
+        {/* 動作動画 */}
+        <section className="space-y-4">
+          <h2 className="text-2xl font-extrabold text-sky-900 text-center">実際の動作を見る</h2>
+          <p className="text-center text-sky-500 text-sm">PDFアップロードから分割完了まで数十秒</p>
+          <div className="bg-white rounded-2xl shadow-sm border border-sky-100 overflow-hidden">
+            {YOUTUBE_VIDEO_ID ? (
+              <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+                <iframe
+                  className="absolute inset-0 w-full h-full"
+                  src={`https://www.youtube.com/embed/${YOUTUBE_VIDEO_ID}`}
+                  title="Invoice OCR 動作デモ"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            ) : (
+              <div className="flex items-center justify-center text-sky-400 text-sm" style={{ aspectRatio: '16 / 9' }}>
+                動画準備中
+              </div>
+            )}
+          </div>
         </section>
 
         {/* 課題提起 */}
@@ -104,84 +137,42 @@ export default function SalesPage() {
           </div>
         </section>
 
-        {/* 営業資料PDF */}
+        {/* 他サービスへのクロスナビ */}
         <section className="space-y-4">
-          <h2 className="text-2xl font-extrabold text-sky-900 text-center">サービス説明資料</h2>
-          <p className="text-center text-sky-500 text-sm">セキュリティ・機能・料金の詳細をまとめた資料です</p>
-          <div className="bg-white rounded-2xl shadow-sm border border-sky-100 overflow-hidden">
-            <iframe
-              src="/sales-deck.pdf"
-              className="w-full"
-              style={{ height: '600px', border: 'none' }}
-              title="Invoice OCR サービス説明資料"
-            />
-          </div>
-          <div className="text-center">
-            <a
-              href="/sales-deck.pdf"
-              download
-              className="inline-flex items-center gap-2 text-sky-500 hover:text-sky-700 font-semibold text-sm transition-colors"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              PDFをダウンロード
-            </a>
-          </div>
-        </section>
-
-        {/* ナビゲーションカード */}
-        <section className="space-y-4">
-          <h2 className="text-2xl font-extrabold text-sky-900 text-center">詳しく知りたい方へ</h2>
+          <h2 className="text-2xl font-extrabold text-sky-900 text-center">他にもこんなAI OCRがあります</h2>
+          <p className="text-center text-sky-500 text-sm">税理士業務の他の困りごとも自動化できます</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[
-              {
-                href: '/security',
-                title: 'セキュリティについて',
-                body: 'データの流れ・暗号化・AI学習非使用の根拠を詳しく説明します。',
-                emoji: '🔒',
-              },
-              {
-                href: '/guide',
-                title: '使い方ガイド',
-                body: 'ログインから分割・ダウンロードまで、6ステップで解説します。',
-                emoji: '📖',
-              },
-              {
-                href: '/pricing',
-                title: '料金プラン',
-                body: 'ライト（¥5,000/月）・ヘビー（¥10,000/月）の2プランを比較できます。',
-                emoji: '💴',
-              },
-              {
-                href: '/faq',
-                title: 'よくある質問',
-                body: '導入前によくいただく質問を15項目まとめました。',
-                emoji: '❓',
-              },
-            ].map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="bg-white hover:bg-sky-50 rounded-2xl shadow-sm border border-sky-100 p-6 flex gap-4 items-start transition-colors group"
-              >
-                <span className="text-3xl">{item.emoji}</span>
-                <div>
-                  <p className="font-bold text-sky-900 group-hover:text-sky-600 transition-colors mb-1">{item.title} →</p>
-                  <p className="text-sky-500 text-sm leading-relaxed">{item.body}</p>
+            {OTHER_LPS.map((lp) =>
+              lp.href ? (
+                <Link
+                  key={lp.label}
+                  href={lp.href}
+                  className="bg-white hover:bg-sky-50 rounded-2xl shadow-sm border border-sky-100 p-6 flex items-center justify-between transition-colors group"
+                >
+                  <p className="font-bold text-sky-900 group-hover:text-sky-600 transition-colors">{lp.label} →</p>
+                </Link>
+              ) : (
+                <div
+                  key={lp.label}
+                  className="bg-white/60 rounded-2xl border border-sky-100 p-6 flex items-center justify-between"
+                >
+                  <p className="font-bold text-sky-400">{lp.label}</p>
+                  <span className="text-xs text-sky-400 bg-sky-50 border border-sky-100 rounded-full px-3 py-1">準備中</span>
                 </div>
-              </Link>
-            ))}
+              )
+            )}
           </div>
         </section>
 
         {/* 最終CTA */}
         <section className="bg-sky-500 rounded-2xl p-12 text-center space-y-6">
-          <h2 className="text-3xl font-extrabold text-white">まずは3日間、無料でお試しください</h2>
-          <p className="text-sky-100 text-lg">クレジットカード不要・自動課金なし</p>
+          <h2 className="text-3xl font-extrabold text-white">まずは無料で5回、お試しください</h2>
+          <p className="text-sky-100 text-lg">ログイン不要・カード登録不要</p>
           <Link
-            href="/subscribe"
+            href="/"
             className="inline-block bg-white hover:bg-sky-50 text-sky-600 font-bold px-12 py-4 rounded-full text-lg shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
           >
-            無料で始める →
+            今すぐ試してみる →
           </Link>
           <p className="text-sky-200 text-sm">ご不明点は <a href="mailto:support@invoice-ocr.jp" className="underline underline-offset-2">メール</a> でお気軽にどうぞ</p>
         </section>
@@ -193,8 +184,8 @@ export default function SalesPage() {
           <p>© 2026 Invoice OCR</p>
           <div className="flex gap-6">
             <Link href="/tokusho" className="hover:text-sky-600 transition-colors">特定商取引法</Link>
-            <Link href="/security" className="hover:text-sky-600 transition-colors">セキュリティ</Link>
             <Link href="/pricing" className="hover:text-sky-600 transition-colors">料金</Link>
+            <Link href="/faq" className="hover:text-sky-600 transition-colors">FAQ</Link>
           </div>
         </div>
       </footer>
