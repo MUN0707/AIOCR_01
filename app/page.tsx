@@ -504,6 +504,10 @@ export default function Home() {
 
   // ─── 未照合トランザクションの勘定科目選択 State ───────────────────────────
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
+  const [unmatchedTxDescriptions, setUnmatchedTxDescriptions] = useState<Record<number, string>>({});
+  const [unmatchedSelected, setUnmatchedSelected] = useState<Set<number>>(new Set());
+  const [unmatchedBulkAccount, setUnmatchedBulkAccount] = useState<string>('');
+  const [unmatchedBulkDescription, setUnmatchedBulkDescription] = useState<string>('');
 
   // ─── 勘定科目マスタ State（起動時に1回だけロード） ────────────────────────
   interface AccountItem { id: string; name: string; reading: string; category: string; sub_category?: string | null; display_order?: number | null }
@@ -585,7 +589,7 @@ export default function Home() {
   }, []);
 
   // ─── 仕訳日記帳サブビュー State ────────────────────────────────────────────
-  const [journalSubView, setJournalSubView] = useState<'execute' | 'ledger' | 'balance' | 'master'>('execute');
+  const [journalSubView, setJournalSubView] = useState<'execute' | 'unmatched' | 'ledger' | 'balance' | 'master'>('execute');
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[] | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
@@ -1155,6 +1159,10 @@ export default function Home() {
     setJournalMatchResult(null);
     setJournalError(null);
     setUnmatchedTxAccounts({});
+    setUnmatchedTxDescriptions({});
+    setUnmatchedSelected(new Set());
+    setUnmatchedBulkAccount('');
+    setUnmatchedBulkDescription('');
   };
 
   const handleDownloadJournal = () => {
@@ -1183,10 +1191,11 @@ export default function Home() {
     unmatched.forEach((tx, idx) => {
       const account = unmatchedTxAccounts[idx];
       if (!account) return;
+      const desc = unmatchedTxDescriptions[idx] ?? tx.description;
       rows.push([
         '出金単独', tx.transactionDate, account, '普通預金',
         tx.debit != null ? String(tx.debit) : '',
-        tx.description, '課税仕入10%', 'manual', '',
+        desc, '課税仕入10%', 'manual', '',
       ]);
     });
     downloadCsv([header, ...rows], '自動仕訳.csv');
@@ -1387,7 +1396,7 @@ export default function Home() {
 
       {/* ─── メインコンテンツ ──────────────────────────────────────────────── */}
       <main className={`mx-auto px-4 sm:px-6 py-10 sm:py-14 relative space-y-6 ${
-        (mode === 'journal-entry' && (journalSubView === 'ledger' || journalSubView === 'master')) || mode === 'financial-statement' ? 'max-w-[1280px]' : 'max-w-[900px]'
+        (mode === 'journal-entry' && (journalSubView === 'ledger' || journalSubView === 'master' || journalSubView === 'unmatched')) || mode === 'financial-statement' ? 'max-w-[1280px]' : 'max-w-[900px]'
       }`}>
 
         {/* ─── モード切替タブ ──────────────────────────────────────────────── */}
@@ -1681,6 +1690,7 @@ export default function Home() {
             <div className="flex items-center justify-center gap-1 bg-slate-100/60 rounded-xl p-1 max-w-xl mx-auto">
               {([
                 { key: 'execute', label: '仕訳実行' },
+                { key: 'unmatched', label: '未照合' },
                 { key: 'ledger', label: '日記帳' },
                 { key: 'balance', label: '残高' },
                 { key: 'master', label: 'マスタ' },
@@ -1705,7 +1715,25 @@ export default function Home() {
               </div>
             )}
 
-            {journalSubView === 'ledger' ? (
+            {journalSubView === 'unmatched' ? (
+              <UnmatchedView
+                transactions={journalMatchResult?.summary.unmatchedTransactions ?? []}
+                accounts={unmatchedTxAccounts}
+                setAccounts={setUnmatchedTxAccounts}
+                descriptions={unmatchedTxDescriptions}
+                setDescriptions={setUnmatchedTxDescriptions}
+                selected={unmatchedSelected}
+                setSelected={setUnmatchedSelected}
+                bulkAccount={unmatchedBulkAccount}
+                setBulkAccount={setUnmatchedBulkAccount}
+                bulkDescription={unmatchedBulkDescription}
+                setBulkDescription={setUnmatchedBulkDescription}
+                accountsList={accountsList}
+                addAccountLocal={addAccountLocal}
+                onShowPdf={showTransactionPdf}
+                onGoExecute={() => setJournalSubView('execute')}
+              />
+            ) : journalSubView === 'ledger' ? (
               <LedgerView
                 entries={ledgerEntries}
                 loading={ledgerLoading}
@@ -1882,65 +1910,20 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* ─── 未照合の入出金（証票なし） ───────────────────── */}
+                {/* 証憑なしの入出金は「未照合」タブで編集 */}
                 {journalMatchResult.summary.unmatchedTransactions && journalMatchResult.summary.unmatchedTransactions.length > 0 && (
-                  <div className="bg-white border border-amber-100 rounded-2xl shadow-sm overflow-hidden">
-                    <div className="px-5 py-4 border-b border-amber-100 bg-amber-50/40">
-                      <p className="text-sm font-semibold text-amber-700 tracking-tight">
-                        証憑がない出金（{journalMatchResult.summary.unmatchedTransactions.length}件）
-                      </p>
-                      <p className="text-[10px] text-amber-500/80 mt-0.5 tracking-wide">
-                        勘定科目を選択するとCSVに含まれます。例：銀行手数料 → 支払手数料
-                      </p>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm min-w-[760px]">
-                        <thead>
-                          <tr className="border-b border-amber-50">
-                            <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">日付</th>
-                            <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">摘要</th>
-                            <th className="px-4 py-3 text-right text-[10px] font-semibold text-amber-400 uppercase tracking-widest">金額</th>
-                            <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">借方科目</th>
-                            <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">貸方</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-amber-50">
-                          {journalMatchResult.summary.unmatchedTransactions.map((tx, i) => (
-                            <tr
-                              key={i}
-                              className={`hover:bg-amber-50/30 transition-colors ${tx.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
-                              onClick={(e) => {
-                                if ((e.target as HTMLElement).closest('select, input')) return;
-                                showTransactionPdf(tx);
-                              }}
-                            >
-                              <td className="px-4 py-3 text-xs font-mono text-slate-500">
-                                {tx.transactionDate.length === 8
-                                  ? `${tx.transactionDate.slice(0,4)}/${tx.transactionDate.slice(4,6)}/${tx.transactionDate.slice(6,8)}`
-                                  : tx.transactionDate}
-                              </td>
-                              <td className="px-4 py-3 text-xs text-slate-600 max-w-[200px] truncate" title={tx.description}>
-                                {tx.description}
-                              </td>
-                              <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
-                                {tx.debit != null ? `¥${tx.debit.toLocaleString()}` : '—'}
-                              </td>
-                              <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                                <AccountCombobox
-                                  value={unmatchedTxAccounts[i] ?? ''}
-                                  onChange={(v) => setUnmatchedTxAccounts((prev) => ({ ...prev, [i]: v }))}
-                                  accounts={accountsList}
-                                  onCreate={addAccountLocal}
-                                  placeholder="科目名 / ローマ字"
-                                />
-                              </td>
-                              <td className="px-4 py-3 text-xs text-slate-400">普通預金</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setJournalSubView('unmatched')}
+                    className="w-full bg-amber-50/60 border border-amber-100 rounded-2xl px-5 py-4 text-left hover:bg-amber-50 transition-colors"
+                  >
+                    <p className="text-sm font-semibold text-amber-700 tracking-tight">
+                      証憑がない出金が {journalMatchResult.summary.unmatchedTransactions.length} 件あります →
+                    </p>
+                    <p className="text-[11px] text-amber-500/80 mt-0.5 tracking-wide">
+                      「未照合」タブで勘定科目を割り当ててください（一括選択可）
+                    </p>
+                  </button>
                 )}
               </div>
             ) : (
@@ -2885,6 +2868,266 @@ function computeBalances(entries: LedgerEntry[]) {
     .sort((a, b) => b.balance - a.balance);
 
   return { accounts, accountBalances, vendorRows };
+}
+
+// ─── 未照合入出金ビュー（一括選択 + 一括適用） ─────────────────────────────
+
+function UnmatchedView({
+  transactions,
+  accounts,
+  setAccounts,
+  descriptions,
+  setDescriptions,
+  selected,
+  setSelected,
+  bulkAccount,
+  setBulkAccount,
+  bulkDescription,
+  setBulkDescription,
+  accountsList,
+  addAccountLocal,
+  onShowPdf,
+  onGoExecute,
+}: {
+  transactions: TransactionInput[];
+  accounts: Record<number, string>;
+  setAccounts: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  descriptions: Record<number, string>;
+  setDescriptions: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  selected: Set<number>;
+  setSelected: React.Dispatch<React.SetStateAction<Set<number>>>;
+  bulkAccount: string;
+  setBulkAccount: (v: string) => void;
+  bulkDescription: string;
+  setBulkDescription: (v: string) => void;
+  accountsList: AccountOption[];
+  addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null> | void;
+  onShowPdf: (tx: TransactionInput) => void;
+  onGoExecute: () => void;
+}) {
+  if (transactions.length === 0) {
+    return (
+      <div className="bg-white border border-slate-100 rounded-2xl p-12 text-center shadow-sm">
+        <p className="text-sm font-semibold text-slate-700">未照合の入出金はありません</p>
+        <p className="text-xs text-slate-400 mt-2">「仕訳実行」タブで照合するとここに証票なし取引が表示されます</p>
+        <button
+          type="button"
+          onClick={onGoExecute}
+          className="mt-5 text-xs font-semibold text-sky-600 hover:text-sky-700"
+        >
+          仕訳実行へ →
+        </button>
+      </div>
+    );
+  }
+
+  const allSelected = selected.size === transactions.length && transactions.length > 0;
+  const toggleAll = () => {
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(transactions.map((_, i) => i)));
+  };
+  const toggleOne = (i: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  };
+
+  const applyBulkAccount = () => {
+    if (!bulkAccount || selected.size === 0) return;
+    setAccounts((prev) => {
+      const next = { ...prev };
+      selected.forEach((i) => { next[i] = bulkAccount; });
+      return next;
+    });
+  };
+  const applyBulkDescription = () => {
+    if (!bulkDescription || selected.size === 0) return;
+    setDescriptions((prev) => {
+      const next = { ...prev };
+      selected.forEach((i) => { next[i] = bulkDescription; });
+      return next;
+    });
+  };
+
+  const assignedCount = transactions.filter((_, i) => accounts[i]).length;
+
+  return (
+    <div className="space-y-4">
+      {/* ヘッダー */}
+      <div className="bg-white border border-amber-100 rounded-2xl p-5 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-base font-semibold text-slate-900 tracking-tight">
+            証憑がない入出金 <span className="text-amber-600">{transactions.length}</span> 件
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            科目割当済み {assignedCount} / {transactions.length} 件 — CSVに含まれるのは科目を設定したものだけです
+          </p>
+        </div>
+        <p className="text-[11px] text-slate-400">例：銀行手数料 → 支払手数料</p>
+      </div>
+
+      {/* 一括適用バー */}
+      <div className={`sticky top-2 z-10 bg-white border rounded-2xl p-4 shadow-sm transition-all ${
+        selected.size > 0 ? 'border-sky-300 ring-2 ring-sky-100' : 'border-slate-100'
+      }`}>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <p className="text-xs font-semibold text-slate-700">
+            {selected.size > 0 ? (
+              <span className="text-sky-600">{selected.size} 件を選択中</span>
+            ) : (
+              <span className="text-slate-400">行を選択すると一括適用できます</span>
+            )}
+          </p>
+          {selected.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-[11px] text-slate-500 hover:text-slate-700 underline"
+            >
+              選択解除
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">借方科目（一括）</span>
+            <div className="mt-1 flex gap-2">
+              <div className="flex-1">
+                <AccountCombobox
+                  value={bulkAccount}
+                  onChange={setBulkAccount}
+                  accounts={accountsList}
+                  onCreate={addAccountLocal}
+                  placeholder="科目名 / ローマ字"
+                />
+              </div>
+              <button
+                type="button"
+                disabled={!bulkAccount || selected.size === 0}
+                onClick={applyBulkAccount}
+                className="text-xs font-semibold px-3 py-2 rounded-lg bg-sky-500 text-white disabled:bg-slate-200 disabled:text-slate-400 hover:bg-sky-600 transition-colors whitespace-nowrap"
+              >
+                選択に適用
+              </button>
+            </div>
+          </div>
+          <div>
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">摘要（一括）</span>
+            <div className="mt-1 flex gap-2">
+              <input
+                type="text"
+                value={bulkDescription}
+                onChange={(e) => setBulkDescription(e.target.value)}
+                placeholder="例：振込手数料"
+                className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-sky-400"
+              />
+              <button
+                type="button"
+                disabled={!bulkDescription || selected.size === 0}
+                onClick={applyBulkDescription}
+                className="text-xs font-semibold px-3 py-2 rounded-lg bg-lime-500 text-white disabled:bg-slate-200 disabled:text-slate-400 hover:bg-lime-600 transition-colors whitespace-nowrap"
+              >
+                選択に適用
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 明細テーブル */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[900px]">
+            <thead className="bg-slate-50/80">
+              <tr className="border-b border-slate-100">
+                <th className="px-3 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    className="w-4 h-4 accent-sky-500 cursor-pointer"
+                  />
+                </th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">日付</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">元摘要</th>
+                <th className="px-3 py-3 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-widest">出金</th>
+                <th className="px-3 py-3 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-widest">入金</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">借方科目</th>
+                <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">摘要（上書き）</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {transactions.map((tx, i) => {
+                const isSelected = selected.has(i);
+                return (
+                  <tr
+                    key={i}
+                    className={`transition-colors ${isSelected ? 'bg-sky-50/40' : 'hover:bg-slate-50/40'}`}
+                  >
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleOne(i)}
+                        className="w-4 h-4 accent-sky-500 cursor-pointer"
+                      />
+                    </td>
+                    <td
+                      className="px-3 py-2 text-xs font-mono text-slate-500 cursor-pointer"
+                      onClick={() => onShowPdf(tx)}
+                    >
+                      {tx.transactionDate.length === 8
+                        ? `${tx.transactionDate.slice(0,4)}/${tx.transactionDate.slice(4,6)}/${tx.transactionDate.slice(6,8)}`
+                        : tx.transactionDate}
+                    </td>
+                    <td
+                      className="px-3 py-2 text-xs text-slate-600 max-w-[220px] truncate cursor-pointer"
+                      title={tx.description}
+                      onClick={() => onShowPdf(tx)}
+                    >
+                      {tx.description}
+                    </td>
+                    <td className="px-3 py-2 text-right text-xs font-semibold text-slate-900 tabular-nums">
+                      {tx.debit != null ? `¥${tx.debit.toLocaleString()}` : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right text-xs font-semibold text-lime-600 tabular-nums">
+                      {tx.credit != null ? `¥${tx.credit.toLocaleString()}` : '—'}
+                    </td>
+                    <td className="px-3 py-2 min-w-[200px]">
+                      <AccountCombobox
+                        value={accounts[i] ?? ''}
+                        onChange={(v) => setAccounts((prev) => ({ ...prev, [i]: v }))}
+                        accounts={accountsList}
+                        onCreate={addAccountLocal}
+                        placeholder="科目名 / ローマ字"
+                        dense
+                      />
+                    </td>
+                    <td className="px-3 py-2 min-w-[200px]">
+                      <input
+                        type="text"
+                        value={descriptions[i] ?? ''}
+                        onChange={(e) => setDescriptions((prev) => ({ ...prev, [i]: e.target.value }))}
+                        placeholder={tx.description}
+                        className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:border-sky-400"
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p className="text-[11px] text-slate-400 text-center">
+        設定が終わったら「仕訳実行」タブに戻ってCSVをダウンロードしてください
+      </p>
+    </div>
+  );
 }
 
 // ─── 仕訳日記帳ビュー（明細 + 編集削除 + 締め） ─────────────────────────────
