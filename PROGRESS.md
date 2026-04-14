@@ -176,3 +176,23 @@ public/sales-deck.pdf   — 営業資料PDF
   - 本番 Supabase（`lonmddwpcfalgtddaksg`）に `20260414_financial_statements.sql` を適用（`accounts.sub_category` / `display_order` カラム + `fiscal_periods` テーブル作成）
 - **背景**: 「sub_category カラムが schema cache に無い」エラーで科目追加が失敗していた。マイグレーションが本番DBに未適用だったのが原因
 - **次にやること**: 決算書機能（P/L・B/S）の動作確認。`fiscal_periods` を使った期間指定UIがまだ未検証
+
+### 2026-04-14（追加）決算書を税務署式5ページ構成に再構築
+- **やったこと**:
+  - DBマイグレーション `20260414_company_info_opening_balances.sql` を本番DBに適用
+    - `clients` に `company_code`（会社番号、英数字8文字以内）/ `legal_name`（正式名）/ `short_name`（略称）追加
+    - `clients` に `UNIQUE(user_id, company_code) WHERE company_code IS NOT NULL` 部分インデックス
+    - `fiscal_periods` に `opening_balances JSONB` 追加（科目名 → 期首残高）
+  - `/api/clients` に PATCH 追加・GET/POST/PATCH で会社情報3項目を扱えるように
+  - クライアント管理モーダルを4項目フォーム + 編集/削除UIに再構築。表示は `{company_code} {short_name}` 形式
+  - `/api/fiscal-periods/[id]` に PATCH 追加（name/dates/opening_balances 更新）
+  - `/api/fiscal-periods/[id]/calculate-opening` 新設：期首日より前の全仕訳から B/S 残高 + 過去PL純利益（→繰越利益剰余金）を自動算出
+  - `/api/financial-statement` を refactor：`opening_balances` を加味した B/S 構築 + 株主資本等変動計算書データ（純資産科目別の opening/change/ending）を返却
+  - 決算書ビュー `FinancialStatementView` を全面書き換え：
+    - 期編集パネル（期首残高の手動入力 + 自動算出ボタン）追加
+    - 印刷出力を **5ページ構成**に：表紙 / 貸借対照表 / 損益計算書 / 販管費内訳書 / 社員資本等変動計算書
+    - A4縦・明朝体・実線格子テーブル・均等割り付け風タイトル・(単位：円) 表記の税務署式レイアウト
+    - `@media print` で `break-after: page` による確実な改ページ
+    - 印刷時の注意（ヘッダー/フッターOFF・背景グラフィックON）を画面に表示
+- **背景**: 税理士事務所への提出を想定した日本式決算書フォーマット（決算報告書セット）の出力が必要だった。画像5枚を貼ってもらってレイアウトを確定。会社情報の管理（会社番号での絞り込み・正式名/略称の使い分け）も合わせて整備
+- **次にやること**: ユーザーが実データでログインして 決算書 タブ → 期選択 → 期首残高自動算出 → 決算書を生成 → PDF出力 まで通しで動作確認。レイアウトの微調整があれば対応

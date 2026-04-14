@@ -4,6 +4,8 @@ import { createServiceClient } from '@/utils/supabase/service';
 
 export const maxDuration = 15;
 
+const SELECT_COLS = 'id, name, start_date, end_date, client_id, opening_balances, created_at';
+
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -14,7 +16,7 @@ export async function GET(request: NextRequest) {
 
   let query = service
     .from('fiscal_periods')
-    .select('id, name, start_date, end_date, client_id, created_at')
+    .select(SELECT_COLS)
     .eq('user_id', user.id)
     .order('start_date', { ascending: false });
 
@@ -48,8 +50,8 @@ export async function POST(request: NextRequest) {
   const service = createServiceClient();
   const { data, error } = await service
     .from('fiscal_periods')
-    .insert({ user_id: user.id, name, start_date, end_date, client_id })
-    .select('id, name, start_date, end_date, client_id, created_at')
+    .insert({ user_id: user.id, name, start_date, end_date, client_id, opening_balances: {} })
+    .select(SELECT_COLS)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
