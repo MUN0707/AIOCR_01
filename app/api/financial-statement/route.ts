@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
   const end = params.get('end');
   const clientId = params.get('clientId');
   const periodId = params.get('periodId');
-  const corporateTax = Number(params.get('corporateTax') ?? '0') || 0;
+  const corporateTaxParam = params.get('corporateTax');
 
   if (!start || !end) return NextResponse.json({ error: 'start/end が必要です' }, { status: 400 });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
@@ -56,20 +56,24 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
-  // 期首残高（指定された期があれば取得）
+  // 期首残高・法人税等（指定された期があれば取得）
   let openingBalances: Record<string, number> = {};
+  let periodCorporateTax = 0;
   if (periodId) {
     const { data: period } = await service
       .from('fiscal_periods')
-      .select('opening_balances')
+      .select('opening_balances, corporate_tax')
       .eq('id', periodId)
       .eq('user_id', user.id)
       .single();
     if (period?.opening_balances && typeof period.opening_balances === 'object') {
       openingBalances = period.opening_balances as Record<string, number>;
     }
+    periodCorporateTax = Number(period?.corporate_tax ?? 0) || 0;
   }
   const useOpening = Object.keys(openingBalances).length > 0;
+  // corporateTaxParam が明示されていればそちらを優先、なければ期の保存値
+  const corporateTax = corporateTaxParam != null ? (Number(corporateTaxParam) || 0) : periodCorporateTax;
 
   // クライアント情報（決算書ヘッダー用）
   let clientInfo: { name: string; legal_name: string | null; short_name: string | null; company_code: string | null } | null = null;

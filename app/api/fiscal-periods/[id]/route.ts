@@ -4,7 +4,7 @@ import { createServiceClient } from '@/utils/supabase/service';
 
 export const maxDuration = 15;
 
-const SELECT_COLS = 'id, name, start_date, end_date, client_id, opening_balances, created_at';
+const SELECT_COLS = 'id, name, start_date, end_date, client_id, opening_balances, corporate_tax, created_at';
 
 export async function PATCH(
   request: NextRequest,
@@ -34,6 +34,13 @@ export async function PATCH(
       return NextResponse.json({ error: '日付形式が不正です' }, { status: 400 });
     }
     patch.end_date = body.end_date;
+  }
+  if (body.corporate_tax !== undefined) {
+    const num = Number(body.corporate_tax);
+    if (!Number.isFinite(num)) {
+      return NextResponse.json({ error: '法人税等は数値で指定してください' }, { status: 400 });
+    }
+    patch.corporate_tax = num;
   }
   if (body.opening_balances !== undefined) {
     if (typeof body.opening_balances !== 'object' || body.opening_balances === null) {

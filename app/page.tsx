@@ -4398,6 +4398,7 @@ interface FiscalPeriod {
   end_date: string;
   client_id: string | null;
   opening_balances: Record<string, number> | null;
+  corporate_tax: number | null;
   created_at: string;
 }
 
@@ -4483,7 +4484,6 @@ function FinancialStatementView({
   const [result, setResult] = useState<FsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [corporateTax, setCorporateTax] = useState<string>('0');
 
   // 新規期間追加
   const [showAddForm, setShowAddForm] = useState(false);
@@ -4491,8 +4491,8 @@ function FinancialStatementView({
 
   // 期編集（期首残高含む）
   const [editingPeriodId, setEditingPeriodId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<{ name: string; start_date: string; end_date: string; opening: { name: string; amount: string }[] }>({
-    name: '', start_date: '', end_date: '', opening: [],
+  const [editForm, setEditForm] = useState<{ name: string; start_date: string; end_date: string; corporate_tax: string; opening: { name: string; amount: string }[] }>({
+    name: '', start_date: '', end_date: '', corporate_tax: '0', opening: [],
   });
   const [editSaving, setEditSaving] = useState(false);
   const [calcLoading, setCalcLoading] = useState(false);
@@ -4552,7 +4552,6 @@ function FinancialStatementView({
         start: selectedPeriod.start_date,
         end: selectedPeriod.end_date,
         periodId: selectedPeriod.id,
-        corporateTax: String(Number(corporateTax) || 0),
       });
       if (selectedClientId) params.set('clientId', selectedClientId);
       const res = await fetch(`/api/financial-statement?${params}`);
@@ -4602,6 +4601,7 @@ function FinancialStatementView({
       name: selectedPeriod.name,
       start_date: selectedPeriod.start_date,
       end_date: selectedPeriod.end_date,
+      corporate_tax: String(selectedPeriod.corporate_tax ?? 0),
       opening,
     });
     setEditingPeriodId(selectedPeriod.id);
@@ -4625,6 +4625,7 @@ function FinancialStatementView({
           name: editForm.name,
           start_date: editForm.start_date,
           end_date: editForm.end_date,
+          corporate_tax: Number(editForm.corporate_tax) || 0,
           opening_balances: ob,
         }),
       });
@@ -4752,17 +4753,11 @@ function FinancialStatementView({
             </>
           )}
           <div className="flex-1" />
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 whitespace-nowrap">法人税等</span>
-            <input
-              type="number"
-              value={corporateTax}
-              onChange={(e) => setCorporateTax(e.target.value)}
-              placeholder="0"
-              className="text-sm w-32 border border-slate-200 rounded-xl px-3 py-2 text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300"
-            />
-            <span className="text-xs text-slate-400">円</span>
-          </div>
+          {selectedPeriod && (
+            <span className="text-[11px] text-slate-500 tabular-nums">
+              法人税等: {formatYen(Number(selectedPeriod.corporate_tax ?? 0))} 円
+            </span>
+          )}
           <button
             onClick={handleGenerate}
             disabled={!selectedPeriodId || loading}
@@ -4823,7 +4818,7 @@ function FinancialStatementView({
             <button onClick={() => setEditingPeriodId(null)} className="text-xs text-slate-400 hover:text-slate-600">閉じる</button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div>
               <label className="text-[10px] text-slate-400 block mb-0.5">期の名前</label>
               <input
@@ -4849,6 +4844,16 @@ function FinancialStatementView({
                 value={editForm.end_date}
                 onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
                 className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 block mb-0.5">法人税等（円）</label>
+              <input
+                type="number"
+                value={editForm.corporate_tax}
+                onChange={(e) => setEditForm({ ...editForm, corporate_tax: e.target.value })}
+                placeholder="0"
+                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 text-right tabular-nums focus:outline-none focus:border-sky-400"
               />
             </div>
           </div>

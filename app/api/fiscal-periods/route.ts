@@ -4,7 +4,7 @@ import { createServiceClient } from '@/utils/supabase/service';
 
 export const maxDuration = 15;
 
-const SELECT_COLS = 'id, name, start_date, end_date, client_id, opening_balances, created_at';
+const SELECT_COLS = 'id, name, start_date, end_date, client_id, opening_balances, corporate_tax, created_at';
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
   const service = createServiceClient();
   const { data, error } = await service
     .from('fiscal_periods')
-    .insert({ user_id: user.id, name, start_date, end_date, client_id, opening_balances: {} })
+    .insert({ user_id: user.id, name, start_date, end_date, client_id, opening_balances: {}, corporate_tax: 0 })
     .select(SELECT_COLS)
     .single();
 
