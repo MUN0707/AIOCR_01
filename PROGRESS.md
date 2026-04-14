@@ -206,3 +206,13 @@ public/sales-deck.pdf   — 営業資料PDF
   - `/api/financial-statement` を改修：opening_balances のうちマスタ未登録 / 中区分未設定の項目を `invalidOpeningBalances` として返却。決算書下に **赤い警告ボックス**で「決算書に反映されていない」旨を明示（過去のタイポ入力もこれで気付ける）
 - **背景**: 「期首残高を編集しても決算書に反映されない」「ふてう預金など typo でエラー（=silent drop）になる」「貸借が一致しているか確認したい」というユーザーからの指摘。根本原因は API 側で `accountMap.get(name)?.sub_category` が null の opening を `continue` で黙って捨てていたこと。ドロップダウン化で入力時点で防止し、API 側でも警告を返すように二重防御
 - **次にやること**: ユーザーに通しテストを依頼。会社情報未設定の既存クライアントは「クライアント管理」から正式名 (legal_name) を必ず入力する必要がある
+
+### 2026-04-14 20:28 科目区分の入力必須化と編集時の即時反映
+- **やったこと**:
+  - `AccountCombobox` の「+ 新規追加」パネル: 区分3択（未設定/販管費/売上原価）→ **全 SUB_CATEGORY_OPTIONS のドロップダウン + 必須化**。確定ボタンを `!sub_category` で無効化
+  - マスタ画面 `MasterView` の新規追加フォーム: 区分を「任意」→「必須」に。`handleAddAcc` は既存同名再利用ケースでも必ず PATCH で sub_category を上書き
+  - `MasterRow` の sub_category select: `value={item.sub_category}` 直結だと PATCH→reload までの間に React の controlled component が旧値に巻き戻る → **ローカル state + useEffect で同期** に変更（楽観更新）
+  - `addAccountLocal`: `expenseSubs` ハードコードを廃止し、全 sub_category → category 逆引きテーブルに置換（売上高/特別損失なども正しく分類）
+  - `fetchAccounts`: `cache: 'no-store'` を追加（PATCH 直後の GET でブラウザキャッシュを回避）
+- **背景**: ユーザーから「マスタで販管費→売上原価に切り替えても見た目が戻る」「仕訳編集で新規科目を追加するとき区分が未設定でも登録できてしまう」との指摘。前者は controlled component の楽観更新漏れ、後者は単純なバリデーション抜け
+- **次にやること**: マスタ画面で実際に切り替えて、リロード後も値が保持されているか確認してもらう
