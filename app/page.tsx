@@ -511,7 +511,7 @@ export default function Home() {
 
   const fetchAccounts = useCallback(async () => {
     try {
-      const res = await fetch('/api/accounts');
+      const res = await fetch('/api/accounts', { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       setAccountsList(data.accounts ?? []);
@@ -526,9 +526,15 @@ export default function Home() {
     // 既存に同名があれば再利用
     const existing = accountsList.find((a) => a.name === trimmed);
     if (existing) return existing;
-    // sub_category が 販管費/売上原価/営業外費用/特別損失 なら category=expense を自動付与
-    const expenseSubs = ['販管費', '売上原価', '営業外費用', '特別損失'];
-    const category = sub_category && expenseSubs.includes(sub_category) ? 'expense' : '';
+    // sub_category から大区分(category)を逆引き
+    const SUB_TO_CATEGORY: Record<string, string> = {
+      '流動資産': 'asset', '固定資産': 'asset', '繰延資産': 'asset',
+      '流動負債': 'liability', '固定負債': 'liability',
+      '純資産': 'equity',
+      '売上高': 'revenue', '営業外収益': 'revenue', '特別利益': 'revenue',
+      '売上原価': 'expense', '販管費': 'expense', '営業外費用': 'expense', '特別損失': 'expense',
+    };
+    const category = sub_category ? (SUB_TO_CATEGORY[sub_category] ?? '') : '';
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3721,10 +3727,11 @@ function MasterView({
   };
 
   const handleAddAcc = async () => {
-    if (!newAcc.name.trim()) return;
-    const acc = await onCreateAccount(newAcc.name, newAcc.reading);
+    if (!newAcc.name.trim() || !newAcc.sub_category) return;
+    const acc = await onCreateAccount(newAcc.name, newAcc.reading, newAcc.sub_category);
     if (acc) {
-      if (newAcc.sub_category && acc.id) {
+      // addAccountLocal は既存同名なら sub_category を更新しないので、確実に PATCH で揃える
+      if (acc.id) {
         const cat = SUB_CATEGORY_OPTIONS.find((o) => o.value === newAcc.sub_category)?.category ?? '';
         await fetch(`/api/accounts/${acc.id}`, {
           method: 'PATCH',
@@ -3773,14 +3780,14 @@ function MasterView({
               onChange={(e) => setNewAcc({ ...newAcc, sub_category: e.target.value })}
               className="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400 bg-white text-slate-600"
             >
-              <option value="">中区分を選択（任意）</option>
+              <option value="">中区分を選択（必須）</option>
               {SUB_CATEGORY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
             <button
               onClick={handleAddAcc}
-              disabled={!newAcc.name.trim()}
+              disabled={!newAcc.name.trim() || !newAcc.sub_category}
               className="text-xs text-white bg-sky-500 rounded-lg px-3 font-semibold hover:bg-sky-600 disabled:opacity-40"
             >
               追加
@@ -3889,6 +3896,12 @@ function MasterRow({
 }) {
   const [name, setName] = useState(item.name);
   const [reading, setReading] = useState(item.reading ?? '');
+  // sub_category は親 props 由来だと「PATCH→reload」までの間に値が戻ってしまうので
+  // 楽観更新するためにローカル state で持つ。props 側が変わったら同期する。
+  const [subCategory, setSubCategory] = useState<string>(item.sub_category ?? '');
+  useEffect(() => {
+    setSubCategory(item.sub_category ?? '');
+  }, [item.sub_category]);
 
   return (
     <tr className="hover:bg-slate-50/30">
@@ -3912,9 +3925,10 @@ function MasterRow({
       {showSubCategory && (
         <td className="px-2 py-2" style={{ width: '130px' }}>
           <select
-            value={item.sub_category ?? ''}
+            value={subCategory}
             onChange={(e) => {
               const sub = e.target.value;
+              setSubCategory(sub);
               const cat = SUB_CATEGORY_OPTIONS.find((o) => o.value === sub)?.category ?? item.category;
               onSave({ sub_category: sub, category: cat });
             }}
