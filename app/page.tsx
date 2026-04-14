@@ -487,16 +487,19 @@ export default function Home() {
     }
   }, []);
 
-  const addAccountLocal = useCallback(async (name: string, reading?: string): Promise<AccountItem | null> => {
+  const addAccountLocal = useCallback(async (name: string, reading?: string, sub_category?: string): Promise<AccountItem | null> => {
     const trimmed = name.trim();
     if (!trimmed) return null;
     // 既存に同名があれば再利用
     const existing = accountsList.find((a) => a.name === trimmed);
     if (existing) return existing;
+    // sub_category が 販管費/売上原価/営業外費用/特別損失 なら category=expense を自動付与
+    const expenseSubs = ['販管費', '売上原価', '営業外費用', '特別損失'];
+    const category = sub_category && expenseSubs.includes(sub_category) ? 'expense' : '';
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: trimmed, reading: reading?.trim() ?? '' }),
+      body: JSON.stringify({ name: trimmed, reading: reading?.trim() ?? '', sub_category: sub_category ?? '', category }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -2694,7 +2697,7 @@ function LedgerView({
   onClose: (closedUntil: string) => void;
   onReopen: () => void;
   accountsList: AccountOption[];
-  addAccountLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
+  addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
   vendorsList: AccountOption[];
   addVendorLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
 }) {
@@ -2921,7 +2924,7 @@ function EditableRow({
   onToggleSelect: () => void;
   onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
   accountsList: AccountOption[];
-  addAccountLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
+  addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
   vendorsList: AccountOption[];
   addVendorLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
 }) {
@@ -3200,14 +3203,14 @@ function AccountCombobox({
   onChange: (next: string) => void;
   onCommit?: (next: string) => void;
   accounts: AccountOption[];
-  onCreate?: (name: string, reading?: string) => Promise<AccountOption | null> | void;
+  onCreate?: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null> | void;
   placeholder?: string;
   dense?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   // 新規作成モード: 名前と読みの2段階入力
-  const [creating, setCreating] = useState<{ name: string; reading: string } | null>(null);
+  const [creating, setCreating] = useState<{ name: string; reading: string; sub_category: string } | null>(null);
   const readingInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -3238,13 +3241,13 @@ function AccountCombobox({
   const showCreate = !!value.trim() && !exact && !!onCreate;
 
   const startCreate = () => {
-    setCreating({ name: value.trim(), reading: '' });
+    setCreating({ name: value.trim(), reading: '', sub_category: '' });
     setTimeout(() => readingInputRef.current?.focus(), 0);
   };
 
   const confirmCreate = async () => {
     if (!creating || !onCreate) return;
-    const acc = await Promise.resolve(onCreate(creating.name, creating.reading));
+    const acc = await Promise.resolve(onCreate(creating.name, creating.reading, creating.sub_category));
     if (acc) {
       onChange(acc.name);
       onCommit?.(acc.name);
@@ -3359,6 +3362,29 @@ function AccountCombobox({
               />
             </div>
           </div>
+          <div>
+            <span className="text-[10px] text-slate-400">区分（任意）</span>
+            <div className="mt-0.5 flex gap-1">
+              {[
+                { v: '', label: '未設定' },
+                { v: '販管費', label: '販管費' },
+                { v: '売上原価', label: '売上原価' },
+              ].map((opt) => (
+                <button
+                  key={opt.v}
+                  type="button"
+                  onClick={() => setCreating({ ...creating, sub_category: opt.v })}
+                  className={`flex-1 text-[10px] rounded-md border px-2 py-1 font-medium ${
+                    creating.sub_category === opt.v
+                      ? 'bg-sky-50 border-sky-400 text-sky-700'
+                      : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex justify-end gap-1.5 pt-1">
             <button
               type="button"
@@ -3396,7 +3422,7 @@ function MasterView({
   vendorsList: AccountOption[];
   onReloadAccounts: () => void;
   onReloadVendors: () => void;
-  onCreateAccount: (name: string, reading?: string) => Promise<AccountOption | null>;
+  onCreateAccount: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
   onCreateVendor: (name: string, reading?: string) => Promise<AccountOption | null>;
 }) {
   const [newAcc, setNewAcc] = useState({ name: '', reading: '', sub_category: '' });
@@ -3699,6 +3725,7 @@ interface FsResult {
     extraIncome: number;
     extraLoss: number;
     netIncomeBeforeTax: number;
+    corporateTax: number;
     netIncome: number;
   };
   bs: {
@@ -3722,6 +3749,9 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<FsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // 法人税等（手動入力）
+  const [corporateTax, setCorporateTax] = useState<string>('0');
 
   // 新規期間追加フォーム
   const [showAddForm, setShowAddForm] = useState(false);
@@ -3756,6 +3786,7 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
       const params = new URLSearchParams({
         start: selectedPeriod.start_date,
         end: selectedPeriod.end_date,
+        corporateTax: String(Number(corporateTax) || 0),
       });
       if (selectedClientId) params.set('clientId', selectedClientId);
       const res = await fetch(`/api/financial-statement?${params}`);
@@ -3850,6 +3881,17 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
             </button>
           )}
           <div className="flex-1" />
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 whitespace-nowrap">法人税等</span>
+            <input
+              type="number"
+              value={corporateTax}
+              onChange={(e) => setCorporateTax(e.target.value)}
+              placeholder="0"
+              className="text-sm w-32 border border-slate-200 rounded-xl px-3 py-2 text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300"
+            />
+            <span className="text-xs text-slate-400">円</span>
+          </div>
           <button
             onClick={handleGenerate}
             disabled={!selectedPeriodId || loading}
@@ -3938,6 +3980,7 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
                 <PlRow label="特別損失" amount={result.pl.extraLoss} bold />
                 <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '特別損失')} />
                 <PlRow label="税引前当期純利益" amount={result.pl.netIncomeBeforeTax} highlight />
+                <PlRow label="法人税、住民税及び事業税" amount={result.pl.corporateTax} bold />
                 <PlRow label="当期純利益" amount={result.pl.netIncome} highlight double />
               </tbody>
             </table>
