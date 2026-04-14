@@ -448,6 +448,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   // undefined = 初期ロード中 / null = ゲスト / User = ログイン済み
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [usageInfo, setUsageInfo] = useState<{ count: number; limit: number } | null>(null);
 
@@ -771,6 +772,10 @@ export default function Home() {
         const count = parseInt(localStorage.getItem('guestUseCount') || '0');
         if (count >= GUEST_MAX_USES) setGuestLimitReached(true);
       } else {
+        fetch('/api/me')
+          .then((r) => r.json())
+          .then((d) => setIsAdmin(!!d.isAdmin))
+          .catch(() => {});
         fetch('/api/usage')
           .then((r) => r.json())
           .then((d) => { if (d.count != null) setUsageInfo({ count: d.count, limit: d.limit }); })
@@ -1330,14 +1335,16 @@ export default function Home() {
             </button>
           ) : (
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => router.push('/history')}
-                className="text-xs font-medium text-sky-600 border border-sky-200 rounded-xl
-                  px-4 py-2 hover:bg-sky-50 hover:border-sky-300
-                  transition-all duration-200 tracking-wide"
-              >
-                履歴
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => router.push('/history')}
+                  className="text-xs font-medium text-sky-600 border border-sky-200 rounded-xl
+                    px-4 py-2 hover:bg-sky-50 hover:border-sky-300
+                    transition-all duration-200 tracking-wide"
+                >
+                  履歴
+                </button>
+              )}
               <button
                 onClick={handleSignOut}
                 className="text-xs text-slate-400 border border-slate-200 rounded-xl

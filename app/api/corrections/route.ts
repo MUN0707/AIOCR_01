@@ -17,6 +17,9 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
+  if (user.email !== process.env.ADMIN_EMAIL) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
 
   const body = (await request.json()) as { corrections?: CorrectionInput[] };
   const corrections = body.corrections ?? [];

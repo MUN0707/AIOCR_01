@@ -8,6 +8,9 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
+  if (user.email !== process.env.ADMIN_EMAIL) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
 
   const url = new URL(request.url);
   const id = url.searchParams.get('id');

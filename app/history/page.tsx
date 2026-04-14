@@ -88,6 +88,12 @@ export default function HistoryPage() {
         router.push('/login');
         return;
       }
+      const meRes = await fetch('/api/me');
+      const me = meRes.ok ? await meRes.json() : { isAdmin: false };
+      if (!me.isAdmin) {
+        router.push('/');
+        return;
+      }
       const res = await fetch('/api/history');
       if (!res.ok) {
         setItems([]);
