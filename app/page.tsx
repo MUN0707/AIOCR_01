@@ -3496,6 +3496,7 @@ function AccountCombobox({
 
   const confirmCreate = async () => {
     if (!creating || !onCreate) return;
+    if (!creating.name.trim() || !creating.sub_category) return;
     const acc = await Promise.resolve(onCreate(creating.name, creating.reading, creating.sub_category));
     if (acc) {
       onChange(acc.name);
@@ -3612,27 +3613,19 @@ function AccountCombobox({
             </div>
           </div>
           <div>
-            <span className="text-[10px] text-slate-400">区分（任意）</span>
-            <div className="mt-0.5 flex gap-1">
-              {[
-                { v: '', label: '未設定' },
-                { v: '販管費', label: '販管費' },
-                { v: '売上原価', label: '売上原価' },
-              ].map((opt) => (
-                <button
-                  key={opt.v}
-                  type="button"
-                  onClick={() => setCreating({ ...creating, sub_category: opt.v })}
-                  className={`flex-1 text-[10px] rounded-md border px-2 py-1 font-medium ${
-                    creating.sub_category === opt.v
-                      ? 'bg-sky-50 border-sky-400 text-sky-700'
-                      : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-                  }`}
-                >
-                  {opt.label}
-                </button>
+            <span className="text-[10px] text-slate-400">
+              区分 <span className="text-red-500">*必須</span>
+            </span>
+            <select
+              value={creating.sub_category}
+              onChange={(e) => setCreating({ ...creating, sub_category: e.target.value })}
+              className="mt-0.5 w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-sky-400 bg-white text-slate-600"
+            >
+              <option value="">区分を選択してください</option>
+              {SUB_CATEGORY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
               ))}
-            </div>
+            </select>
           </div>
           <div className="flex justify-end gap-1.5 pt-1">
             <button
@@ -3645,7 +3638,7 @@ function AccountCombobox({
             <button
               type="button"
               onClick={confirmCreate}
-              disabled={!creating.name.trim()}
+              disabled={!creating.name.trim() || !creating.sub_category}
               className="text-[10px] text-white bg-lime-500 rounded-md px-3 py-1 font-semibold hover:bg-lime-600 disabled:opacity-50"
             >
               追加
