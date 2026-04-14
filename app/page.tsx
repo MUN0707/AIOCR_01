@@ -79,6 +79,23 @@ interface LedgerEntry {
   created_at: string;
   updated_at: string;
   locked: boolean;
+  ocr_upload_id: string | null;
+}
+
+async function openJournalPdf(entryId: string): Promise<void> {
+  try {
+    const res = await fetch(`/api/journal-pdf?entryId=${entryId}`);
+    if (!res.ok) {
+      alert('PDFが取得できませんでした');
+      return;
+    }
+    const data = await res.json();
+    if (data.pdfUrl) {
+      window.open(data.pdfUrl, '_blank', 'noopener,noreferrer');
+    }
+  } catch {
+    alert('PDFの取得に失敗しました');
+  }
 }
 
 // ─── ユーティリティ ────────────────────────────────────────────────────────
@@ -1023,6 +1040,7 @@ export default function Home() {
         const data = await res.json();
         if (!res.ok) throw new Error(`${file.name}: ${data.error}`);
         if (bankName === '不明') { bankName = data.bankName; accountNumber = data.accountNumber; }
+        const uploadId: string | null = data.uploadId ?? null;
         allTx.push(...(data.transactions || []).map((t: { date: string; description: string; debit: number | null; credit: number | null }) => ({
           transactionDate: t.date,
           description: t.description,
@@ -1030,6 +1048,7 @@ export default function Home() {
           credit: t.credit,
           sourceFileIndex: fi,
           sourceFileName: file.name,
+          ocrUploadId: uploadId,
         })));
       }
       setBankOcr({ transactions: allTx, bankName, accountNumber });
@@ -1071,6 +1090,7 @@ export default function Home() {
           }
           throw new Error(`${file.name}: ${data.error}`);
         }
+        const uploadId: string | null = data.uploadId ?? null;
         for (const inv of (data.invoices || [])) {
           // OCRが返した明細行を VoucherLine[] として引き継ぐ。
           // lines が無い場合は matcher 側で単一行にフォールバックする。
@@ -1088,6 +1108,7 @@ export default function Home() {
             lines: hasMultipleLines ? ocrLines : undefined,
             sourceFileIndex: fi,
             sourceFileName: file.name,
+            ocrUploadId: uploadId,
           });
         }
       }
@@ -2110,6 +2131,8 @@ export default function Home() {
         {mode === 'financial-statement' && (
           <FinancialStatementView
             selectedClientId={selectedClientId}
+            accountsList={accountsList}
+            addAccountLocal={addAccountLocal}
           />
         )}
 
@@ -3055,6 +3078,7 @@ function LedgerView({
             <col style={{ width: '40px' }} />   {/* チェック */}
             <col style={{ width: '128px' }} />  {/* 日付 */}
             <col style={{ width: '76px' }} />   {/* 種別 */}
+            <col style={{ width: '44px' }} />   {/* 証憑 */}
             <col style={{ width: '160px' }} />  {/* 借方 */}
             <col style={{ width: '160px' }} />  {/* 貸方 */}
             <col style={{ width: '120px' }} />  {/* 金額 */}
@@ -3073,6 +3097,7 @@ function LedgerView({
               </th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
+              <th className="px-2 py-3 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest">証憑</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
               <th className="px-2 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
@@ -3154,6 +3179,21 @@ function EditableRow({
             {entry.entry_type === 'accrual' ? '費用計上' : entry.entry_type === 'payment' ? '支払消込' : '手動'}
           </span>
         </td>
+        <td className="px-2 py-2 text-center">
+          {entry.ocr_upload_id ? (
+            <button
+              type="button"
+              onClick={() => openJournalPdf(entry.id)}
+              className="text-sky-500 hover:text-sky-700 transition-colors"
+              title="元PDFを開く"
+              aria-label="元PDFを開く"
+            >
+              <IconFile className="w-4 h-4 mx-auto" />
+            </button>
+          ) : (
+            <span className="text-slate-200 text-[10px]">—</span>
+          )}
+        </td>
         <td className="px-2 py-2 text-xs text-slate-600">{entry.debit_account}</td>
         <td className="px-2 py-2 text-xs text-slate-600">{entry.credit_account}</td>
         <td className="px-2 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
@@ -3190,6 +3230,21 @@ function EditableRow({
         }`}>
           {entry.entry_type === 'accrual' ? '費用計上' : entry.entry_type === 'payment' ? '支払消込' : '手動'}
         </span>
+      </td>
+      <td className="px-2 py-1.5 text-center">
+        {entry.ocr_upload_id ? (
+          <button
+            type="button"
+            onClick={() => openJournalPdf(entry.id)}
+            className="text-sky-500 hover:text-sky-700 transition-colors"
+            title="元PDFを開く"
+            aria-label="元PDFを開く"
+          >
+            <IconFile className="w-4 h-4 mx-auto" />
+          </button>
+        ) : (
+          <span className="text-slate-200 text-[10px]">—</span>
+        )}
       </td>
       <td className="px-2 py-1.5">
         <AccountCombobox
@@ -3941,6 +3996,7 @@ interface FsResult {
     endingTotal: number;
   };
   unclassified: FsBreakdown[];
+  invalidOpeningBalances: FsBreakdown[];
 }
 
 function formatYen(n: number): string {
@@ -3963,7 +4019,21 @@ function periodNumber(name: string): string {
   return m ? m[1] : '';
 }
 
-function FinancialStatementView({ selectedClientId }: { selectedClientId: string | null }) {
+type FsAccountItem = { id: string; name: string; reading: string; category: string; sub_category?: string | null; display_order?: number | null };
+
+const BS_SUB_CATEGORIES = ['流動資産', '固定資産', '繰延資産', '流動負債', '固定負債', '純資産'] as const;
+const BS_ASSET_LIST = ['流動資産', '固定資産', '繰延資産'];
+const BS_LIAB_LIST = ['流動負債', '固定負債'];
+
+function FinancialStatementView({
+  selectedClientId,
+  accountsList,
+  addAccountLocal,
+}: {
+  selectedClientId: string | null;
+  accountsList: FsAccountItem[];
+  addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<FsAccountItem | null>;
+}) {
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -3983,6 +4053,33 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
   });
   const [editSaving, setEditSaving] = useState(false);
   const [calcLoading, setCalcLoading] = useState(false);
+
+  // 新規科目追加モーダル
+  const [showAddAccount, setShowAddAccount] = useState(false);
+  const [newAccount, setNewAccount] = useState({ name: '', sub_category: '純資産' });
+  const [addAccountSaving, setAddAccountSaving] = useState(false);
+
+  // B/S 科目だけに絞った勘定科目リスト
+  const bsAccounts = accountsList.filter((a) => a.sub_category && (BS_SUB_CATEGORIES as readonly string[]).includes(a.sub_category));
+
+  // 貸借バランス計算（編集中の opening を集計）
+  const editBalance = (() => {
+    const subOf = new Map(accountsList.map((a) => [a.name, a.sub_category ?? null]));
+    let assets = 0;
+    let liabPlusEquity = 0;
+    let unknown = 0;
+    for (const row of editForm.opening) {
+      const name = row.name.trim();
+      if (!name) continue;
+      const num = Number(row.amount);
+      if (!Number.isFinite(num)) continue;
+      const sub = subOf.get(name) ?? null;
+      if (sub && BS_ASSET_LIST.includes(sub)) assets += num;
+      else if (sub && (BS_LIAB_LIST.includes(sub) || sub === '純資産')) liabPlusEquity += num;
+      else unknown += num;
+    }
+    return { assets, liabPlusEquity, diff: assets - liabPlusEquity, unknown };
+  })();
 
   const fetchPeriods = useCallback(async () => {
     try {
@@ -4094,6 +4191,31 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
       setEditingPeriodId(null);
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const handleCreateAccount = async () => {
+    const name = newAccount.name.trim();
+    if (!name || addAccountSaving) return;
+    setAddAccountSaving(true);
+    try {
+      const created = await addAccountLocal(name, '', newAccount.sub_category);
+      if (created) {
+        // 作成後、編集中の最終空行に名前をセット（または新規行追加）
+        setEditForm((prev) => {
+          const blankIdx = prev.opening.findIndex((r) => !r.name.trim());
+          if (blankIdx >= 0) {
+            const next = [...prev.opening];
+            next[blankIdx] = { name: created.name, amount: prev.opening[blankIdx].amount };
+            return { ...prev, opening: next };
+          }
+          return { ...prev, opening: [...prev.opening, { name: created.name, amount: '' }] };
+        });
+        setNewAccount({ name: '', sub_category: '純資産' });
+        setShowAddAccount(false);
+      }
+    } finally {
+      setAddAccountSaving(false);
     }
   };
 
@@ -4279,54 +4401,126 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <p className="text-xs font-semibold text-slate-600">期首残高（B/S 科目のみ）</p>
-              <button
-                onClick={handleAutoCalc}
-                disabled={calcLoading}
-                className="text-xs text-sky-600 border border-sky-200 rounded-lg px-3 py-1.5 hover:bg-sky-50 disabled:opacity-40"
-              >
-                {calcLoading ? '算出中...' : '期首日より前の仕訳から自動算出'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowAddAccount(true)}
+                  className="text-xs text-lime-600 border border-lime-200 rounded-lg px-3 py-1.5 hover:bg-lime-50"
+                >+ 新規科目を追加</button>
+                <button
+                  onClick={handleAutoCalc}
+                  disabled={calcLoading}
+                  className="text-xs text-sky-600 border border-sky-200 rounded-lg px-3 py-1.5 hover:bg-sky-50 disabled:opacity-40"
+                >
+                  {calcLoading ? '算出中...' : '期首日より前の仕訳から自動算出'}
+                </button>
+              </div>
             </div>
-            <p className="text-[10px] text-slate-400">資産は正、負債・純資産は正で入力。繰越利益剰余金も含めてください。</p>
-            <div className="space-y-1 max-h-72 overflow-y-auto">
-              {editForm.opening.map((row, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-center">
+            <p className="text-[10px] text-slate-400">資産は正、負債・純資産は正で入力。繰越利益剰余金も含めてください。科目名はマスタから選択してください。</p>
+
+            {/* 新規科目追加インライン */}
+            {showAddAccount && (
+              <div className="bg-lime-50/40 border border-lime-200 rounded-lg p-3 space-y-2">
+                <p className="text-xs font-semibold text-lime-700">新規科目を追加</p>
+                <div className="grid grid-cols-12 gap-2">
                   <input
-                    value={row.name}
-                    onChange={(e) => {
-                      const next = [...editForm.opening];
-                      next[i] = { ...next[i], name: e.target.value };
-                      setEditForm({ ...editForm, opening: next });
-                    }}
+                    value={newAccount.name}
+                    onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
                     placeholder="科目名（例: 繰越利益剰余金）"
-                    className="col-span-7 text-xs border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-sky-400"
+                    className="col-span-6 text-xs border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-lime-400"
                   />
-                  <input
-                    type="number"
-                    value={row.amount}
-                    onChange={(e) => {
-                      const next = [...editForm.opening];
-                      next[i] = { ...next[i], amount: e.target.value };
-                      setEditForm({ ...editForm, opening: next });
-                    }}
-                    placeholder="金額"
-                    className="col-span-4 text-xs border border-slate-200 rounded-lg px-3 py-1.5 text-right tabular-nums focus:outline-none focus:border-sky-400"
-                  />
+                  <select
+                    value={newAccount.sub_category}
+                    onChange={(e) => setNewAccount({ ...newAccount, sub_category: e.target.value })}
+                    className="col-span-4 text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-lime-400"
+                  >
+                    {BS_SUB_CATEGORIES.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
                   <button
-                    onClick={() => {
-                      const next = editForm.opening.filter((_, j) => j !== i);
-                      setEditForm({ ...editForm, opening: next.length ? next : [{ name: '', amount: '' }] });
-                    }}
-                    className="col-span-1 text-xs text-red-400 hover:text-red-600"
-                  >×</button>
+                    onClick={handleCreateAccount}
+                    disabled={!newAccount.name.trim() || addAccountSaving}
+                    className="col-span-2 text-xs text-white bg-lime-500 rounded-lg px-2 py-1.5 hover:bg-lime-600 disabled:opacity-40"
+                  >{addAccountSaving ? '...' : '追加'}</button>
                 </div>
-              ))}
+                <button
+                  onClick={() => { setShowAddAccount(false); setNewAccount({ name: '', sub_category: '純資産' }); }}
+                  className="text-[10px] text-slate-400 hover:text-slate-600"
+                >キャンセル</button>
+              </div>
+            )}
+
+            <div className="space-y-1 max-h-80 overflow-y-auto">
+              {editForm.opening.map((row, i) => {
+                const acc = accountsList.find((a) => a.name === row.name);
+                const sub = acc?.sub_category ?? null;
+                const valid = !!sub && (BS_SUB_CATEGORIES as readonly string[]).includes(sub);
+                return (
+                  <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                    <select
+                      value={row.name}
+                      onChange={(e) => {
+                        const next = [...editForm.opening];
+                        next[i] = { ...next[i], name: e.target.value };
+                        setEditForm({ ...editForm, opening: next });
+                      }}
+                      className={`col-span-6 text-xs border rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-sky-400 ${row.name && !valid ? 'border-red-300 text-red-600' : 'border-slate-200'}`}
+                    >
+                      <option value="">科目を選択</option>
+                      {bsAccounts.map((a) => (
+                        <option key={a.id} value={a.name}>{a.name}（{a.sub_category}）</option>
+                      ))}
+                      {/* 既に opening に入っているが現在のリストにない名前は警告として表示 */}
+                      {row.name && !bsAccounts.some((a) => a.name === row.name) && (
+                        <option value={row.name}>⚠ {row.name}（マスタ未登録）</option>
+                      )}
+                    </select>
+                    <span className={`col-span-2 text-[10px] tracking-wide ${valid ? 'text-slate-400' : 'text-red-500'}`}>
+                      {sub ?? (row.name ? '未分類' : '')}
+                    </span>
+                    <input
+                      type="number"
+                      value={row.amount}
+                      onChange={(e) => {
+                        const next = [...editForm.opening];
+                        next[i] = { ...next[i], amount: e.target.value };
+                        setEditForm({ ...editForm, opening: next });
+                      }}
+                      placeholder="金額"
+                      className="col-span-3 text-xs border border-slate-200 rounded-lg px-3 py-1.5 text-right tabular-nums focus:outline-none focus:border-sky-400"
+                    />
+                    <button
+                      onClick={() => {
+                        const next = editForm.opening.filter((_, j) => j !== i);
+                        setEditForm({ ...editForm, opening: next.length ? next : [{ name: '', amount: '' }] });
+                      }}
+                      className="col-span-1 text-xs text-red-400 hover:text-red-600"
+                    >×</button>
+                  </div>
+                );
+              })}
               <button
                 onClick={() => setEditForm({ ...editForm, opening: [...editForm.opening, { name: '', amount: '' }] })}
                 className="text-xs text-sky-500 border border-sky-200 rounded-lg px-3 py-1.5 hover:bg-sky-50"
               >+ 行を追加</button>
+            </div>
+
+            {/* 貸借バランスチェック */}
+            <div className={`mt-3 rounded-lg p-3 text-xs space-y-1 ${editBalance.diff === 0 && editBalance.unknown === 0 ? 'bg-lime-50 border border-lime-200' : 'bg-amber-50 border border-amber-200'}`}>
+              <div className="flex justify-between"><span className="text-slate-600">資産合計</span><span className="font-semibold tabular-nums">{formatYen(editBalance.assets)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">負債＋純資産合計</span><span className="font-semibold tabular-nums">{formatYen(editBalance.liabPlusEquity)}</span></div>
+              <div className={`flex justify-between border-t pt-1 ${editBalance.diff === 0 ? 'text-lime-700 border-lime-200' : 'text-amber-700 border-amber-200'}`}>
+                <span className="font-semibold">差額（資産 − 負債純資産）</span>
+                <span className="font-bold tabular-nums">{formatYen(editBalance.diff)}</span>
+              </div>
+              {editBalance.diff !== 0 && (
+                <p className="text-[10px] text-amber-700">⚠ 貸借が一致していません。差額分を繰越利益剰余金などで調整してください。</p>
+              )}
+              {editBalance.unknown !== 0 && (
+                <p className="text-[10px] text-red-600">⚠ マスタ未登録の科目（赤表示）が含まれています。決算書に反映されません。新規科目を追加してください。</p>
+              )}
             </div>
           </div>
 
@@ -4355,6 +4549,22 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
       {result && (
         <div className="fs-print-area">
           <DecisionReportPaper result={result} period={selectedPeriod ?? null} />
+        </div>
+      )}
+
+      {result && result.invalidOpeningBalances && result.invalidOpeningBalances.length > 0 && (
+        <div className="fs-no-print bg-red-50 border border-red-200 rounded-2xl p-4">
+          <p className="text-xs font-semibold text-red-700 mb-2">
+            ⚠ 期首残高に「マスタ未登録 / 中区分未設定」の科目が {result.invalidOpeningBalances.length} 件あり、決算書に反映されていません
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {result.invalidOpeningBalances.map((u) => (
+              <span key={u.name} className="text-[11px] bg-white border border-red-200 rounded-md px-2 py-1 text-red-700 tabular-nums">
+                {u.name}: {formatYen(u.amount)}
+              </span>
+            ))}
+          </div>
+          <p className="text-[11px] text-red-600 mt-2">「期首残高を編集」→「+ 新規科目を追加」で対象科目を作成し、保存し直してください。</p>
         </div>
       )}
 
@@ -4391,7 +4601,8 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
 // ─── 5ページ印刷レイアウト ─────────────────────────────────────────────────
 
 function DecisionReportPaper({ result, period }: { result: FsResult; period: FiscalPeriod | null }) {
-  const legalName = result.client?.legal_name || result.client?.name || '';
+  // 決算書には「正式名」のみを使用する。未設定なら警告表示にフォールバック。
+  const legalName = result.client?.legal_name?.trim() || '（正式名未設定 — クライアント管理から設定してください）';
   const periodNo = period ? periodNumber(period.name) : '';
 
   return (

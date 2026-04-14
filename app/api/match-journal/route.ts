@@ -112,9 +112,11 @@ export async function POST(request: NextRequest) {
               tax_type: e.taxType,
               vendor_name: vendor,
               match_status: e.matchStatus,
+              ocr_upload_id: e.voucher.ocrUploadId ?? null,
             });
           }
           if (r.paymentEntry) {
+            // 支払仕訳は請求書PDFに紐付ける（ユーザーが仕訳から元証憑を辿れるように）
             rows.push({
               user_id: user.id,
               client_id: clientId,
@@ -129,6 +131,7 @@ export async function POST(request: NextRequest) {
               tax_type: r.paymentEntry.taxType,
               vendor_name: vendor,
               match_status: r.paymentEntry.matchStatus,
+              ocr_upload_id: r.paymentEntry.voucher.ocrUploadId ?? null,
             });
           }
         }

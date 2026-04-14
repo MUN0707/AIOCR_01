@@ -143,13 +143,20 @@ export async function GET(request: NextRequest) {
   const bsItemMap = new Map<string, PeriodChange>();
 
   // 既知の B/S 科目を opening_balances から先に登録
+  // マスタにない（または sub_category 未設定）の場合は invalidOpening に集めて警告表示用に返す
+  const invalidOpening: Breakdown[] = [];
   if (useOpening) {
     for (const [name, open] of Object.entries(openingBalances)) {
       const acc = accountMap.get(name);
       const sub = acc?.sub_category ?? null;
-      if (!sub) continue;
+      if (!sub) {
+        invalidOpening.push({ name, amount: Number(open) || 0 });
+        continue;
+      }
       if (BS_ASSET_SUBS.includes(sub) || BS_LIABILITY_SUBS.includes(sub) || BS_EQUITY_SUBS.includes(sub)) {
         bsItemMap.set(name, { open: Number(open) || 0, change: 0, sub });
+      } else {
+        invalidOpening.push({ name, amount: Number(open) || 0 });
       }
     }
   }
@@ -310,5 +317,6 @@ export async function GET(request: NextRequest) {
       endingTotal: equityEndingTotal,
     },
     unclassified,
+    invalidOpeningBalances: invalidOpening,
   });
 }

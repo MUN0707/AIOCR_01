@@ -41,6 +41,7 @@ export interface VoucherInput {
   lines?: VoucherLine[];     // 複数仕訳時の明細。未定義/空 の場合は単一行とみなす。
   sourceFileIndex?: number;  // 元PDF（フロント側 invoiceFiles のインデックス）
   sourceFileName?: string;   // 元PDFのファイル名
+  ocrUploadId?: string | null; // ocr_uploads.id（仕訳から元PDF参照用）
 }
 
 export interface TransactionInput {
@@ -51,6 +52,7 @@ export interface TransactionInput {
   credit: number | null;     // 入金額
   sourceFileIndex?: number;  // 元PDF（フロント側 bankFiles のインデックス）
   sourceFileName?: string;   // 元PDFのファイル名
+  ocrUploadId?: string | null; // ocr_uploads.id（仕訳から元PDF参照用）
 }
 
 // ─── 出力型 ────────────────────────────────────────────────────────────────

@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
     }
 
     // PDFをSupabase Storageに保存（バックグラウンド、失敗してもOCR結果は返す）
+    let uploadId: string | null = null;
     try {
       const timestamp = Date.now();
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -131,24 +132,29 @@ export async function POST(request: NextRequest) {
           upsert: false,
         });
 
-      await service.from('ocr_uploads').insert({
-        user_id: userId,
-        session_id: sessionId,
-        file_name: file.name,
-        storage_path: storagePath,
-        mode,
-        ocr_result: responseBody,
-        file_size_bytes: pdfBuffer.byteLength,
-        input_tokens: responseBody.usage?.inputTokens ?? null,
-        output_tokens: responseBody.usage?.outputTokens ?? null,
-        cost_jpy: responseBody.usage?.costJpy ?? null,
-        ...(clientId ? { client_id: clientId } : {}),
-      });
+      const { data: insertedUpload } = await service
+        .from('ocr_uploads')
+        .insert({
+          user_id: userId,
+          session_id: sessionId,
+          file_name: file.name,
+          storage_path: storagePath,
+          mode,
+          ocr_result: responseBody,
+          file_size_bytes: pdfBuffer.byteLength,
+          input_tokens: responseBody.usage?.inputTokens ?? null,
+          output_tokens: responseBody.usage?.outputTokens ?? null,
+          cost_jpy: responseBody.usage?.costJpy ?? null,
+          ...(clientId ? { client_id: clientId } : {}),
+        })
+        .select('id')
+        .single();
+      uploadId = insertedUpload?.id ?? null;
     } catch (storageError) {
       console.error('PDF保存エラー（OCR結果は正常）:', storageError);
     }
 
-    return NextResponse.json(responseBody);
+    return NextResponse.json({ ...responseBody, uploadId });
   } catch (error) {
     if (error instanceof InvoiceLineSumMismatchError) {
       // 明細合計の不整合：フロントでスクショ依頼モーダルを出すための専用レスポンス
