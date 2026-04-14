@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
   const start = params.get('start');
   const end = params.get('end');
   const clientId = params.get('clientId');
+  const corporateTax = Number(params.get('corporateTax') ?? '0') || 0;
 
   if (!start || !end) return NextResponse.json({ error: 'start/end が必要です' }, { status: 400 });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
@@ -73,6 +74,7 @@ export async function GET(request: NextRequest) {
     .lte('entry_date', endCompact);
 
   if (clientId) query = query.eq('client_id', clientId);
+  else query = query.is('client_id', null);
 
   const { data: entries, error: entErr } = await query;
   if (entErr) return NextResponse.json({ error: entErr.message }, { status: 500 });
@@ -147,8 +149,7 @@ export async function GET(request: NextRequest) {
   const extraIncome = plGroups['特別利益']?.total ?? 0;
   const extraLoss = plGroups['特別損失']?.total ?? 0;
   const netIncomeBeforeTax = ordinaryProfit + extraIncome - extraLoss;
-  // 法人税等は現状未計算 → netIncome = netIncomeBeforeTax
-  const netIncome = netIncomeBeforeTax;
+  const netIncome = netIncomeBeforeTax - corporateTax;
 
   // B/S 当期純利益を純資産に加算（繰越利益剰余金として別枠表示）
   if (!bsGroups['純資産']) bsGroups['純資産'] = { sub_category: '純資産', total: 0, items: [] };
@@ -198,6 +199,7 @@ export async function GET(request: NextRequest) {
       extraIncome,
       extraLoss,
       netIncomeBeforeTax,
+      corporateTax,
       netIncome,
     },
     bs: {
