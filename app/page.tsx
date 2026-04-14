@@ -3585,6 +3585,45 @@ function BalanceView({
   error: string | null;
   clientName: string | null;
 }) {
+  // 期間フィルタ: YYYY-MM-DD（空=全期間）
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+
+  const toYmd = (iso: string) => iso.replace(/-/g, ''); // YYYY-MM-DD → YYYYMMDD
+
+  const setPeriod = (preset: 'all' | 'thisMonth' | 'lastMonth' | 'thisFiscal') => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    if (preset === 'all') {
+      setStartDate(''); setEndDate('');
+      return;
+    }
+    if (preset === 'thisMonth') {
+      const y = now.getFullYear(), m = now.getMonth();
+      const last = new Date(y, m + 1, 0).getDate();
+      setStartDate(`${y}-${pad(m + 1)}-01`);
+      setEndDate(`${y}-${pad(m + 1)}-${pad(last)}`);
+      return;
+    }
+    if (preset === 'lastMonth') {
+      const y = now.getFullYear(), m = now.getMonth() - 1;
+      const d = new Date(y, m, 1);
+      const yy = d.getFullYear(), mm = d.getMonth();
+      const last = new Date(yy, mm + 1, 0).getDate();
+      setStartDate(`${yy}-${pad(mm + 1)}-01`);
+      setEndDate(`${yy}-${pad(mm + 1)}-${pad(last)}`);
+      return;
+    }
+    if (preset === 'thisFiscal') {
+      // 4月始まり
+      const y = now.getFullYear(), m = now.getMonth();
+      const fyStart = m >= 3 ? y : y - 1;
+      setStartDate(`${fyStart}-04-01`);
+      setEndDate(`${fyStart + 1}-03-31`);
+      return;
+    }
+  };
+
   if (loading) {
     return (
       <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
@@ -3606,10 +3645,80 @@ function BalanceView({
     );
   }
 
-  const { accounts, accountBalances, vendorRows } = computeBalances(entries);
+  const startYmd = startDate ? toYmd(startDate) : '';
+  const endYmd = endDate ? toYmd(endDate) : '';
+  const filteredEntries = entries.filter((e) => {
+    const d = e.entry_date;
+    if (!d || d === '不明' || d.length !== 8) return !startYmd && !endYmd; // 不明は全期間時のみ含める
+    if (startYmd && d < startYmd) return false;
+    if (endYmd && d > endYmd) return false;
+    return true;
+  });
+
+  const { accounts, accountBalances, vendorRows } = computeBalances(filteredEntries);
+
+  const periodLabel =
+    startDate && endDate ? `${startDate} 〜 ${endDate}`
+    : startDate ? `${startDate} 〜`
+    : endDate ? `〜 ${endDate}`
+    : '全期間';
 
   return (
     <div className="space-y-5">
+      {/* 期間フィルタ */}
+      <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
+        <div className="flex flex-wrap items-end gap-3 justify-between">
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">開始日</p>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400"
+              />
+            </div>
+            <span className="text-slate-300 pb-2">〜</span>
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">終了日</p>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400"
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { key: 'all', label: '全期間' },
+              { key: 'thisMonth', label: '今月' },
+              { key: 'lastMonth', label: '先月' },
+              { key: 'thisFiscal', label: '今年度' },
+            ] as const).map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => setPeriod(p.key)}
+                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-600 transition-colors"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-3">
+          期間: <span className="font-mono text-slate-600">{periodLabel}</span>
+          <span className="ml-3">対象仕訳 {filteredEntries.length} / {entries.length} 件</span>
+        </p>
+      </div>
+
+      {filteredEntries.length === 0 && (
+        <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
+          <p className="text-sm text-slate-400">指定期間に該当する仕訳はありません</p>
+        </div>
+      )}
+
       {/* 未払費用 取引先別残高 */}
       {vendorRows.length > 0 && (
         <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
