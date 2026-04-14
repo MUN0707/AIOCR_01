@@ -4698,8 +4698,9 @@ function FinancialStatementView({
         .fs-print-area { font-family: "Yu Mincho", "YuMincho", "Hiragino Mincho ProN", "MS Mincho", serif; color: #000; }
         .fs-page { background: white; margin: 0 auto 24px; width: 210mm; min-height: 297mm; padding: 18mm 16mm; box-sizing: border-box; box-shadow: 0 1px 4px rgba(0,0,0,0.08); position: relative; font-size: 11pt; }
         @media print { .fs-page { box-shadow: none; margin: 0; padding: 0; min-height: auto; width: auto; } }
-        .fs-title { text-align: center; letter-spacing: 0.6em; font-size: 14pt; font-weight: normal; padding-bottom: 4px; border-bottom: 1px solid #000; display: inline-block; padding-left: 0.6em; }
-        .fs-cover-title { text-align: center; letter-spacing: 1.2em; font-size: 22pt; padding-bottom: 8px; border-bottom: 1px solid #000; display: inline-block; padding-left: 1.2em; }
+        .fs-title { text-align: center; letter-spacing: 0.5em; font-size: 13pt; font-weight: normal; padding-bottom: 4px; border-bottom: 1px solid #000; display: inline-block; padding-left: 0.5em; white-space: nowrap; }
+        .fs-title-long { letter-spacing: 0.18em !important; font-size: 12pt !important; padding-left: 0.18em !important; }
+        .fs-cover-title { text-align: center; letter-spacing: 1.2em; font-size: 22pt; padding-bottom: 8px; border-bottom: 1px solid #000; display: inline-block; padding-left: 1.2em; white-space: nowrap; }
         .fs-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
         .fs-table th, .fs-table td { border: 1px solid #000; padding: 3px 6px; vertical-align: middle; }
         .fs-table th { text-align: center; font-weight: normal; background: #fff; }
@@ -4740,7 +4741,7 @@ function FinancialStatementView({
                 onClick={handleStartEdit}
                 className="text-xs font-medium text-sky-500 border border-sky-200 rounded-xl px-3 py-2 hover:bg-sky-50 hover:border-sky-300 transition-all duration-200"
               >
-                期首残高を編集
+                期を編集（名前・期間・期首残高）
               </button>
               <button
                 onClick={() => handleDeletePeriod(selectedPeriodId)}
@@ -4823,24 +4824,33 @@ function FinancialStatementView({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <input
-              value={editForm.name}
-              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-              placeholder="期の名前"
-              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
-            />
-            <input
-              type="date"
-              value={editForm.start_date}
-              onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
-              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
-            />
-            <input
-              type="date"
-              value={editForm.end_date}
-              onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
-              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
-            />
+            <div>
+              <label className="text-[10px] text-slate-400 block mb-0.5">期の名前</label>
+              <input
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                placeholder="例: 第3期"
+                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 block mb-0.5">期首日</label>
+              <input
+                type="date"
+                value={editForm.start_date}
+                onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
+                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-400 block mb-0.5">期末日</label>
+              <input
+                type="date"
+                value={editForm.end_date}
+                onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
+                className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+              />
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -5007,7 +5017,7 @@ function FinancialStatementView({
               </span>
             ))}
           </div>
-          <p className="text-[11px] text-red-600 mt-2">「期首残高を編集」→「+ 新規科目を追加」で対象科目を作成し、保存し直してください。</p>
+          <p className="text-[11px] text-red-600 mt-2">「期を編集」→「+ 新規科目を追加」で対象科目を作成し、保存し直してください。</p>
         </div>
       )}
 
@@ -5082,11 +5092,11 @@ function CoverPage({ legalName, periodNo, start, end }: { legalName: string; per
   );
 }
 
-function PaperHeader({ title, legalName, dateLine, rightNote }: { title: string; legalName: string; dateLine: string; rightNote?: string }) {
+function PaperHeader({ title, legalName, dateLine, rightNote, longTitle }: { title: string; legalName: string; dateLine: string; rightNote?: string; longTitle?: boolean }) {
   return (
     <div style={{ marginBottom: '6mm' }}>
       <div style={{ textAlign: 'center', marginBottom: '4mm' }}>
-        <span className="fs-title">{title}</span>
+        <span className={longTitle ? 'fs-title fs-title-long' : 'fs-title'}>{title}</span>
       </div>
       <div style={{ textAlign: 'center', fontSize: '9.5pt', marginBottom: '4mm' }}>{dateLine}</div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10pt' }}>
@@ -5128,7 +5138,7 @@ function BsPage({ result, legalName }: { result: FsResult; legalName: string }) 
 
   return (
     <div className="fs-page">
-      <PaperHeader title="貸　借　対　照　表" legalName={legalName} dateLine={`${formatJpDate(result.period.end)}　現在`} />
+      <PaperHeader title="貸借対照表" legalName={legalName} dateLine={`${formatJpDate(result.period.end)}　現在`} />
       <table className="fs-table">
         <thead>
           <tr>
@@ -5180,7 +5190,7 @@ function PlPage({ result, legalName }: { result: FsResult; legalName: string }) 
   return (
     <div className="fs-page">
       <PaperHeader
-        title="損　益　計　算　書"
+        title="損益計算書"
         legalName={legalName}
         dateLine={`自　${formatJpDate(result.period.start)}\u3000\u3000至　${formatJpDate(result.period.end)}`}
       />
@@ -5238,7 +5248,8 @@ function SgaPage({ result, legalName }: { result: FsResult; legalName: string })
   return (
     <div className="fs-page">
       <PaperHeader
-        title="販　売　費　及　び　一　般　管　理　費　内　訳　書"
+        title="販売費及び一般管理費内訳書"
+        longTitle
         legalName={legalName}
         dateLine={`自　${formatJpDate(result.period.start)}\u3000\u3000至　${formatJpDate(result.period.end)}`}
       />
@@ -5272,7 +5283,8 @@ function EquityPage({ result, legalName }: { result: FsResult; legalName: string
   return (
     <div className="fs-page">
       <PaperHeader
-        title="社　員　資　本　等　変　動　計　算　書"
+        title="社員資本等変動計算書"
+        longTitle
         legalName={legalName}
         dateLine={`自　${formatJpDate(result.period.start)}\u3000\u3000至　${formatJpDate(result.period.end)}`}
       />
