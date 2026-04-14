@@ -47,8 +47,8 @@ interface BankTransactionRow {
 }
 
 type ProcessResult =
-  | { mode: 'invoice' | 'tax-return'; invoices: InvoiceResult[]; totalPages: number; processedFiles: number }
-  | { mode: 'bank-statement'; bankName: string; accountNumber: string; transactions: BankTransactionRow[]; totalPages: number; processedFiles: number };
+  | { mode: 'invoice' | 'tax-return'; invoices: InvoiceResult[]; totalPages: number; processedFiles: number; totalCostJpy: number; totalInputTokens: number; totalOutputTokens: number }
+  | { mode: 'bank-statement'; bankName: string; accountNumber: string; transactions: BankTransactionRow[]; totalPages: number; processedFiles: number; totalCostJpy: number; totalInputTokens: number; totalOutputTokens: number };
 
 interface LedgerEntry {
   id: string;
@@ -848,6 +848,9 @@ export default function Home() {
         const allTransactions: BankTransactionRow[] = [];
         let bankName = '不明';
         let accountNumber = '不明';
+        let bankCostJpy = 0;
+        let bankInTok = 0;
+        let bankOutTok = 0;
         for (let i = 0; i < files.length; i++) {
           setProcessingIndex(i + 1);
           const file = files[i];
@@ -862,18 +865,26 @@ export default function Home() {
           if (i === 0) { bankName = data.bankName; accountNumber = data.accountNumber; }
           allTransactions.push(...(data.transactions || []).map((t: Omit<BankTransactionRow, 'sourceFile'>) => ({ ...t, sourceFile: file.name })));
           totalPages += data.totalPages;
+          if (data.usage) {
+            bankCostJpy += data.usage.costJpy || 0;
+            bankInTok += data.usage.inputTokens || 0;
+            bankOutTok += data.usage.outputTokens || 0;
+          }
         }
         if (isGuest) {
           const count = parseInt(localStorage.getItem('guestUseCount') || '0');
           localStorage.setItem('guestUseCount', String(count + 1));
           if (count + 1 >= GUEST_MAX_USES) setGuestLimitReached(true);
         }
-        setResult({ mode: 'bank-statement', bankName, accountNumber, transactions: allTransactions, totalPages, processedFiles: files.length });
+        setResult({ mode: 'bank-statement', bankName, accountNumber, transactions: allTransactions, totalPages, processedFiles: files.length, totalCostJpy: bankCostJpy, totalInputTokens: bankInTok, totalOutputTokens: bankOutTok });
         return;
       }
 
       // invoice / tax-return
       const allInvoices: InvoiceResult[] = [];
+      let invCostJpy = 0;
+      let invInTok = 0;
+      let invOutTok = 0;
       for (let i = 0; i < files.length; i++) {
         setProcessingIndex(i + 1);
         const file = files[i];
@@ -903,6 +914,11 @@ export default function Home() {
         );
         allInvoices.push(...invoicesWithSource);
         totalPages += data.totalPages;
+        if (data.usage) {
+          invCostJpy += data.usage.costJpy || 0;
+          invInTok += data.usage.inputTokens || 0;
+          invOutTok += data.usage.outputTokens || 0;
+        }
       }
 
       if (isGuest) {
@@ -912,7 +928,7 @@ export default function Home() {
       }
 
       if (mode === 'invoice' || mode === 'tax-return') {
-        setResult({ invoices: allInvoices, totalPages, processedFiles: files.length, mode });
+        setResult({ invoices: allInvoices, totalPages, processedFiles: files.length, mode, totalCostJpy: invCostJpy, totalInputTokens: invInTok, totalOutputTokens: invOutTok });
       }
 
       // ログインユーザーの使用量を再取得
@@ -2227,6 +2243,12 @@ export default function Home() {
                     {result.processedFiles > 1
                       ? `${result.processedFiles}件のPDF · 計${result.totalPages}ページを処理`
                       : `${result.totalPages}ページ · ${files[0]?.name}`}
+                  </p>
+                  <p className="text-[11px] text-amber-600 mt-1 tracking-wide font-mono">
+                    API実コスト: ¥{result.totalCostJpy.toFixed(2)}
+                    <span className="text-slate-400 ml-2">
+                      (in {result.totalInputTokens.toLocaleString()} / out {result.totalOutputTokens.toLocaleString()} tok)
+                    </span>
                   </p>
                 </div>
               </div>

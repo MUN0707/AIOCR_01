@@ -8,6 +8,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { TaxReturnInfo } from './types';
 import { sanitizeFileName, extractPages, parseJsonSafe } from './utils';
+import { calcCost, UsageInfo } from './cost';
 
 // ──────────────────────────────────────────────────────────
 // プロンプト（IKANのプロンプトをここに差し替える）
@@ -52,7 +53,7 @@ interface ClaudeTaxReturnResponse {
 export async function processTaxReturnPdf(
   pdfBuffer: Buffer,
   anthropic: Anthropic
-): Promise<{ items: Array<TaxReturnInfo & { fileName: string; pdfBase64: string }>; totalPages: number }> {
+): Promise<{ items: Array<TaxReturnInfo & { fileName: string; pdfBase64: string }>; totalPages: number; usage: UsageInfo }> {
   const pdfBase64 = pdfBuffer.toString('base64');
 
   const response = await anthropic.messages.create({
@@ -107,5 +108,6 @@ export async function processTaxReturnPdf(
     })
   );
 
-  return { items, totalPages };
+  const usage = calcCost(response.usage.input_tokens, response.usage.output_tokens);
+  return { items, totalPages, usage };
 }

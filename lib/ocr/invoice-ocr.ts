@@ -8,6 +8,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { InvoiceInfo } from './types';
 import { sanitizeFileName, extractPages, parseJsonSafe } from './utils';
+import { calcCost, UsageInfo } from './cost';
 
 // ──────────────────────────────────────────────────────────
 // プロンプト（IKANのプロンプトをここに差し替える）
@@ -131,7 +132,7 @@ export async function processInvoicePdfSingle(
   pdfBuffer: Buffer,
   anthropic: Anthropic,
   originalFileName?: string
-): Promise<{ items: InvoiceSingleItem[]; totalPages: number }> {
+): Promise<{ items: InvoiceSingleItem[]; totalPages: number; usage: UsageInfo }> {
   const pdfBase64 = pdfBuffer.toString('base64');
 
   const response = await anthropic.messages.create({
@@ -223,13 +224,14 @@ export async function processInvoicePdfSingle(
     lines: finalLines,
   };
 
-  return { items: [item], totalPages };
+  const usage = calcCost(response.usage.input_tokens, response.usage.output_tokens);
+  return { items: [item], totalPages, usage };
 }
 
 export async function processInvoicePdf(
   pdfBuffer: Buffer,
   anthropic: Anthropic
-): Promise<{ items: Array<InvoiceInfo & { fileName: string; pdfBase64: string }>; totalPages: number }> {
+): Promise<{ items: Array<InvoiceInfo & { fileName: string; pdfBase64: string }>; totalPages: number; usage: UsageInfo }> {
   const pdfBase64 = pdfBuffer.toString('base64');
 
   const response = await anthropic.messages.create({
@@ -288,5 +290,6 @@ export async function processInvoicePdf(
     })
   );
 
-  return { items, totalPages };
+  const usage = calcCost(response.usage.input_tokens, response.usage.output_tokens);
+  return { items, totalPages, usage };
 }

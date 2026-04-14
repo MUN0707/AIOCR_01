@@ -76,14 +76,15 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let responseBody: any;
     if (mode === 'tax-return') {
-      const { items, totalPages } = await processTaxReturnPdf(pdfBuffer, anthropic);
+      const { items, totalPages, usage } = await processTaxReturnPdf(pdfBuffer, anthropic);
       responseBody = {
         mode: 'tax-return',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
         totalPages,
+        usage,
       };
     } else if (mode === 'bank-statement') {
-      const { bankName, accountNumber, transactions, totalPages } =
+      const { bankName, accountNumber, transactions, totalPages, usage } =
         await processBankStatementPdf(pdfBuffer, anthropic);
       responseBody = {
         mode: 'bank-statement',
@@ -91,20 +92,23 @@ export async function POST(request: NextRequest) {
         accountNumber,
         transactions,
         totalPages,
+        usage,
       };
     } else if (mode === 'invoice-single') {
-      const { items, totalPages } = await processInvoicePdfSingle(pdfBuffer, anthropic, file.name);
+      const { items, totalPages, usage } = await processInvoicePdfSingle(pdfBuffer, anthropic, file.name);
       responseBody = {
         mode: 'invoice-single',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
         totalPages,
+        usage,
       };
     } else {
-      const { items, totalPages } = await processInvoicePdf(pdfBuffer, anthropic);
+      const { items, totalPages, usage } = await processInvoicePdf(pdfBuffer, anthropic);
       responseBody = {
         mode: 'invoice',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
         totalPages,
+        usage,
       };
     }
 

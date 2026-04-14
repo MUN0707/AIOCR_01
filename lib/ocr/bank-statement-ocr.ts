@@ -6,6 +6,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { BankStatementInfo } from './types';
 import { parseJsonSafe } from './utils';
+import { calcCost, UsageInfo } from './cost';
 
 const PROMPT_BANK_STATEMENT = `このPDFは銀行の通帳または口座明細書です。すべての取引を抽出し、以下のJSON形式のみで返答してください。説明文や前置きは一切不要です。JSONのみ出力してください。
 
@@ -49,7 +50,7 @@ interface ClaudeBankStatementResponse {
 export async function processBankStatementPdf(
   pdfBuffer: Buffer,
   anthropic: Anthropic
-): Promise<{ bankName: string; accountNumber: string; transactions: BankStatementInfo['transactions']; totalPages: number }> {
+): Promise<{ bankName: string; accountNumber: string; transactions: BankStatementInfo['transactions']; totalPages: number; usage: UsageInfo }> {
   const pdfBase64 = pdfBuffer.toString('base64');
 
   const response = await anthropic.messages.create({
@@ -84,10 +85,12 @@ export async function processBankStatementPdf(
   const pdfDoc = await PDFDocument.load(pdfBuffer);
   const totalPages = pdfDoc.getPageCount();
 
+  const usage = calcCost(response.usage.input_tokens, response.usage.output_tokens);
   return {
     bankName: claudeData.bankName || '不明',
     accountNumber: claudeData.accountNumber || '不明',
     transactions: claudeData.transactions,
     totalPages,
+    usage,
   };
 }
