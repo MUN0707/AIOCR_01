@@ -139,6 +139,9 @@ export async function POST(request: NextRequest) {
         mode,
         ocr_result: responseBody,
         file_size_bytes: pdfBuffer.byteLength,
+        input_tokens: responseBody.usage?.inputTokens ?? null,
+        output_tokens: responseBody.usage?.outputTokens ?? null,
+        cost_jpy: responseBody.usage?.costJpy ?? null,
         ...(clientId ? { client_id: clientId } : {}),
       });
     } catch (storageError) {
