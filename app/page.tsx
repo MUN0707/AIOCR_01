@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, Fragment } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import type { User } from '@supabase/supabase-js';
@@ -3918,6 +3918,55 @@ function MasterView({
 }) {
   const [newAcc, setNewAcc] = useState({ name: '', reading: '', sub_category: '' });
   const [newVen, setNewVen] = useState({ name: '', reading: '' });
+  const [accSearch, setAccSearch] = useState('');
+  const [venSearch, setVenSearch] = useState('');
+
+  const sortedAccounts = useMemo(() => {
+    const order = new Map(SUB_CATEGORY_OPTIONS.map((o, i) => [o.value, i]));
+    return [...accountsList].sort((a, b) => {
+      const oa = order.get(a.sub_category ?? '') ?? 999;
+      const ob = order.get(b.sub_category ?? '') ?? 999;
+      if (oa !== ob) return oa - ob;
+      return (a.reading || a.name).localeCompare(b.reading || b.name, 'ja');
+    });
+  }, [accountsList]);
+
+  const accDupNames = useMemo(() => {
+    const count = new Map<string, number>();
+    for (const a of accountsList) {
+      const k = a.name.trim().toLowerCase();
+      count.set(k, (count.get(k) ?? 0) + 1);
+    }
+    return new Set([...count.entries()].filter(([, n]) => n > 1).map(([k]) => k));
+  }, [accountsList]);
+
+  const venDupNames = useMemo(() => {
+    const count = new Map<string, number>();
+    for (const v of vendorsList) {
+      const k = v.name.trim().toLowerCase();
+      count.set(k, (count.get(k) ?? 0) + 1);
+    }
+    return new Set([...count.entries()].filter(([, n]) => n > 1).map(([k]) => k));
+  }, [vendorsList]);
+
+  const filteredAccounts = useMemo(() => {
+    const q = accSearch.trim().toLowerCase();
+    if (!q) return sortedAccounts;
+    return sortedAccounts.filter((a) =>
+      a.name.toLowerCase().includes(q) ||
+      (a.reading ?? '').toLowerCase().includes(q) ||
+      (a.sub_category ?? '').toLowerCase().includes(q)
+    );
+  }, [sortedAccounts, accSearch]);
+
+  const filteredVendors = useMemo(() => {
+    const q = venSearch.trim().toLowerCase();
+    if (!q) return vendorsList;
+    return vendorsList.filter((v) =>
+      v.name.toLowerCase().includes(q) ||
+      (v.reading ?? '').toLowerCase().includes(q)
+    );
+  }, [vendorsList, venSearch]);
 
   const patchAccount = async (id: string, patch: Partial<AccountOption>) => {
     const res = await fetch(`/api/accounts/${id}`, {
@@ -3998,9 +4047,20 @@ function MasterView({
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
           <p className="text-sm font-semibold text-sky-700 tracking-tight">勘定科目マスタ</p>
-          <p className="text-[10px] text-sky-500/70 mt-0.5">{accountsList.length} 件</p>
+          <p className="text-[10px] text-sky-500/70 mt-0.5">
+            {accountsList.length} 件
+            {accDupNames.size > 0 && (
+              <span className="ml-2 text-red-500 font-semibold">· 重複 {accDupNames.size} 件</span>
+            )}
+          </p>
         </div>
         <div className="p-4 border-b border-slate-50 space-y-2">
+          <input
+            value={accSearch}
+            onChange={(e) => setAccSearch(e.target.value)}
+            placeholder="科目名・読み・区分で検索…"
+            className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
+          />
           <div className="flex gap-2">
             <input
               value={newAcc.name}
@@ -4040,17 +4100,20 @@ function MasterView({
         <div className="max-h-[500px] overflow-y-auto">
           <table className="w-full text-sm">
             <tbody className="divide-y divide-slate-50">
-              {accountsList.map((a) => (
+              {filteredAccounts.map((a) => (
                 <MasterRow
                   key={a.id}
                   item={a}
                   onSave={(patch) => patchAccount(a.id!, patch)}
                   onDelete={() => deleteAccount(a.id!)}
                   showSubCategory
+                  duplicate={accDupNames.has(a.name.trim().toLowerCase())}
                 />
               ))}
-              {accountsList.length === 0 && (
-                <tr><td className="px-4 py-6 text-center text-xs text-slate-400">勘定科目がありません</td></tr>
+              {filteredAccounts.length === 0 && (
+                <tr><td className="px-4 py-6 text-center text-xs text-slate-400">
+                  {accSearch ? '該当する科目がありません' : '勘定科目がありません'}
+                </td></tr>
               )}
             </tbody>
           </table>
@@ -4063,9 +4126,19 @@ function MasterView({
           <p className="text-sm font-semibold text-lime-700 tracking-tight">取引先マスタ</p>
           <p className="text-[10px] text-lime-600/70 mt-0.5">
             {vendorsList.length} 件 · 株式会社/㈱/空白は自動で同一視
+            {venDupNames.size > 0 && (
+              <span className="ml-2 text-red-500 font-semibold">· 重複 {venDupNames.size} 件</span>
+            )}
           </p>
         </div>
-        <div className="p-4 border-b border-slate-50 flex gap-2">
+        <div className="p-4 border-b border-slate-50 space-y-2">
+          <input
+            value={venSearch}
+            onChange={(e) => setVenSearch(e.target.value)}
+            placeholder="取引先名・読みで検索…"
+            className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-lime-400"
+          />
+          <div className="flex gap-2">
           <input
             value={newVen.name}
             onChange={(e) => setNewVen({ ...newVen, name: e.target.value })}
@@ -4087,20 +4160,24 @@ function MasterView({
           >
             追加
           </button>
+          </div>
         </div>
         <div className="max-h-[500px] overflow-y-auto">
           <table className="w-full text-sm">
             <tbody className="divide-y divide-slate-50">
-              {vendorsList.map((v) => (
+              {filteredVendors.map((v) => (
                 <MasterRow
                   key={v.id}
                   item={v}
                   onSave={(patch) => patchVendor(v.id!, patch, v.name)}
                   onDelete={() => deleteVendor(v.id!)}
+                  duplicate={venDupNames.has(v.name.trim().toLowerCase())}
                 />
               ))}
-              {vendorsList.length === 0 && (
-                <tr><td className="px-4 py-6 text-center text-xs text-slate-400">取引先がありません</td></tr>
+              {filteredVendors.length === 0 && (
+                <tr><td className="px-4 py-6 text-center text-xs text-slate-400">
+                  {venSearch ? '該当する取引先がありません' : '取引先がありません'}
+                </td></tr>
               )}
             </tbody>
           </table>
@@ -4131,11 +4208,13 @@ function MasterRow({
   onSave,
   onDelete,
   showSubCategory = false,
+  duplicate = false,
 }: {
   item: AccountOption;
   onSave: (patch: Partial<AccountOption>) => void;
   onDelete: () => void;
   showSubCategory?: boolean;
+  duplicate?: boolean;
 }) {
   const [name, setName] = useState(item.name);
   const [reading, setReading] = useState(item.reading ?? '');
@@ -4147,14 +4226,19 @@ function MasterRow({
   }, [item.sub_category]);
 
   return (
-    <tr className="hover:bg-slate-50/30">
+    <tr className={`hover:bg-slate-50/30 ${duplicate ? 'bg-red-50/40' : ''}`}>
       <td className="px-4 py-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => { if (name !== item.name) onSave({ name }); }}
-          className="w-full text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
-        />
+        <div className="flex items-center gap-1.5">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => { if (name !== item.name) onSave({ name }); }}
+            className="flex-1 text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+          />
+          {duplicate && (
+            <span className="text-[9px] text-red-600 bg-red-100 rounded px-1 py-0.5 font-semibold shrink-0">重複</span>
+          )}
+        </div>
       </td>
       <td className="px-4 py-2" style={{ width: showSubCategory ? '28%' : '40%' }}>
         <input
