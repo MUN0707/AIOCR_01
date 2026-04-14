@@ -15,16 +15,30 @@
 
 // ─── 入力型 ────────────────────────────────────────────────────────────────
 
+/**
+ * 請求書の明細1行。
+ * 1枚の請求書から複数仕訳を起票する場合（科目按分・軽減税率混在等）に使用する。
+ * `lines` が無い / 1件だけの従来ケースは、`VoucherInput` の `debitAccount` / `amountInclTax` /
+ * `taxType` / `description` がそのまま単一行として扱われる。
+ */
+export interface VoucherLine {
+  debitAccount: string;         // 借方勘定科目
+  amountInclTax: number;        // 税込金額（行ごとの金額）
+  taxType: string;              // 消費税区分
+  description: string;          // 摘要（未入力なら voucher.description + 行番号で補完）
+}
+
 export interface VoucherInput {
   id?: string;               // Supabase voucher ID（保存済みの場合）
   vendorName: string;        // 相手先名
   invoiceDate: string;       // YYYYMMDD or "不明"
-  amountInclTax: number | null;  // 税込金額
+  amountInclTax: number | null;  // 税込合計金額（ヘッダ）
   amountExclTax?: number | null; // 税抜金額
   taxAmount?: number | null;     // 消費税額
-  debitAccount: string;      // OCR推測済み借方勘定科目
+  debitAccount: string;      // OCR推測済み借方勘定科目（単一行のフォールバック）
   description: string;       // 摘要
   taxType: string;           // 消費税区分
+  lines?: VoucherLine[];     // 複数仕訳時の明細。未定義/空 の場合は単一行とみなす。
   sourceFileIndex?: number;  // 元PDF（フロント側 invoiceFiles のインデックス）
   sourceFileName?: string;   // 元PDFのファイル名
 }
@@ -70,8 +84,13 @@ export interface PaymentEntry {
 }
 
 export interface MatchResult {
-  accrualEntry: AccrualEntry;     // 証票から常に生成（費用計上）
-  paymentEntry?: PaymentEntry;    // 照合成功時のみ生成（支払消込）
+  /**
+   * 費用計上の仕訳。1請求書に明細が複数ある場合は複数要素。
+   * 単一行のケースでも配列（length=1）で返す。
+   * UI・DB保存はこれを展開して1行ずつ出力する。
+   */
+  accrualEntries: AccrualEntry[];
+  paymentEntry?: PaymentEntry;    // 照合成功時のみ生成（支払消込）。支払は請求書ヘッダ合計で1本。
 }
 
 export interface MatchSummary {
@@ -161,6 +180,34 @@ export type AccountingMethod = 'accrual' | 'cash';
  *   - 'accrual': 発生主義（既定） — 請求書日で費用計上 + 支払日で未払消込
  *   - 'cash':    現金主義 — 支払日に費用/普通預金 で1本のみ生成（未払費用を経由しない）
  */
+/**
+ * 請求書から「明細行リスト」を取り出す。
+ * `voucher.lines` があればそれを使い、なければ voucher のヘッダから単一行を合成する。
+ * マッチャー内部ロジックを単一化するための共通ヘルパー。
+ */
+function getEffectiveLines(voucher: VoucherInput): VoucherLine[] {
+  if (voucher.lines && voucher.lines.length > 0) {
+    return voucher.lines;
+  }
+  return [
+    {
+      debitAccount: voucher.debitAccount || '仕入高',
+      amountInclTax: voucher.amountInclTax ?? 0,
+      taxType: voucher.taxType || '課税仕入10%',
+      description: voucher.description || voucher.vendorName || '',
+    },
+  ];
+}
+
+function buildDescription(voucher: VoucherInput, line: VoucherLine, multiline: boolean): string {
+  const base = [voucher.vendorName, line.description || voucher.description]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  if (!multiline) return base;
+  return base;
+}
+
 export function matchVouchersToTransactions(
   vouchers: VoucherInput[],
   transactions: TransactionInput[],
@@ -170,13 +217,15 @@ export function matchVouchersToTransactions(
 
   const results: MatchResult[] = vouchers.map((voucher) => {
     const invoiceDate = parseDate(voucher.invoiceDate);
+    const effectiveLines = getEffectiveLines(voucher);
+    const multiline = effectiveLines.length > 1;
 
-    // 出金トランザクションのみスコアリング
+    // 出金トランザクションのみスコアリング（照合は請求書ヘッダ合計で行う）
     const scored = transactions
       .map((tx, idx) => {
         if (usedTxIndices.has(idx) || !tx.debit) return null;
         const as = amountScore(tx.debit, voucher.amountInclTax);
-        if (as === 0) return null; // 金額不一致は即スキップ
+        if (as === 0) return null;
         const ds = dateProximityScore(parseDate(tx.transactionDate), invoiceDate);
         const ns = nameSimilarityScore(tx.description, voucher.vendorName);
         return { idx, tx, score: as * 0.6 + ds * 0.3 + ns * 0.1 };
@@ -191,61 +240,61 @@ export function matchVouchersToTransactions(
       : best.score >= 0.4 ? 'needs_review'
       : 'unmatched';
 
-    // ─── 現金主義: 支払日で1本だけ生成（未払費用を経由しない） ───
+    // ─── 現金主義: 支払日で1本/行ずつ生成（未払費用を経由しない） ───
     if (accountingMethod === 'cash') {
       if (matchStatus === 'unmatched' || !best) {
-        // 支払が見つからない場合は仕訳を生成しない（未払を作らない）
-        const placeholder: AccrualEntry = {
+        // 支払が見つからない場合は未払の placeholder を明細ごとに出す
+        const placeholders: AccrualEntry[] = effectiveLines.map((line) => ({
           entryType:     'accrual',
           date:          voucher.invoiceDate,
-          debitAccount:  voucher.debitAccount || '仕入高',
+          debitAccount:  line.debitAccount || '仕入高',
           creditAccount: '未払費用',
-          amount:        voucher.amountInclTax,
-          description:   [voucher.vendorName, voucher.description].filter(Boolean).join(' ').trim(),
-          taxType:       voucher.taxType,
+          amount:        line.amountInclTax,
+          description:   buildDescription(voucher, line, multiline),
+          taxType:       line.taxType || voucher.taxType,
           matchStatus:   'unmatched',
           voucher,
-        };
-        return { accrualEntry: placeholder };
+        }));
+        return { accrualEntries: placeholders };
       }
       usedTxIndices.add(best.idx);
-      // accrualEntry を「支払日付・費用/普通預金」として扱う（既存スキーマを流用）
-      const cashEntry: AccrualEntry = {
-        entryType:     'accrual',
-        date:          best.tx.transactionDate,
-        debitAccount:  voucher.debitAccount || '仕入高',
-        creditAccount: '未払費用', // 表記のみ。実体は普通預金として下で上書きする
-        amount:        best.tx.debit ?? voucher.amountInclTax,
-        description:   [voucher.vendorName, voucher.description].filter(Boolean).join(' ').trim(),
-        taxType:       voucher.taxType,
-        matchStatus:   best.score >= 0.7 ? 'auto' : 'needs_review',
-        voucher,
-      };
-      // 型上 creditAccount は '未払費用' リテラルだが、現金主義では普通預金で出力したいので
-      // ランタイム上書き（ledger 出力では string として扱われる）
-      (cashEntry as unknown as { creditAccount: string }).creditAccount = '普通預金';
-      return { accrualEntry: cashEntry };
+      const cashEntries: AccrualEntry[] = effectiveLines.map((line) => {
+        const entry: AccrualEntry = {
+          entryType:     'accrual',
+          date:          best.tx.transactionDate,
+          debitAccount:  line.debitAccount || '仕入高',
+          creditAccount: '未払費用', // ランタイムで '普通預金' に上書き
+          amount:        line.amountInclTax,
+          description:   buildDescription(voucher, line, multiline),
+          taxType:       line.taxType || voucher.taxType,
+          matchStatus:   best.score >= 0.7 ? 'auto' : 'needs_review',
+          voucher,
+        };
+        (entry as unknown as { creditAccount: string }).creditAccount = '普通預金';
+        return entry;
+      });
+      return { accrualEntries: cashEntries };
     }
 
     // ─── 発生主義（既定） ───
-    // 費用計上仕訳（常に生成）
-    const accrualEntry: AccrualEntry = {
+    // 費用計上仕訳を明細ごとに生成
+    const accrualEntries: AccrualEntry[] = effectiveLines.map((line) => ({
       entryType:     'accrual',
       date:          voucher.invoiceDate,
-      debitAccount:  voucher.debitAccount || '未払費用',
+      debitAccount:  line.debitAccount || '未払費用',
       creditAccount: '未払費用',
-      amount:        voucher.amountInclTax,
-      description:   [voucher.vendorName, voucher.description].filter(Boolean).join(' ').trim(),
-      taxType:       voucher.taxType,
+      amount:        line.amountInclTax,
+      description:   buildDescription(voucher, line, multiline),
+      taxType:       line.taxType || voucher.taxType,
       matchStatus,
       voucher,
-    };
+    }));
 
     if (matchStatus === 'unmatched') {
-      return { accrualEntry };
+      return { accrualEntries };
     }
 
-    // 支払消込仕訳（照合成功時のみ生成）
+    // 支払消込仕訳は請求書1枚につき1本（ヘッダ合計）
     usedTxIndices.add(best.idx);
     const paymentEntry: PaymentEntry = {
       entryType:     'payment',
@@ -261,10 +310,9 @@ export function matchVouchersToTransactions(
       voucher,
     };
 
-    return { accrualEntry, paymentEntry };
+    return { accrualEntries, paymentEntry };
   });
 
-  // 未照合トランザクション（どの証票とも紐付かなかった出金）
   const unmatchedTransactions = transactions.filter(
     (tx, idx) => tx.debit && !usedTxIndices.has(idx)
   );

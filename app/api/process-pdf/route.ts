@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { processInvoicePdf, processInvoicePdfSingle } from '@/lib/ocr/invoice-ocr';
+import { processInvoicePdf, processInvoicePdfSingle, InvoiceLineSumMismatchError } from '@/lib/ocr/invoice-ocr';
 import { processTaxReturnPdf } from '@/lib/ocr/tax-return-ocr';
 import { processBankStatementPdf } from '@/lib/ocr/bank-statement-ocr';
 import { createClient } from '@/utils/supabase/server';
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
         totalPages,
       };
     } else if (mode === 'invoice-single') {
-      const { items, totalPages } = await processInvoicePdfSingle(pdfBuffer, anthropic);
+      const { items, totalPages } = await processInvoicePdfSingle(pdfBuffer, anthropic, file.name);
       responseBody = {
         mode: 'invoice-single',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
@@ -143,6 +143,22 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(responseBody);
   } catch (error) {
+    if (error instanceof InvoiceLineSumMismatchError) {
+      // 明細合計の不整合：フロントでスクショ依頼モーダルを出すための専用レスポンス
+      return NextResponse.json(
+        {
+          error: error.message,
+          errorCode: 'LINE_SUM_MISMATCH',
+          detail: {
+            taxIncludedAmount: error.taxIncludedAmount,
+            linesSum: error.linesSum,
+            fileName: error.fileName,
+            lines: error.lines,
+          },
+        },
+        { status: 422 }
+      );
+    }
     console.error('PDF処理エラー:', error);
     const message = error instanceof Error ? error.message : 'PDF処理中にエラーが発生しました';
     return NextResponse.json({ error: message }, { status: 500 });

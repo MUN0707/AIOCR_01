@@ -88,29 +88,38 @@ export async function POST(request: NextRequest) {
           .single();
 
         // 2) フラットな仕訳明細として保存（日記帳・編集・残高計算に使用）
+        // voucher_group_id で「1請求書から生まれた複数仕訳」をグループ化する。
+        // 未設定の古いカラムには影響しない（NULL許容）。
         const logId = logRow?.id ?? null;
         const rows: Record<string, unknown>[] = [];
         for (const r of results) {
-          const vendor = r.accrualEntry.voucher?.vendorName ?? '';
-          rows.push({
-            user_id: user.id,
-            client_id: clientId,
-            log_id: logId,
-            entry_type: 'accrual',
-            entry_date: r.accrualEntry.date,
-            debit_account: r.accrualEntry.debitAccount,
-            credit_account: r.accrualEntry.creditAccount,
-            amount: r.accrualEntry.amount,
-            description: r.accrualEntry.description,
-            tax_type: r.accrualEntry.taxType,
-            vendor_name: vendor,
-            match_status: r.accrualEntry.matchStatus,
-          });
+          const firstAccrual = r.accrualEntries[0];
+          const vendor = firstAccrual?.voucher?.vendorName ?? '';
+          // 同一請求書から派生した仕訳を紐付けるグループID
+          const voucherGroupId = crypto.randomUUID();
+          for (const e of r.accrualEntries) {
+            rows.push({
+              user_id: user.id,
+              client_id: clientId,
+              log_id: logId,
+              voucher_group_id: voucherGroupId,
+              entry_type: 'accrual',
+              entry_date: e.date,
+              debit_account: e.debitAccount,
+              credit_account: e.creditAccount,
+              amount: e.amount,
+              description: e.description,
+              tax_type: e.taxType,
+              vendor_name: vendor,
+              match_status: e.matchStatus,
+            });
+          }
           if (r.paymentEntry) {
             rows.push({
               user_id: user.id,
               client_id: clientId,
               log_id: logId,
+              voucher_group_id: voucherGroupId,
               entry_type: 'payment',
               entry_date: r.paymentEntry.date,
               debit_account: r.paymentEntry.debitAccount,

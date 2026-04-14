@@ -461,6 +461,13 @@ export default function Home() {
   const [bankDragOver, setBankDragOver] = useState(false);
   const [invoiceDragOver, setInvoiceDragOver] = useState(false);
   const [accountingMethod, setAccountingMethod] = useState<'accrual' | 'cash'>('accrual');
+  // 明細合計 ≠ 税込合計 のエラーをユーザーに通知してスクショ提出を依頼するモーダル
+  const [lineSumMismatch, setLineSumMismatch] = useState<null | {
+    fileName: string;
+    taxIncludedAmount: number;
+    linesSum: number;
+    lines: Array<{ debitAccount: string; amountInclTax: number; description: string }>;
+  }>(null);
 
   // ─── 未照合トランザクションの勘定科目選択 State ───────────────────────────
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
@@ -1010,15 +1017,34 @@ export default function Home() {
         if (selectedClientId) fd.append('clientId', selectedClientId);
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
         const data = await res.json();
-        if (!res.ok) throw new Error(`${file.name}: ${data.error}`);
+        if (!res.ok) {
+          // 明細合計不整合の場合は専用モーダルで通知（スクショ提出依頼）
+          if (data.errorCode === 'LINE_SUM_MISMATCH' && data.detail) {
+            setLineSumMismatch({
+              fileName: file.name,
+              taxIncludedAmount: data.detail.taxIncludedAmount,
+              linesSum: data.detail.linesSum,
+              lines: data.detail.lines ?? [],
+            });
+            return; // OCR全体を中断
+          }
+          throw new Error(`${file.name}: ${data.error}`);
+        }
         for (const inv of (data.invoices || [])) {
+          // OCRが返した明細行を VoucherLine[] として引き継ぐ。
+          // lines が無い場合は matcher 側で単一行にフォールバックする。
+          const ocrLines: { debitAccount: string; amountInclTax: number; taxType: string; description: string }[] =
+            Array.isArray(inv.lines) ? inv.lines : [];
+          const hasMultipleLines = ocrLines.length > 1;
           allVouchers.push({
             vendorName: inv.requesterName || '',
             invoiceDate: inv.date || '不明',
             amountInclTax: inv.taxIncludedAmount,
-            debitAccount: '仕入高',
+            // 単一行の場合は従来どおりヘッダに代表値を入れる
+            debitAccount: hasMultipleLines ? '' : (ocrLines[0]?.debitAccount || '仕入高'),
             description: inv.requesterName || '',
-            taxType: '課税仕入10%',
+            taxType: hasMultipleLines ? '課税仕入10%' : (ocrLines[0]?.taxType || '課税仕入10%'),
+            lines: hasMultipleLines ? ocrLines : undefined,
             sourceFileIndex: fi,
             sourceFileName: file.name,
           });
@@ -1068,12 +1094,13 @@ export default function Home() {
     const header = ['種別', '日付', '借方科目', '貸方科目', '金額', '摘要', '消費税区分', '照合ステータス', '照合スコア'];
     const rows: string[][] = [];
     for (const r of journalMatchResult.results) {
-      const e = r.accrualEntry;
-      rows.push([
-        '費用計上', e.date, e.debitAccount, e.creditAccount,
-        e.amount != null ? String(e.amount) : '',
-        e.description, e.taxType, e.matchStatus, '',
-      ]);
+      for (const e of r.accrualEntries) {
+        rows.push([
+          '費用計上', e.date, e.debitAccount, e.creditAccount,
+          e.amount != null ? String(e.amount) : '',
+          e.description, e.taxType, e.matchStatus, '',
+        ]);
+      }
       if (r.paymentEntry) {
         const p = r.paymentEntry;
         rows.push([
@@ -1543,38 +1570,43 @@ export default function Home() {
                       <tbody className="divide-y divide-slate-50">
                         {journalMatchResult.results.map((r, i) => (
                           <Fragment key={i}>
-                            {/* 費用計上行 */}
-                            <tr
-                              className={`hover:bg-sky-50/30 transition-colors ${r.accrualEntry.voucher.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
-                              onClick={() => showVoucherPdf(r.accrualEntry.voucher)}
-                              title={r.accrualEntry.voucher.sourceFileIndex != null ? 'クリックで元PDF表示' : ''}
-                            >
-                              <td className="px-4 py-3">
-                                <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-medium">費用計上</span>
-                              </td>
-                              <td className="px-4 py-3 text-xs font-mono text-slate-500">
-                                {r.accrualEntry.date === '不明' ? '—' : `${r.accrualEntry.date.slice(0,4)}/${r.accrualEntry.date.slice(4,6)}/${r.accrualEntry.date.slice(6,8)}`}
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{r.accrualEntry.debitAccount}</span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{r.accrualEntry.creditAccount}</span>
-                              </td>
-                              <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
-                                {r.accrualEntry.amount != null ? `¥${r.accrualEntry.amount.toLocaleString()}` : '—'}
-                              </td>
-                              <td className="px-4 py-3 text-xs text-slate-500 max-w-[160px] truncate">{r.accrualEntry.description || '—'}</td>
-                              <td className="px-4 py-3">
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                                  r.accrualEntry.matchStatus === 'auto' ? 'bg-lime-100 text-lime-600'
-                                  : r.accrualEntry.matchStatus === 'needs_review' ? 'bg-amber-100 text-amber-600'
-                                  : 'bg-red-100 text-red-500'
-                                }`}>
-                                  {r.accrualEntry.matchStatus === 'auto' ? '自動照合' : r.accrualEntry.matchStatus === 'needs_review' ? '要確認' : '未照合'}
-                                </span>
-                              </td>
-                            </tr>
+                            {/* 費用計上行（複数明細対応：1請求書から複数行になることがある） */}
+                            {r.accrualEntries.map((ae, lineIdx) => (
+                              <tr
+                                key={`a-${i}-${lineIdx}`}
+                                className={`hover:bg-sky-50/30 transition-colors ${ae.voucher.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
+                                onClick={() => showVoucherPdf(ae.voucher)}
+                                title={ae.voucher.sourceFileIndex != null ? 'クリックで元PDF表示' : ''}
+                              >
+                                <td className="px-4 py-3">
+                                  <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-medium">
+                                    費用計上{r.accrualEntries.length > 1 ? `(${lineIdx + 1}/${r.accrualEntries.length})` : ''}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-xs font-mono text-slate-500">
+                                  {ae.date === '不明' ? '—' : `${ae.date.slice(0,4)}/${ae.date.slice(4,6)}/${ae.date.slice(6,8)}`}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{ae.debitAccount}</span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{ae.creditAccount}</span>
+                                </td>
+                                <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                                  {ae.amount != null ? `¥${ae.amount.toLocaleString()}` : '—'}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-slate-500 max-w-[160px] truncate">{ae.description || '—'}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                    ae.matchStatus === 'auto' ? 'bg-lime-100 text-lime-600'
+                                    : ae.matchStatus === 'needs_review' ? 'bg-amber-100 text-amber-600'
+                                    : 'bg-red-100 text-red-500'
+                                  }`}>
+                                    {ae.matchStatus === 'auto' ? '自動照合' : ae.matchStatus === 'needs_review' ? '要確認' : '未照合'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
                             {/* 支払消込行 */}
                             {r.paymentEntry && (
                               <tr
@@ -2484,6 +2516,79 @@ export default function Home() {
                 className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2.5 font-semibold hover:bg-sky-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {reportSending ? '送信中...' : '管理者に送信'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── 明細合計不整合エラーモーダル ─────────────────────────────
+          複数科目按分OCRで、明細合計 ≠ 税込合計 になった場合の通知。
+          ユーザーにスクショ提出を依頼して開発者にフィードバックを送ってもらう。 */}
+      {lineSumMismatch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 bg-amber-50/40">
+              <p className="text-sm font-semibold text-amber-700 tracking-tight">
+                明細の自動分割でエラーが発生しました
+              </p>
+              <p className="text-[11px] text-amber-500/80 mt-0.5 tracking-wide">
+                OCRが返した明細行の合計が請求書の税込合計と一致しませんでした
+              </p>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="text-xs text-slate-600 leading-relaxed">
+                <span className="font-mono bg-slate-50 px-1.5 py-0.5 rounded">{lineSumMismatch.fileName}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] text-slate-400 tracking-wider uppercase">税込合計</p>
+                  <p className="text-sm font-semibold text-slate-900 tabular-nums mt-1">
+                    ¥{lineSumMismatch.taxIncludedAmount.toLocaleString()}
+                  </p>
+                </div>
+                <div className="bg-red-50 rounded-xl p-3">
+                  <p className="text-[10px] text-red-400 tracking-wider uppercase">明細合計</p>
+                  <p className="text-sm font-semibold text-red-600 tabular-nums mt-1">
+                    ¥{lineSumMismatch.linesSum.toLocaleString()}
+                    <span className="text-[10px] text-red-400 ml-2">
+                      差額 ¥{(lineSumMismatch.linesSum - lineSumMismatch.taxIncludedAmount).toLocaleString()}
+                    </span>
+                  </p>
+                </div>
+              </div>
+              {lineSumMismatch.lines.length > 0 && (
+                <div className="border border-slate-100 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">科目</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">内容</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-widest">金額</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {lineSumMismatch.lines.map((l, idx) => (
+                        <tr key={idx}>
+                          <td className="px-3 py-2 text-slate-700">{l.debitAccount}</td>
+                          <td className="px-3 py-2 text-slate-500 truncate max-w-[140px]">{l.description || '—'}</td>
+                          <td className="px-3 py-2 text-right text-slate-700 tabular-nums">¥{l.amountInclTax.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="bg-sky-50/60 rounded-xl p-3 text-[11px] text-sky-700 leading-relaxed">
+                お手数ですが、<strong className="font-semibold">この画面のスクリーンショット</strong>と<strong className="font-semibold">該当の請求書PDF</strong>を開発者にお送りください。プロンプト改善に使用させていただきます。
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/30 flex justify-end gap-2">
+              <button
+                onClick={() => setLineSumMismatch(null)}
+                className="text-xs text-slate-600 bg-white border border-slate-200 rounded-xl px-4 py-2.5 font-medium hover:bg-slate-50 transition-all"
+              >
+                閉じる
               </button>
             </div>
           </div>
