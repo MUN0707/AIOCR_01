@@ -14,7 +14,19 @@ interface ClientItem {
   name: string;
   client_type: string;
   industry: string | null;
+  company_code: string | null;
+  legal_name: string | null;
+  short_name: string | null;
   created_at: string;
+}
+
+function clientDisplayLabel(c: { name: string; company_code: string | null; short_name: string | null }): string {
+  const code = c.company_code?.trim();
+  const short = c.short_name?.trim();
+  if (code && short) return `${code} ${short}`;
+  if (code) return `${code} ${c.name}`;
+  if (short) return short;
+  return c.name;
 }
 
 interface InvoiceResult {
@@ -443,8 +455,11 @@ export default function Home() {
   const [clients, setClients] = useState<ClientItem[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [showClientModal, setShowClientModal] = useState(false);
-  const [newClientName, setNewClientName] = useState('');
+  const [newClientForm, setNewClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '' });
   const [clientSaving, setClientSaving] = useState(false);
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [editingClientForm, setEditingClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '' });
+  const [clientError, setClientError] = useState<string | null>(null);
 
   // ─── 自動仕訳モード専用 State ─────────────────────────────────────────────
   const [bankFiles, setBankFiles] = useState<File[]>([]);
@@ -1147,32 +1162,77 @@ export default function Home() {
 
   // ─── クライアント管理ハンドラ ───────────────────────────────────────────────
   const handleAddClient = async () => {
-    const name = newClientName.trim();
+    const name = newClientForm.name.trim();
     if (!name || clientSaving) return;
     setClientSaving(true);
+    setClientError(null);
     try {
       const res = await fetch('/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({
+          name,
+          company_code: newClientForm.company_code.trim(),
+          legal_name: newClientForm.legal_name.trim(),
+          short_name: newClientForm.short_name.trim(),
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || '追加失敗');
       setClients((prev) => [...prev, data.client]);
-      setNewClientName('');
+      setNewClientForm({ company_code: '', name: '', legal_name: '', short_name: '' });
       if (!selectedClientId) setSelectedClientId(data.client.id);
-    } catch {
-      // silent
+    } catch (e) {
+      setClientError(e instanceof Error ? e.message : '追加に失敗しました');
+    } finally {
+      setClientSaving(false);
+    }
+  };
+
+  const handleStartEditClient = (c: ClientItem) => {
+    setEditingClientId(c.id);
+    setEditingClientForm({
+      company_code: c.company_code ?? '',
+      name: c.name,
+      legal_name: c.legal_name ?? '',
+      short_name: c.short_name ?? '',
+    });
+    setClientError(null);
+  };
+
+  const handleSaveEditClient = async () => {
+    if (!editingClientId || clientSaving) return;
+    setClientSaving(true);
+    setClientError(null);
+    try {
+      const res = await fetch(`/api/clients?id=${editingClientId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editingClientForm.name.trim(),
+          company_code: editingClientForm.company_code.trim(),
+          legal_name: editingClientForm.legal_name.trim(),
+          short_name: editingClientForm.short_name.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '更新失敗');
+      setClients((prev) => prev.map((c) => (c.id === editingClientId ? data.client : c)));
+      setEditingClientId(null);
+    } catch (e) {
+      setClientError(e instanceof Error ? e.message : '更新に失敗しました');
     } finally {
       setClientSaving(false);
     }
   };
 
   const handleDeleteClient = async (id: string) => {
+    if (!confirm('このクライアントを削除しますか？')) return;
     try {
       await fetch(`/api/clients?id=${id}`, { method: 'DELETE' });
       setClients((prev) => prev.filter((c) => c.id !== id));
       if (selectedClientId === id) setSelectedClientId(null);
+      if (editingClientId === id) setEditingClientId(null);
     } catch {
       // silent
     }
@@ -1269,14 +1329,24 @@ export default function Home() {
               Googleでサインイン
             </button>
           ) : (
-            <button
-              onClick={handleSignOut}
-              className="text-xs text-slate-400 border border-slate-200 rounded-xl
-                px-4 py-2 hover:bg-slate-50 hover:text-slate-600
-                transition-all duration-200 tracking-wide"
-            >
-              サインアウト
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.push('/history')}
+                className="text-xs font-medium text-sky-600 border border-sky-200 rounded-xl
+                  px-4 py-2 hover:bg-sky-50 hover:border-sky-300
+                  transition-all duration-200 tracking-wide"
+              >
+                履歴
+              </button>
+              <button
+                onClick={handleSignOut}
+                className="text-xs text-slate-400 border border-slate-200 rounded-xl
+                  px-4 py-2 hover:bg-slate-50 hover:text-slate-600
+                  transition-all duration-200 tracking-wide"
+              >
+                サインアウト
+              </button>
+            </div>
           )}
         </div>
       </header>
@@ -1329,7 +1399,7 @@ export default function Home() {
               >
                 <option value="">未選択（個人）</option>
                 {clients.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
+                  <option key={c.id} value={c.id}>{clientDisplayLabel(c)}</option>
                 ))}
               </select>
               <button
@@ -1347,51 +1417,134 @@ export default function Home() {
         {/* ─── クライアント管理モーダル ─────────────────────────────────────── */}
         {showClientModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
-            onClick={() => setShowClientModal(false)}>
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 space-y-5"
+            onClick={() => { setShowClientModal(false); setEditingClientId(null); setClientError(null); }}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 p-6 space-y-5 max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-slate-800">クライアント管理</h3>
-                <button onClick={() => setShowClientModal(false)}
+                <button onClick={() => { setShowClientModal(false); setEditingClientId(null); setClientError(null); }}
                   className="text-slate-400 hover:text-slate-600 transition-colors">
                   <IconX className="w-5 h-5" />
                 </button>
               </div>
 
               {/* 新規追加フォーム */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newClientName}
-                  onChange={(e) => setNewClientName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddClient(); }}
-                  placeholder="クライアント名を入力"
-                  className="flex-1 text-sm border border-slate-200 rounded-xl px-4 py-2.5
-                    focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300
-                    transition-all duration-200 placeholder:text-slate-300"
-                />
+              <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/40 space-y-3">
+                <p className="text-xs font-semibold text-slate-500 tracking-wide">新規クライアント追加</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-1">会社番号（英数字・例: 443, a01）</label>
+                    <input
+                      type="text"
+                      value={newClientForm.company_code}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, company_code: e.target.value })}
+                      placeholder="443"
+                      maxLength={8}
+                      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-1">略称（例: J41gk）</label>
+                    <input
+                      type="text"
+                      value={newClientForm.short_name}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, short_name: e.target.value })}
+                      placeholder="J41gk"
+                      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-[10px] text-slate-400 block mb-1">クライアント名（必須・社内表示用）</label>
+                    <input
+                      type="text"
+                      value={newClientForm.name}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, name: e.target.value })}
+                      placeholder="Jインフラ41号"
+                      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-[10px] text-slate-400 block mb-1">正式名（決算書に出力する正式社名）</label>
+                    <input
+                      type="text"
+                      value={newClientForm.legal_name}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, legal_name: e.target.value })}
+                      placeholder="Jインフラ41号合同会社"
+                      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+                    />
+                  </div>
+                </div>
                 <button
                   onClick={handleAddClient}
-                  disabled={!newClientName.trim() || clientSaving}
-                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-white
-                    bg-sky-400 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed
-                    transition-all duration-200 whitespace-nowrap shadow-sm shadow-sky-200/60"
+                  disabled={!newClientForm.name.trim() || clientSaving}
+                  className="w-full px-4 py-2 rounded-xl text-sm font-medium text-white bg-sky-400 hover:bg-sky-500 disabled:opacity-40 transition-all duration-200 shadow-sm shadow-sky-200/60"
                 >
-                  追加
+                  {clientSaving ? '保存中...' : '追加'}
                 </button>
               </div>
 
+              {clientError && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{clientError}</div>
+              )}
+
               {/* クライアント一覧 */}
-              <div className="space-y-2 max-h-64 overflow-y-auto">
+              <div className="space-y-2 max-h-80 overflow-y-auto">
                 {clients.length === 0 ? (
                   <p className="text-sm text-slate-400 text-center py-6">
                     まだクライアントが登録されていません
                   </p>
                 ) : (
-                  clients.map((c) => (
-                    <div key={c.id}
-                      className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3 group">
-                      <span className="text-sm text-slate-700 font-medium">{c.name}</span>
+                  clients.map((c) => editingClientId === c.id ? (
+                    <div key={c.id} className="border border-sky-200 bg-sky-50/30 rounded-xl px-4 py-3 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={editingClientForm.company_code}
+                          onChange={(e) => setEditingClientForm({ ...editingClientForm, company_code: e.target.value })}
+                          placeholder="会社番号"
+                          maxLength={8}
+                          className="text-xs border border-slate-200 rounded px-2 py-1.5 font-mono"
+                        />
+                        <input
+                          type="text"
+                          value={editingClientForm.short_name}
+                          onChange={(e) => setEditingClientForm({ ...editingClientForm, short_name: e.target.value })}
+                          placeholder="略称"
+                          className="text-xs border border-slate-200 rounded px-2 py-1.5"
+                        />
+                        <input
+                          type="text"
+                          value={editingClientForm.name}
+                          onChange={(e) => setEditingClientForm({ ...editingClientForm, name: e.target.value })}
+                          placeholder="クライアント名"
+                          className="text-xs border border-slate-200 rounded px-2 py-1.5 col-span-2"
+                        />
+                        <input
+                          type="text"
+                          value={editingClientForm.legal_name}
+                          onChange={(e) => setEditingClientForm({ ...editingClientForm, legal_name: e.target.value })}
+                          placeholder="正式名"
+                          className="text-xs border border-slate-200 rounded px-2 py-1.5 col-span-2"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={handleSaveEditClient} disabled={clientSaving}
+                          className="text-xs text-white bg-sky-500 rounded-lg px-3 py-1.5 hover:bg-sky-600 disabled:opacity-40">保存</button>
+                        <button onClick={() => { setEditingClientId(null); setClientError(null); }}
+                          className="text-xs text-slate-500 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">キャンセル</button>
+                        <div className="flex-1" />
+                        <button onClick={() => handleDeleteClient(c.id)}
+                          className="text-xs text-red-500 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50">削除</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={c.id} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3 group">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-slate-700 font-medium tabular-nums">{clientDisplayLabel(c)}</div>
+                        {c.legal_name && <div className="text-[10px] text-slate-400 truncate">{c.legal_name}</div>}
+                      </div>
+                      <button onClick={() => handleStartEditClient(c)}
+                        className="text-[11px] text-sky-500 border border-sky-200 rounded-lg px-2.5 py-1 hover:bg-sky-50 mr-2 opacity-0 group-hover:opacity-100 transition-opacity">編集</button>
                       <button
                         onClick={() => handleDeleteClient(c.id)}
                         className="text-slate-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
@@ -3739,13 +3892,18 @@ interface FiscalPeriod {
   start_date: string;
   end_date: string;
   client_id: string | null;
+  opening_balances: Record<string, number> | null;
   created_at: string;
 }
 
 interface FsBreakdown { name: string; amount: number }
 interface FsGroup { sub_category: string; total: number; items: FsBreakdown[] }
+interface FsEquityRow { name: string; opening: number; change: number; ending: number; isCarryForward: boolean }
+interface FsClient { name: string; legal_name: string | null; short_name: string | null; company_code: string | null }
 interface FsResult {
   period: { start: string; end: string };
+  client: FsClient | null;
+  useOpeningBalances: boolean;
   pl: {
     groups: FsGroup[];
     salesTotal: number;
@@ -3769,12 +3927,33 @@ interface FsResult {
     equityTotal: number;
     liabilitiesAndEquityTotal: number;
   };
+  equity: {
+    rows: FsEquityRow[];
+    openingTotal: number;
+    changeTotal: number;
+    endingTotal: number;
+  };
   unclassified: FsBreakdown[];
 }
 
 function formatYen(n: number): string {
-  const sign = n < 0 ? '△' : '';
-  return sign + Math.abs(Math.round(n)).toLocaleString();
+  const v = Math.round(n);
+  if (v === 0) return '0';
+  const sign = v < 0 ? '-' : '';
+  return sign + Math.abs(v).toLocaleString();
+}
+
+function formatJpDate(iso: string): string {
+  // '2024-11-01' → '2024年11月 1日'
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  return `${m[1]}年${parseInt(m[2], 10)}月${parseInt(m[3], 10)}日`;
+}
+
+function periodNumber(name: string): string {
+  // 「第3期」「第 3 期」などから数字部分を抽出
+  const m = name.match(/(\d+)/);
+  return m ? m[1] : '';
 }
 
 function FinancialStatementView({ selectedClientId }: { selectedClientId: string | null }) {
@@ -3784,12 +3963,19 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
   const [result, setResult] = useState<FsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 法人税等（手動入力）
   const [corporateTax, setCorporateTax] = useState<string>('0');
 
-  // 新規期間追加フォーム
+  // 新規期間追加
   const [showAddForm, setShowAddForm] = useState(false);
   const [newPeriod, setNewPeriod] = useState({ name: '', start_date: '', end_date: '' });
+
+  // 期編集（期首残高含む）
+  const [editingPeriodId, setEditingPeriodId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ name: string; start_date: string; end_date: string; opening: { name: string; amount: string }[] }>({
+    name: '', start_date: '', end_date: '', opening: [],
+  });
+  const [editSaving, setEditSaving] = useState(false);
+  const [calcLoading, setCalcLoading] = useState(false);
 
   const fetchPeriods = useCallback(async () => {
     try {
@@ -3805,9 +3991,7 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
     }
   }, [selectedClientId]);
 
-  useEffect(() => {
-    fetchPeriods();
-  }, [fetchPeriods]);
+  useEffect(() => { fetchPeriods(); }, [fetchPeriods]);
 
   const selectedPeriod = periods.find((p) => p.id === selectedPeriodId);
 
@@ -3820,6 +4004,7 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
       const params = new URLSearchParams({
         start: selectedPeriod.start_date,
         end: selectedPeriod.end_date,
+        periodId: selectedPeriod.id,
         corporateTax: String(Number(corporateTax) || 0),
       });
       if (selectedClientId) params.set('clientId', selectedClientId);
@@ -3839,16 +4024,10 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
     const res = await fetch('/api/fiscal-periods', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...newPeriod,
-        client_id: selectedClientId,
-      }),
+      body: JSON.stringify({ ...newPeriod, client_id: selectedClientId }),
     });
     const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || '追加失敗');
-      return;
-    }
+    if (!res.ok) { alert(data.error || '追加失敗'); return; }
     setPeriods((prev) => [data.period, ...prev]);
     setSelectedPeriodId(data.period.id);
     setNewPeriod({ name: '', start_date: '', end_date: '' });
@@ -3867,21 +4046,98 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
     if (selectedPeriodId === id) setSelectedPeriodId('');
   };
 
+  const handleStartEdit = () => {
+    if (!selectedPeriod) return;
+    const ob = selectedPeriod.opening_balances ?? {};
+    const opening = Object.entries(ob).map(([name, amount]) => ({ name, amount: String(amount) }));
+    if (opening.length === 0) opening.push({ name: '', amount: '' });
+    setEditForm({
+      name: selectedPeriod.name,
+      start_date: selectedPeriod.start_date,
+      end_date: selectedPeriod.end_date,
+      opening,
+    });
+    setEditingPeriodId(selectedPeriod.id);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingPeriodId) return;
+    setEditSaving(true);
+    try {
+      const ob: Record<string, number> = {};
+      for (const row of editForm.opening) {
+        const name = row.name.trim();
+        if (!name) continue;
+        const num = Number(row.amount);
+        if (Number.isFinite(num)) ob[name] = num;
+      }
+      const res = await fetch(`/api/fiscal-periods/${editingPeriodId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editForm.name,
+          start_date: editForm.start_date,
+          end_date: editForm.end_date,
+          opening_balances: ob,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || '更新失敗'); return; }
+      setPeriods((prev) => prev.map((p) => (p.id === editingPeriodId ? data.period : p)));
+      setEditingPeriodId(null);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleAutoCalc = async () => {
+    if (!editingPeriodId) return;
+    setCalcLoading(true);
+    try {
+      const res = await fetch(`/api/fiscal-periods/${editingPeriodId}/calculate-opening`);
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || '算出失敗'); return; }
+      const ob = data.opening_balances as Record<string, number>;
+      const opening = Object.entries(ob).map(([name, amount]) => ({ name, amount: String(amount) }));
+      if (opening.length === 0) opening.push({ name: '', amount: '' });
+      setEditForm((prev) => ({ ...prev, opening }));
+    } finally {
+      setCalcLoading(false);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
 
   return (
     <section className="space-y-5">
-      {/* 印刷時のCSS */}
+      {/* 印刷時のCSS（5ページ構成・税務署式レイアウト） */}
       <style jsx global>{`
         @media print {
           body * { visibility: hidden !important; }
           .fs-print-area, .fs-print-area * { visibility: visible !important; }
-          .fs-print-area { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 20px !important; }
+          .fs-print-area { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; }
           .fs-no-print { display: none !important; }
-          @page { size: A4; margin: 15mm; }
+          @page { size: A4; margin: 18mm 16mm; }
+          .fs-page { page-break-after: always; break-after: page; }
+          .fs-page:last-child { page-break-after: auto; break-after: auto; }
         }
+        .fs-print-area { font-family: "Yu Mincho", "YuMincho", "Hiragino Mincho ProN", "MS Mincho", serif; color: #000; }
+        .fs-page { background: white; margin: 0 auto 24px; width: 210mm; min-height: 297mm; padding: 18mm 16mm; box-sizing: border-box; box-shadow: 0 1px 4px rgba(0,0,0,0.08); position: relative; font-size: 11pt; }
+        @media print { .fs-page { box-shadow: none; margin: 0; padding: 0; min-height: auto; width: auto; } }
+        .fs-title { text-align: center; letter-spacing: 0.6em; font-size: 14pt; font-weight: normal; padding-bottom: 4px; border-bottom: 1px solid #000; display: inline-block; padding-left: 0.6em; }
+        .fs-cover-title { text-align: center; letter-spacing: 1.2em; font-size: 22pt; padding-bottom: 8px; border-bottom: 1px solid #000; display: inline-block; padding-left: 1.2em; }
+        .fs-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+        .fs-table th, .fs-table td { border: 1px solid #000; padding: 3px 6px; vertical-align: middle; }
+        .fs-table th { text-align: center; font-weight: normal; background: #fff; }
+        .fs-num { text-align: right; font-variant-numeric: tabular-nums; }
+        .fs-bracket { font-weight: normal; }
+        .fs-indent { padding-left: 1.2em !important; }
+        .fs-noborder-top { border-top: none !important; }
+        .fs-noborder-bottom { border-bottom: none !important; }
+        .fs-noborder-left { border-left: none !important; }
+        .fs-noborder-right { border-right: none !important; }
       `}</style>
 
       {/* 期間選択 & 操作パネル */}
@@ -3907,12 +4163,20 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
             {showAddForm ? 'キャンセル' : '+ 期を追加'}
           </button>
           {selectedPeriodId && (
-            <button
-              onClick={() => handleDeletePeriod(selectedPeriodId)}
-              className="text-xs text-red-500 border border-red-200 rounded-xl px-3 py-2 hover:bg-red-50 transition-all duration-200"
-            >
-              この期を削除
-            </button>
+            <>
+              <button
+                onClick={handleStartEdit}
+                className="text-xs font-medium text-sky-500 border border-sky-200 rounded-xl px-3 py-2 hover:bg-sky-50 hover:border-sky-300 transition-all duration-200"
+              >
+                期首残高を編集
+              </button>
+              <button
+                onClick={() => handleDeletePeriod(selectedPeriodId)}
+                className="text-xs text-red-500 border border-red-200 rounded-xl px-3 py-2 hover:bg-red-50 transition-all duration-200"
+              >
+                この期を削除
+              </button>
+            </>
           )}
           <div className="flex-1" />
           <div className="flex items-center gap-2">
@@ -3978,102 +4242,128 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
         )}
       </div>
 
-      {/* 決算書本体 */}
+      {/* 期編集パネル（期首残高） */}
+      {editingPeriodId && (
+        <div className="fs-no-print bg-white border border-sky-200 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-slate-700">期の編集 / 期首残高</h4>
+            <button onClick={() => setEditingPeriodId(null)} className="text-xs text-slate-400 hover:text-slate-600">閉じる</button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              placeholder="期の名前"
+              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+            <input
+              type="date"
+              value={editForm.start_date}
+              onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
+              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+            <input
+              type="date"
+              value={editForm.end_date}
+              onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
+              className="text-xs border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-slate-600">期首残高（B/S 科目のみ）</p>
+              <button
+                onClick={handleAutoCalc}
+                disabled={calcLoading}
+                className="text-xs text-sky-600 border border-sky-200 rounded-lg px-3 py-1.5 hover:bg-sky-50 disabled:opacity-40"
+              >
+                {calcLoading ? '算出中...' : '期首日より前の仕訳から自動算出'}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400">資産は正、負債・純資産は正で入力。繰越利益剰余金も含めてください。</p>
+            <div className="space-y-1 max-h-72 overflow-y-auto">
+              {editForm.opening.map((row, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                  <input
+                    value={row.name}
+                    onChange={(e) => {
+                      const next = [...editForm.opening];
+                      next[i] = { ...next[i], name: e.target.value };
+                      setEditForm({ ...editForm, opening: next });
+                    }}
+                    placeholder="科目名（例: 繰越利益剰余金）"
+                    className="col-span-7 text-xs border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-sky-400"
+                  />
+                  <input
+                    type="number"
+                    value={row.amount}
+                    onChange={(e) => {
+                      const next = [...editForm.opening];
+                      next[i] = { ...next[i], amount: e.target.value };
+                      setEditForm({ ...editForm, opening: next });
+                    }}
+                    placeholder="金額"
+                    className="col-span-4 text-xs border border-slate-200 rounded-lg px-3 py-1.5 text-right tabular-nums focus:outline-none focus:border-sky-400"
+                  />
+                  <button
+                    onClick={() => {
+                      const next = editForm.opening.filter((_, j) => j !== i);
+                      setEditForm({ ...editForm, opening: next.length ? next : [{ name: '', amount: '' }] });
+                    }}
+                    className="col-span-1 text-xs text-red-400 hover:text-red-600"
+                  >×</button>
+                </div>
+              ))}
+              <button
+                onClick={() => setEditForm({ ...editForm, opening: [...editForm.opening, { name: '', amount: '' }] })}
+                className="text-xs text-sky-500 border border-sky-200 rounded-lg px-3 py-1.5 hover:bg-sky-50"
+              >+ 行を追加</button>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={handleSaveEdit}
+              disabled={editSaving}
+              className="text-sm text-white bg-sky-500 rounded-xl px-5 py-2 font-semibold hover:bg-sky-600 disabled:opacity-40"
+            >{editSaving ? '保存中...' : '保存'}</button>
+            <button
+              onClick={() => setEditingPeriodId(null)}
+              className="text-sm text-slate-500 border border-slate-200 rounded-xl px-5 py-2 hover:bg-slate-50"
+            >キャンセル</button>
+          </div>
+        </div>
+      )}
+
+      {/* 印刷時の注意（画面のみ） */}
       {result && (
-        <div className="fs-print-area space-y-6">
-          <div className="text-center">
-            <h2 className="text-xl font-semibold text-slate-800 tracking-tight">決算書</h2>
-            <p className="text-xs text-slate-500 mt-1">
-              {result.period.start} 〜 {result.period.end}
-              {selectedPeriod ? `（${selectedPeriod.name}）` : ''}
-            </p>
-          </div>
+        <div className="fs-no-print text-[11px] text-slate-500 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2">
+          ※ ブラウザの印刷ダイアログで「ヘッダーとフッター」のチェックを外し、「背景のグラフィック」をオフにしてからPDF保存してください。
+        </div>
+      )}
 
-          {/* 損益計算書 */}
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-            <div className="px-5 py-3 bg-sky-50/40 border-b border-slate-100">
-              <p className="text-sm font-semibold text-sky-700 tracking-tight">損益計算書（P/L）</p>
-            </div>
-            <table className="w-full text-sm">
-              <tbody>
-                <PlRow label="売上高" amount={result.pl.salesTotal} bold />
-                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '売上高')} />
-                <PlRow label="売上原価" amount={result.pl.cogsTotal} bold />
-                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '売上原価')} />
-                <PlRow label="売上総利益" amount={result.pl.grossProfit} highlight />
-                <PlRow label="販売費及び一般管理費" amount={result.pl.sgaTotal} bold />
-                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '販管費')} />
-                <PlRow label="営業利益" amount={result.pl.operatingProfit} highlight />
-                <PlRow label="営業外収益" amount={result.pl.nonOpIncome} bold />
-                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '営業外収益')} />
-                <PlRow label="営業外費用" amount={result.pl.nonOpExpense} bold />
-                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '営業外費用')} />
-                <PlRow label="経常利益" amount={result.pl.ordinaryProfit} highlight />
-                <PlRow label="特別利益" amount={result.pl.extraIncome} bold />
-                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '特別利益')} />
-                <PlRow label="特別損失" amount={result.pl.extraLoss} bold />
-                <PlGroupRows group={result.pl.groups.find((g) => g.sub_category === '特別損失')} />
-                <PlRow label="税引前当期純利益" amount={result.pl.netIncomeBeforeTax} highlight />
-                <PlRow label="法人税、住民税及び事業税" amount={result.pl.corporateTax} bold />
-                <PlRow label="当期純利益" amount={result.pl.netIncome} highlight double />
-              </tbody>
-            </table>
-          </div>
+      {/* 決算書本体（5ページ） */}
+      {result && (
+        <div className="fs-print-area">
+          <DecisionReportPaper result={result} period={selectedPeriod ?? null} />
+        </div>
+      )}
 
-          {/* 貸借対照表 */}
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-            <div className="px-5 py-3 bg-lime-50/40 border-b border-slate-100">
-              <p className="text-sm font-semibold text-lime-700 tracking-tight">貸借対照表（B/S）</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
-              {/* 資産の部 */}
-              <div>
-                <div className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600 tracking-wide">資産の部</div>
-                <table className="w-full text-sm">
-                  <tbody>
-                    {result.bs.groups.filter((g) => ['流動資産','固定資産','繰延資産'].includes(g.sub_category)).map((g) => (
-                      <BsGroupRows key={g.sub_category} group={g} />
-                    ))}
-                    <BsRow label="資産合計" amount={result.bs.assetsTotal} highlight double />
-                  </tbody>
-                </table>
-              </div>
-              {/* 負債・純資産の部 */}
-              <div>
-                <div className="px-4 py-2 bg-slate-50 text-xs font-semibold text-slate-600 tracking-wide">負債・純資産の部</div>
-                <table className="w-full text-sm">
-                  <tbody>
-                    {result.bs.groups.filter((g) => ['流動負債','固定負債'].includes(g.sub_category)).map((g) => (
-                      <BsGroupRows key={g.sub_category} group={g} />
-                    ))}
-                    <BsRow label="負債合計" amount={result.bs.liabilitiesTotal} highlight />
-                    {result.bs.groups.filter((g) => g.sub_category === '純資産').map((g) => (
-                      <BsGroupRows key={g.sub_category} group={g} />
-                    ))}
-                    <BsRow label="純資産合計" amount={result.bs.equityTotal} highlight />
-                    <BsRow label="負債・純資産合計" amount={result.bs.liabilitiesAndEquityTotal} highlight double />
-                  </tbody>
-                </table>
-              </div>
-            </div>
+      {result && result.unclassified.length > 0 && (
+        <div className="fs-no-print bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <p className="text-xs font-semibold text-amber-700 mb-2">
+            ⚠ 中区分が未設定の科目が {result.unclassified.length} 件あります（決算書に含まれていません）
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {result.unclassified.map((u) => (
+              <span key={u.name} className="text-[11px] bg-white border border-amber-200 rounded-md px-2 py-1 text-amber-700">
+                {u.name}
+              </span>
+            ))}
           </div>
-
-          {/* 未分類（警告） */}
-          {result.unclassified.length > 0 && (
-            <div className="fs-no-print bg-amber-50 border border-amber-200 rounded-2xl p-4">
-              <p className="text-xs font-semibold text-amber-700 mb-2">
-                ⚠ 中区分が未設定の科目が {result.unclassified.length} 件あります（決算書に含まれていません）
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {result.unclassified.map((u) => (
-                  <span key={u.name} className="text-[11px] bg-white border border-amber-200 rounded-md px-2 py-1 text-amber-700">
-                    {u.name}
-                  </span>
-                ))}
-              </div>
-              <p className="text-[11px] text-amber-600 mt-2">「マスタ」タブから中区分を設定してください。</p>
-            </div>
-          )}
+          <p className="text-[11px] text-amber-600 mt-2">「マスタ」タブから中区分を設定してください。</p>
         </div>
       )}
 
@@ -4091,53 +4381,302 @@ function FinancialStatementView({ selectedClientId }: { selectedClientId: string
   );
 }
 
-function PlRow({ label, amount, bold, highlight, double }: { label: string; amount: number; bold?: boolean; highlight?: boolean; double?: boolean }) {
-  return (
-    <tr className={`${highlight ? 'bg-sky-50/40' : ''} border-t ${double ? 'border-t-2 border-slate-300' : 'border-slate-100'}`}>
-      <td className={`px-5 py-2 text-slate-700 ${bold || highlight ? 'font-semibold' : ''}`}>{label}</td>
-      <td className={`px-5 py-2 text-right tabular-nums text-slate-900 ${bold || highlight ? 'font-semibold' : ''}`}>
-        {formatYen(amount)}
-      </td>
-    </tr>
-  );
-}
+// ─── 5ページ印刷レイアウト ─────────────────────────────────────────────────
 
-function PlGroupRows({ group }: { group: FsGroup | undefined }) {
-  if (!group || group.items.length === 0) return null;
+function DecisionReportPaper({ result, period }: { result: FsResult; period: FiscalPeriod | null }) {
+  const legalName = result.client?.legal_name || result.client?.name || '';
+  const periodNo = period ? periodNumber(period.name) : '';
+
   return (
     <>
-      {group.items.map((it) => (
-        <tr key={it.name} className="border-t border-slate-50">
-          <td className="px-10 py-1.5 text-xs text-slate-500">{it.name}</td>
-          <td className="px-5 py-1.5 text-right text-xs text-slate-500 tabular-nums">{formatYen(it.amount)}</td>
-        </tr>
-      ))}
+      <CoverPage legalName={legalName} periodNo={periodNo} start={result.period.start} end={result.period.end} />
+      <BsPage result={result} legalName={legalName} />
+      <PlPage result={result} legalName={legalName} />
+      <SgaPage result={result} legalName={legalName} />
+      <EquityPage result={result} legalName={legalName} />
     </>
   );
 }
 
-function BsRow({ label, amount, highlight, double }: { label: string; amount: number; highlight?: boolean; double?: boolean }) {
+function CoverPage({ legalName, periodNo, start, end }: { legalName: string; periodNo: string; start: string; end: string }) {
   return (
-    <tr className={`${highlight ? 'bg-lime-50/40' : ''} border-t ${double ? 'border-t-2 border-slate-300' : 'border-slate-100'}`}>
-      <td className="px-5 py-2 text-slate-700 font-semibold">{label}</td>
-      <td className="px-5 py-2 text-right tabular-nums text-slate-900 font-semibold">{formatYen(amount)}</td>
-    </tr>
+    <div className="fs-page" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ border: '1px solid #000', flex: 1, display: 'flex', flexDirection: 'column', padding: '40mm 20mm 30mm' }}>
+        <div style={{ textAlign: 'center', marginTop: '40mm' }}>
+          <span className="fs-cover-title">決算報告書</span>
+        </div>
+        <div style={{ textAlign: 'center', marginTop: '24mm', fontSize: '12pt' }}>
+          （第 {periodNo || '?'} 期）
+        </div>
+        <div style={{ textAlign: 'center', marginTop: '8mm', fontSize: '11pt', lineHeight: 1.8 }}>
+          <div>自&nbsp;&nbsp;{formatJpDate(start)}</div>
+          <div>至&nbsp;&nbsp;{formatJpDate(end)}</div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ textAlign: 'center', fontSize: '11pt', marginBottom: '20mm' }}>
+          {legalName || '（会社名未設定）'}
+        </div>
+      </div>
+    </div>
   );
 }
 
-function BsGroupRows({ group }: { group: FsGroup }) {
+function PaperHeader({ title, legalName, dateLine, rightNote }: { title: string; legalName: string; dateLine: string; rightNote?: string }) {
+  return (
+    <div style={{ marginBottom: '6mm' }}>
+      <div style={{ textAlign: 'center', marginBottom: '4mm' }}>
+        <span className="fs-title">{title}</span>
+      </div>
+      <div style={{ textAlign: 'center', fontSize: '9.5pt', marginBottom: '4mm' }}>{dateLine}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10pt' }}>
+        <span>{legalName}</span>
+        <span>{rightNote ?? '（単位：円）'}</span>
+      </div>
+    </div>
+  );
+}
+
+function BsPage({ result, legalName }: { result: FsResult; legalName: string }) {
+  const assetGroups = result.bs.groups.filter((g) => ['流動資産', '固定資産', '繰延資産'].includes(g.sub_category));
+  const liabGroups = result.bs.groups.filter((g) => ['流動負債', '固定負債'].includes(g.sub_category));
+  const equityGroups = result.bs.groups.filter((g) => g.sub_category === '純資産');
+
+  // 左右の行数を揃える
+  const leftRows: { kind: 'group' | 'item' | 'total'; label: string; amount?: number }[] = [];
+  for (const g of assetGroups) {
+    leftRows.push({ kind: 'group', label: `【${g.sub_category}】`, amount: g.total });
+    for (const it of g.items) leftRows.push({ kind: 'item', label: it.name, amount: it.amount });
+  }
+
+  const rightRows: { kind: 'group' | 'item' | 'subtotal'; label: string; amount?: number }[] = [];
+  for (const g of liabGroups) {
+    rightRows.push({ kind: 'group', label: `【${g.sub_category}】`, amount: g.total });
+    for (const it of g.items) rightRows.push({ kind: 'item', label: it.name, amount: it.amount });
+  }
+  rightRows.push({ kind: 'subtotal', label: '負債の部合計', amount: result.bs.liabilitiesTotal });
+  rightRows.push({ kind: 'group', label: '純　資　産　の　部', amount: undefined });
+  for (const g of equityGroups) {
+    rightRows.push({ kind: 'group', label: `【${g.sub_category}】`, amount: g.total });
+    for (const it of g.items) rightRows.push({ kind: 'item', label: it.name, amount: it.amount });
+  }
+  rightRows.push({ kind: 'subtotal', label: '純資産の部合計', amount: result.bs.equityTotal });
+
+  const maxRows = Math.max(leftRows.length, rightRows.length);
+  while (leftRows.length < maxRows) leftRows.push({ kind: 'item', label: '', amount: undefined });
+  while (rightRows.length < maxRows) rightRows.push({ kind: 'item', label: '', amount: undefined });
+
+  return (
+    <div className="fs-page">
+      <PaperHeader title="貸　借　対　照　表" legalName={legalName} dateLine={`${formatJpDate(result.period.end)}　現在`} />
+      <table className="fs-table">
+        <thead>
+          <tr>
+            <th colSpan={2} style={{ width: '50%' }}>資　産　の　部</th>
+            <th colSpan={2} style={{ width: '50%' }}>負　債　の　部</th>
+          </tr>
+          <tr>
+            <th style={{ width: '32%' }}>科　　　目</th>
+            <th style={{ width: '18%' }}>金　　額</th>
+            <th style={{ width: '32%' }}>科　　　目</th>
+            <th style={{ width: '18%' }}>金　　額</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: maxRows }).map((_, i) => {
+            const L = leftRows[i];
+            const R = rightRows[i];
+            return (
+              <tr key={i}>
+                <td className={L.kind === 'item' ? 'fs-indent' : ''}>{L.label}</td>
+                <td className="fs-num">{L.amount != null && L.label ? formatYen(L.amount) : ''}</td>
+                <td className={R.kind === 'item' ? 'fs-indent' : ''}>{R.label}</td>
+                <td className="fs-num">{R.amount != null && R.label ? formatYen(R.amount) : ''}</td>
+              </tr>
+            );
+          })}
+          <tr>
+            <td><strong>資　産　の　部　合　計</strong></td>
+            <td className="fs-num"><strong>{formatYen(result.bs.assetsTotal)}</strong></td>
+            <td><strong>負債及び純資産合計</strong></td>
+            <td className="fs-num"><strong>{formatYen(result.bs.liabilitiesAndEquityTotal)}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PlPage({ result, legalName }: { result: FsResult; legalName: string }) {
+  const find = (sub: string) => result.pl.groups.find((g) => g.sub_category === sub);
+  const sales = find('売上高');
+  const cogs = find('売上原価');
+  const sga = find('販管費');
+  const nopI = find('営業外収益');
+  const nopE = find('営業外費用');
+  const exI = find('特別利益');
+  const exE = find('特別損失');
+
+  return (
+    <div className="fs-page">
+      <PaperHeader
+        title="損　益　計　算　書"
+        legalName={legalName}
+        dateLine={`自　${formatJpDate(result.period.start)}\u3000\u3000至　${formatJpDate(result.period.end)}`}
+      />
+      <table className="fs-table">
+        <thead>
+          <tr>
+            <th style={{ width: '60%' }}>科　　　目</th>
+            <th colSpan={2}>金　　額</th>
+          </tr>
+        </thead>
+        <tbody>
+          <PlPaperSection label="売上高" group={sales} total={result.pl.salesTotal} totalLabel="売上高合計" />
+          <PlPaperSection label="売上原価" group={cogs} total={result.pl.cogsTotal} totalLabel="売上原価" />
+          <tr><td className="fs-indent">売上総利益金額</td><td className="fs-num"></td><td className="fs-num">{formatYen(result.pl.grossProfit)}</td></tr>
+          <PlPaperSection label="販売費及び一般管理費" group={sga} total={result.pl.sgaTotal} totalLabel="販売費及び一般管理費合計" />
+          <tr><td className="fs-indent">営業利益金額</td><td className="fs-num"></td><td className="fs-num">{formatYen(result.pl.operatingProfit)}</td></tr>
+          <PlPaperSection label="営業外収益" group={nopI} total={result.pl.nonOpIncome} totalLabel="営業外収益合計" />
+          <PlPaperSection label="営業外費用" group={nopE} total={result.pl.nonOpExpense} totalLabel="営業外費用合計" />
+          <tr><td className="fs-indent">経常利益金額</td><td className="fs-num"></td><td className="fs-num">{formatYen(result.pl.ordinaryProfit)}</td></tr>
+          {exI && exI.items.length > 0 && <PlPaperSection label="特別利益" group={exI} total={result.pl.extraIncome} totalLabel="特別利益合計" />}
+          {exE && exE.items.length > 0 && <PlPaperSection label="特別損失" group={exE} total={result.pl.extraLoss} totalLabel="特別損失合計" />}
+          <tr><td className="fs-indent">税引前当期純利益金額</td><td className="fs-num"></td><td className="fs-num">{formatYen(result.pl.netIncomeBeforeTax)}</td></tr>
+          {result.pl.corporateTax !== 0 && (
+            <tr><td className="fs-indent">法人税、住民税及び事業税</td><td className="fs-num">{formatYen(result.pl.corporateTax)}</td><td className="fs-num"></td></tr>
+          )}
+          <tr><td className="fs-indent"><strong>当期純利益金額</strong></td><td className="fs-num"></td><td className="fs-num"><strong>{formatYen(result.pl.netIncome)}</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PlPaperSection({ label, group, total, totalLabel }: { label: string; group: FsGroup | undefined; total: number; totalLabel: string }) {
   return (
     <>
-      <tr className="bg-slate-50/30 border-t border-slate-100">
-        <td className="px-5 py-1.5 text-xs font-semibold text-slate-600">{group.sub_category}</td>
-        <td className="px-5 py-1.5 text-right text-xs font-semibold text-slate-700 tabular-nums">{formatYen(group.total)}</td>
-      </tr>
-      {group.items.map((it) => (
-        <tr key={it.name} className="border-t border-slate-50">
-          <td className="px-10 py-1.5 text-xs text-slate-500">{it.name}</td>
-          <td className="px-5 py-1.5 text-right text-xs text-slate-500 tabular-nums">{formatYen(it.amount)}</td>
+      <tr><td>【{label}】</td><td className="fs-num"></td><td className="fs-num"></td></tr>
+      {group?.items.map((it) => (
+        <tr key={it.name}>
+          <td className="fs-indent">{it.name}</td>
+          <td className="fs-num">{formatYen(it.amount)}</td>
+          <td className="fs-num"></td>
         </tr>
       ))}
+      <tr>
+        <td className="fs-indent">{totalLabel}</td>
+        <td className="fs-num"></td>
+        <td className="fs-num">{formatYen(total)}</td>
+      </tr>
+    </>
+  );
+}
+
+function SgaPage({ result, legalName }: { result: FsResult; legalName: string }) {
+  const sga = result.pl.groups.find((g) => g.sub_category === '販管費');
+  return (
+    <div className="fs-page">
+      <PaperHeader
+        title="販　売　費　及　び　一　般　管　理　費　内　訳　書"
+        legalName={legalName}
+        dateLine={`自　${formatJpDate(result.period.start)}\u3000\u3000至　${formatJpDate(result.period.end)}`}
+      />
+      <table className="fs-table">
+        <thead>
+          <tr>
+            <th style={{ width: '60%' }}>科　　　目</th>
+            <th colSpan={2}>金　　額</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sga?.items.map((it) => (
+            <tr key={it.name}>
+              <td className="fs-indent">{it.name}</td>
+              <td className="fs-num">{formatYen(it.amount)}</td>
+              <td className="fs-num"></td>
+            </tr>
+          ))}
+          <tr>
+            <td className="fs-indent"><strong>販売費及び一般管理費合計</strong></td>
+            <td className="fs-num"></td>
+            <td className="fs-num"><strong>{formatYen(result.pl.sgaTotal)}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EquityPage({ result, legalName }: { result: FsResult; legalName: string }) {
+  return (
+    <div className="fs-page">
+      <PaperHeader
+        title="社　員　資　本　等　変　動　計　算　書"
+        legalName={legalName}
+        dateLine={`自　${formatJpDate(result.period.start)}\u3000\u3000至　${formatJpDate(result.period.end)}`}
+      />
+      <table className="fs-table" style={{ borderCollapse: 'collapse' }}>
+        <tbody>
+          <tr>
+            <td colSpan={4}>【社員資本】</td>
+          </tr>
+          {result.equity.rows.map((row) => (
+            <EquityRowBlock key={row.name} row={row} />
+          ))}
+          <tr>
+            <td style={{ width: '24%' }}>株主資本合計</td>
+            <td style={{ width: '20%' }}>当期首残高</td>
+            <td colSpan={2} className="fs-num">{formatYen(result.equity.openingTotal)}</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td>当期変動額</td>
+            <td colSpan={2} className="fs-num">{formatYen(result.equity.changeTotal)}</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td>当期末残高</td>
+            <td colSpan={2} className="fs-num"><strong>{formatYen(result.equity.endingTotal)}</strong></td>
+          </tr>
+          <tr>
+            <td>純資産の部合計</td>
+            <td>当期首残高</td>
+            <td colSpan={2} className="fs-num">{formatYen(result.equity.openingTotal)}</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td>当期変動額</td>
+            <td colSpan={2} className="fs-num">{formatYen(result.equity.changeTotal)}</td>
+          </tr>
+          <tr>
+            <td></td>
+            <td>当期末残高</td>
+            <td colSpan={2} className="fs-num"><strong>{formatYen(result.equity.endingTotal)}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EquityRowBlock({ row }: { row: FsEquityRow }) {
+  return (
+    <>
+      <tr>
+        <td style={{ width: '24%' }} className="fs-indent">{row.name}</td>
+        <td style={{ width: '20%' }}>当期首残高</td>
+        <td colSpan={2} className="fs-num">{formatYen(row.opening)}</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td>当期変動額{row.isCarryForward ? '　当期純利益金額' : ''}</td>
+        <td colSpan={2} className="fs-num">{formatYen(row.change)}</td>
+      </tr>
+      <tr>
+        <td></td>
+        <td>当期末残高</td>
+        <td colSpan={2} className="fs-num"><strong>{formatYen(row.ending)}</strong></td>
+      </tr>
     </>
   );
 }
