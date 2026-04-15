@@ -65,6 +65,12 @@ export interface TransactionInput {
   sourceFileIndex?: number;  // 元PDF（フロント側 bankFiles のインデックス）
   sourceFileName?: string;   // 元PDFのファイル名
   ocrUploadId?: string | null; // ocr_uploads.id（仕訳から元PDF参照用）
+  /**
+   * この取引の元口座に紐づく預金科目（例: '普通預金', '当座預金', 'その他預金 みずほ1234'）。
+   * 口座マスタ（bank_accounts）で設定された値。
+   * 未指定の場合は '普通預金' で照合される。
+   */
+  bankAccountName?: string | null;
 }
 
 // ─── 出力型 ────────────────────────────────────────────────────────────────
@@ -421,19 +427,20 @@ export function matchVouchersToTransactions(
         return { accrualEntries: placeholders };
       }
       usedTxIndices.add(best.idx);
+      const cashDeposit = best.tx.bankAccountName || '普通預金';
       const cashEntries: AccrualEntry[] = effectiveLines.map((line, idx) => {
         const entry: AccrualEntry = {
           entryType:     'accrual',
           date:          best.tx.transactionDate,
           debitAccount:  line.debitAccount || '仕入高',
-          creditAccount: '未払費用', // ランタイムで '普通預金' に上書き
+          creditAccount: '未払費用', // ランタイムで預金科目に上書き
           amount:        line.amountInclTax,
           description:   buildDescription(voucher, line, totalLines, idx === 0, descriptionMode),
           taxType:       line.taxType || voucher.taxType,
           matchStatus:   best.score >= 0.7 ? 'auto' : 'needs_review',
           voucher,
         };
-        (entry as unknown as { creditAccount: string }).creditAccount = '普通預金';
+        (entry as unknown as { creditAccount: string }).creditAccount = cashDeposit;
         return entry;
       });
       return { accrualEntries: cashEntries };
@@ -490,6 +497,7 @@ export function matchVouchersToTransactions(
       transaction:   best.tx,
       voucher,
     };
+    (paymentEntry as unknown as { creditAccount: string }).creditAccount = best.tx.bankAccountName || '普通預金';
 
     return { accrualEntries, paymentEntry };
   });

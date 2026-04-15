@@ -54,6 +54,7 @@ const PROMPT_INVOICE_SINGLE = `このPDFを1件の請求書として扱い、以
   "date": "20240201",
   "requesterName": "株式会社〇〇",
   "taxIncludedAmount": 110000,
+  "withholdingTax": 10210,
   "lines": [
     {
       "debitAccount": "仕入高",
@@ -74,12 +75,14 @@ const PROMPT_INVOICE_SINGLE = `このPDFを1件の請求書として扱い、以
 - date：請求日または発行日をYYYYMMDD形式。不明な場合は"不明"
 - requesterName：請求書を発行した会社名または個人名（請求元）。不明な場合は"不明"
 - taxIncludedAmount：税込合計金額（整数・円）。必ず請求書の合計額を入れる。不明な場合のみnull
+- withholdingTax：源泉徴収税額（整数・円）。**請求書上に「源泉徴収税」「源泉税」「源泉所得税」「源泉徴収額」「源泉徴収」等の文言と金額が明示されている場合のみ**、その金額を抽出する。明示されていない場合は必ず null を返す。報酬・料金（士業報酬・原稿料・講演料・デザイン料・広告料等）でも、請求書に源泉税の記載が無ければ null を返すこと。推測や自動計算はしない
 - lines：明細行の配列。以下の場合は必ず2行以上に分けて返すこと：
   （a）勘定科目が明らかに異なる費目が混在（例：物品＋送料＋手数料、商品代＋通信費）
   （b）軽減税率8%と標準税率10%が混在している
   （c）非課税・不課税の費目が混ざっている（印紙代、保険料、立替金等）
   上記に該当せず1件で済む場合は lines は1要素の配列にする
-- lines[].debitAccount：借方勘定科目。代表的なもの：仕入高 / 消耗品費 / 事務用品費 / 通信費 / 旅費交通費 / 接待交際費 / 支払手数料 / 地代家賃 / 水道光熱費 / 租税公課 / 新聞図書費 / 雑費。判断つかない場合は"仕入高"
+  ※ 源泉徴収税は lines に含めない（withholdingTax に分離する）。lines の合計はあくまで taxIncludedAmount と一致させる
+- lines[].debitAccount：借方勘定科目。代表的なもの：仕入高 / 消耗品費 / 事務用品費 / 通信費 / 旅費交通費 / 接待交際費 / 支払手数料 / 地代家賃 / 水道光熱費 / 租税公課 / 新聞図書費 / 雑費 / 支払報酬。判断つかない場合は"仕入高"
 - lines[].amountInclTax：その行の税込金額（整数・円）。**全ての行の合計が taxIncludedAmount と完全一致する必要がある**
 - lines[].taxType：課税仕入10% / 課税仕入8%(軽減) / 非課税 / 対象外 のいずれか
 - lines[].description：その行の品目・内容を簡潔に（10文字程度）
@@ -96,6 +99,7 @@ interface ClaudeInvoiceSingleResponse {
   date?: string;
   requesterName?: string;
   taxIncludedAmount?: number | null;
+  withholdingTax?: number | null;
   lines?: ClaudeLine[];
 }
 
@@ -120,6 +124,7 @@ export class InvoiceLineSumMismatchError extends Error {
 export interface InvoiceSingleItem extends InvoiceInfo {
   fileName: string;
   pdfBase64: string;
+  withholdingTax: number | null;
   lines: Array<{
     debitAccount: string;
     amountInclTax: number;
@@ -213,6 +218,11 @@ export async function processInvoicePdfSingle(
           },
         ];
 
+  const withholdingTax =
+    typeof claudeData.withholdingTax === 'number' && claudeData.withholdingTax > 0
+      ? Math.round(claudeData.withholdingTax)
+      : null;
+
   const item: InvoiceSingleItem = {
     pageStart: 1,
     pageEnd: totalPages,
@@ -221,6 +231,7 @@ export async function processInvoicePdfSingle(
     taxIncludedAmount: claudeData.taxIncludedAmount ?? null,
     fileName: `${date}_${requester}_${amount}.pdf`,
     pdfBase64,
+    withholdingTax,
     lines: finalLines,
   };
 

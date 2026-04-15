@@ -350,3 +350,13 @@ public/sales-deck.pdf   — 営業資料PDF
 - 次にやること / 未解決:
   - 残り2項目（②口座マスタ機能 / ④源泉税自動検知）は別PRで対応予定
   - 887gkTU003 の通帳OCR→仕訳連携ボタン不在の件は ② 口座マスタ実装時に動線を見直す
+
+## 2026-04-15 15:30
+- やったこと:
+  - 口座マスタ機能（②）: `bank_accounts` テーブル新設、`/api/bank-accounts` GET/POST、通帳OCR後に「口座 → 預金科目」設定パネル追加。保存すると次回OCR時に自動復元、仕訳照合時に貸方科目として使用
+  - 源泉税自動検知（④）: `lib/ocr/invoice-ocr.ts` のプロンプトに `withholdingTax` フィールド追加（請求書に明示されている場合のみ抽出、推測はしない）。OCR後に `withholdingTaxBuf` に自動プリフィル、UI に「OCR自動検知 N件」バッジ表示
+  - `TransactionInput` に `bankAccountName` フィールド追加、matcher・match-journal の合算・源泉パスで `creditAccount` を `tx.bankAccountName || '普通預金'` に変更
+- 背景/理由: 887gkTU003 のように複数口座を持つクライアントで「この口座はその他預金、あの口座は普通預金」と分けたい。源泉税は手動入力がADHD的に抜けがちなのでOCR自動化
+- 次にやること / 未解決:
+  - 口座マスタのGETで `client_id NULL` と `client_id 指定` の両方をフォールバック表示するかは未決（現状は指定clientだけ）
+  - 源泉税プロンプトの精度は本番データで要検証。請求書に記載ない支払報酬は null（手動入力）のまま

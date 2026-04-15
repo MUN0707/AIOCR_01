@@ -186,6 +186,7 @@ export async function POST(request: NextRequest) {
             transaction: hit.tx,
             voucher,
           };
+          (payment as unknown as { creditAccount: string }).creditAccount = hit.tx.bankAccountName || '普通預金';
           results[i] = {
             accrualEntries: results[i].accrualEntries.map((e) => ({ ...e, matchStatus: 'auto' })),
             paymentEntry: payment,
@@ -250,6 +251,7 @@ export async function POST(request: NextRequest) {
           voucher,
         };
         (payment as unknown as { debitAccount: string }).debitAccount = '預り金';
+        (payment as unknown as { creditAccount: string }).creditAccount = hit.tx.bankAccountName || '普通預金';
         r.withholdingPaymentEntry = payment;
 
         const idxInAvailable = availableTx.indexOf(hit);

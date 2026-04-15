@@ -494,7 +494,19 @@ export default function Home() {
   // ─── 自動仕訳モード専用 State ─────────────────────────────────────────────
   const [bankFiles, setBankFiles] = useState<File[]>([]);
   const [invoiceFiles, setInvoiceFiles] = useState<File[]>([]);
-  const [bankOcr, setBankOcr] = useState<{ transactions: TransactionInput[]; bankName: string; accountNumber: string } | null>(null);
+  // bankOcr.files は bankFiles と同じインデックスで「口座情報＋預金科目マッピング」を保持
+  const [bankOcr, setBankOcr] = useState<{
+    transactions: TransactionInput[];
+    bankName: string;
+    accountNumber: string;
+    files: Array<{
+      bankName: string;
+      accountNumber: string;
+      depositAccount: string;   // この口座を何科目として扱うか（例: '普通預金'）
+      mappingId: string | null; // bank_accounts.id（保存済みなら）
+      saving?: boolean;
+    }>;
+  } | null>(null);
   const [invoiceOcr, setInvoiceOcr] = useState<{ vouchers: VoucherInput[]; count: number } | null>(null);
   const [journalMatchResult, setJournalMatchResult] = useState<{ results: MatchResult[]; summary: MatchSummary } | null>(null);
   // 照合後に投入する「請求書ごとの源泉徴収税額」バッファ（voucher index → 金額）
@@ -1166,9 +1178,27 @@ export default function Home() {
     setBankProcessing(true);
     setJournalError(null);
     try {
+      // 既存の口座マスタを取得
+      const mapRes = await fetch(`/api/bank-accounts${selectedClientId ? `?clientId=${selectedClientId}` : ''}`);
+      const mapData = mapRes.ok ? await mapRes.json() : { accounts: [] };
+      const existing: Array<{
+        id: string;
+        bank_name: string;
+        account_number: string;
+        deposit_account: string;
+      }> = mapData.accounts ?? [];
+      const mapByKey = new Map<string, { id: string; depositAccount: string }>();
+      for (const a of existing) {
+        mapByKey.set(`${a.bank_name}||${a.account_number}`, {
+          id: a.id,
+          depositAccount: a.deposit_account,
+        });
+      }
+
       const allTx: TransactionInput[] = [];
-      let bankName = '不明';
-      let accountNumber = '不明';
+      const fileInfos: NonNullable<typeof bankOcr>['files'] = [];
+      let topBankName = '不明';
+      let topAccountNumber = '不明';
       const bankSessionId = crypto.randomUUID();
       for (let fi = 0; fi < bankFiles.length; fi++) {
         const file = bankFiles[fi];
@@ -1180,7 +1210,17 @@ export default function Home() {
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
         const data = await res.json();
         if (!res.ok) throw new Error(`${file.name}: ${data.error}`);
-        if (bankName === '不明') { bankName = data.bankName; accountNumber = data.accountNumber; }
+        const bn: string = data.bankName || '不明';
+        const an: string = data.accountNumber || '不明';
+        const mapped = mapByKey.get(`${bn}||${an}`);
+        const deposit = mapped?.depositAccount || '普通預金';
+        fileInfos.push({
+          bankName: bn,
+          accountNumber: an,
+          depositAccount: deposit,
+          mappingId: mapped?.id ?? null,
+        });
+        if (topBankName === '不明') { topBankName = bn; topAccountNumber = an; }
         const uploadId: string | null = data.uploadId ?? null;
         allTx.push(...(data.transactions || []).map((t: { date: string; description: string; debit: number | null; credit: number | null }) => ({
           transactionDate: t.date,
@@ -1190,13 +1230,63 @@ export default function Home() {
           sourceFileIndex: fi,
           sourceFileName: file.name,
           ocrUploadId: uploadId,
+          bankAccountName: deposit,
         })));
       }
-      setBankOcr({ transactions: allTx, bankName, accountNumber });
+      setBankOcr({ transactions: allTx, bankName: topBankName, accountNumber: topAccountNumber, files: fileInfos });
     } catch (e) {
       setJournalError(e instanceof Error ? e.message : '通帳OCRエラー');
     } finally {
       setBankProcessing(false);
+    }
+  };
+
+  // 口座毎の預金科目をローカル更新（transactions にも反映）
+  const updateBankAccountDeposit = (fileIdx: number, depositAccount: string) => {
+    setBankOcr((prev) => {
+      if (!prev) return prev;
+      const files = prev.files.map((f, i) => i === fileIdx ? { ...f, depositAccount } : f);
+      const transactions = prev.transactions.map((t) =>
+        t.sourceFileIndex === fileIdx ? { ...t, bankAccountName: depositAccount } : t
+      );
+      return { ...prev, files, transactions };
+    });
+  };
+
+  // 口座マスタに保存（既存なら更新）
+  const saveBankAccountMapping = async (fileIdx: number) => {
+    if (!bankOcr) return;
+    const f = bankOcr.files[fileIdx];
+    if (!f) return;
+    setBankOcr((prev) => prev ? {
+      ...prev,
+      files: prev.files.map((x, i) => i === fileIdx ? { ...x, saving: true } : x),
+    } : prev);
+    try {
+      const res = await fetch('/api/bank-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bankName: f.bankName,
+          accountNumber: f.accountNumber,
+          depositAccount: f.depositAccount,
+          clientId: selectedClientId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '口座マスタ保存失敗');
+      setBankOcr((prev) => prev ? {
+        ...prev,
+        files: prev.files.map((x, i) => i === fileIdx
+          ? { ...x, mappingId: data.account?.id ?? x.mappingId, saving: false }
+          : x),
+      } : prev);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '口座マスタ保存失敗');
+      setBankOcr((prev) => prev ? {
+        ...prev,
+        files: prev.files.map((x, i) => i === fileIdx ? { ...x, saving: false } : x),
+      } : prev);
     }
   };
 
@@ -1207,6 +1297,7 @@ export default function Home() {
     setJournalError(null);
     try {
       const allVouchers: VoucherInput[] = [];
+      const autoWhBuf: Record<number, number> = {};
       const invoiceSessionId = crypto.randomUUID();
       for (let fi = 0; fi < invoiceFiles.length; fi++) {
         const file = invoiceFiles[fi];
@@ -1238,6 +1329,10 @@ export default function Home() {
           const ocrLines: { debitAccount: string; amountInclTax: number; taxType: string; description: string }[] =
             Array.isArray(inv.lines) ? inv.lines : [];
           const hasMultipleLines = ocrLines.length > 1;
+          const voucherIdx = allVouchers.length;
+          if (typeof inv.withholdingTax === 'number' && inv.withholdingTax > 0) {
+            autoWhBuf[voucherIdx] = inv.withholdingTax;
+          }
           allVouchers.push({
             vendorName: inv.requesterName || '',
             invoiceDate: inv.date || '不明',
@@ -1254,6 +1349,10 @@ export default function Home() {
         }
       }
       setInvoiceOcr({ vouchers: allVouchers, count: allVouchers.length });
+      // 源泉税を自動プリフィル（ユーザーが編集すれば上書き）
+      if (Object.keys(autoWhBuf).length > 0) {
+        setWithholdingTaxBuf((prev) => ({ ...autoWhBuf, ...prev }));
+      }
     } catch (e) {
       setJournalError(e instanceof Error ? e.message : '請求書OCRエラー');
     } finally {
@@ -2290,9 +2389,47 @@ export default function Home() {
                     </div>
                   )}
                   {bankOcr ? (
-                    <div className="flex items-center gap-2 text-xs text-lime-600 bg-lime-50 rounded-xl px-3 py-2">
-                      <IconCheck className="w-4 h-4" />
-                      {bankOcr.transactions.length}件の取引を抽出済み
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-lime-600 bg-lime-50 rounded-xl px-3 py-2">
+                        <IconCheck className="w-4 h-4" />
+                        {bankOcr.transactions.length}件の取引を抽出済み
+                      </div>
+                      {/* 口座マスタ紐付け */}
+                      <div className="border border-slate-100 rounded-xl p-2 space-y-2 bg-slate-50/40">
+                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">口座 → 預金科目</p>
+                        {bankOcr.files.map((f, i) => (
+                          <div key={i} className="space-y-1 pb-2 border-b border-slate-100 last:border-b-0 last:pb-0">
+                            <div className="text-[11px] text-slate-600 font-medium truncate">
+                              {f.bankName} <span className="text-slate-400">{f.accountNumber}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <div className="flex-1 min-w-0">
+                                <AccountCombobox
+                                  value={f.depositAccount}
+                                  onChange={(v) => updateBankAccountDeposit(i, v)}
+                                  onCommit={(v) => updateBankAccountDeposit(i, v)}
+                                  accounts={accountsList}
+                                  onCreate={addAccountLocal}
+                                  dense
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                disabled={f.saving || !f.bankName || f.bankName === '不明' || !f.accountNumber || f.accountNumber === '不明'}
+                                onClick={() => saveBankAccountMapping(i)}
+                                className="text-[10px] text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded-md px-2 py-1 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+                                title="この口座と預金科目の紐付けを保存（次回OCR時に自動復元）"
+                              >
+                                {f.saving ? '保存中…' : f.mappingId ? '更新' : '保存'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        <p className="text-[9px] text-slate-400 leading-relaxed">
+                          保存しておくと次回の通帳OCR時に自動で同じ預金科目が割り当てられます。<br />
+                          仕訳照合時、この口座の入出金は上記科目で起票されます。
+                        </p>
+                      </div>
                     </div>
                   ) : (
                     <button
@@ -2545,9 +2682,14 @@ export default function Home() {
 
             {/* 源泉徴収税の入力（請求書 OCR が終わっていて未照合のあいだ表示） */}
             {!journalMatchResult && invoiceOcr && invoiceOcr.vouchers.length > 0 && journalSubView === 'execute' && (
-              <details className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+              <details className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm" open={Object.keys(withholdingTaxBuf).length > 0}>
                 <summary className="text-xs font-semibold text-slate-600 cursor-pointer select-none">
                   源泉徴収税を設定する（支払報酬などに該当する請求書のみ・任意）
+                  {Object.keys(withholdingTaxBuf).length > 0 && (
+                    <span className="ml-2 text-[10px] text-lime-600 bg-lime-50 rounded px-1.5 py-0.5">
+                      OCR自動検知 {Object.keys(withholdingTaxBuf).length} 件
+                    </span>
+                  )}
                 </summary>
                 <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
                   {invoiceOcr.vouchers.map((v, idx) => (
