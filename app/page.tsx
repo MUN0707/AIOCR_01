@@ -758,20 +758,39 @@ export default function Home() {
   // ─── PDFプレビューモーダル State ───────────────────────────────────────────
   const [pdfPreview, setPdfPreview] = useState<{ url: string; name: string } | null>(null);
 
+  // 別ウインドウで PDF を開く（見比べ用に複数同時に開ける）
+  const openPdfInNewWindow = (file: File, title: string) => {
+    const url = URL.createObjectURL(file);
+    const win = window.open('', '_blank', 'width=900,height=1000,menubar=no,toolbar=no');
+    if (!win) {
+      // ポップアップブロック時のフォールバック: モーダル表示
+      setPdfPreview({ url, name: title });
+      return;
+    }
+    win.document.title = title;
+    win.document.body.style.margin = '0';
+    const iframe = win.document.createElement('iframe');
+    iframe.src = url;
+    iframe.style.width = '100%';
+    iframe.style.height = '100vh';
+    iframe.style.border = 'none';
+    win.document.body.appendChild(iframe);
+    // ウインドウが閉じられたら blob URL を解放
+    win.addEventListener('beforeunload', () => URL.revokeObjectURL(url));
+  };
+
   const showVoucherPdf = (voucher: VoucherInput) => {
     if (voucher.sourceFileIndex == null) return;
     const file = invoiceFiles[voucher.sourceFileIndex];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPdfPreview({ url, name: voucher.sourceFileName || file.name });
+    openPdfInNewWindow(file, voucher.sourceFileName || file.name);
   };
 
   const showTransactionPdf = (tx: TransactionInput) => {
     if (tx.sourceFileIndex == null) return;
     const file = bankFiles[tx.sourceFileIndex];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPdfPreview({ url, name: tx.sourceFileName || file.name });
+    openPdfInNewWindow(file, tx.sourceFileName || file.name);
   };
 
   const closePdfPreview = () => {
@@ -1312,6 +1331,30 @@ export default function Home() {
     });
     if (targetIdx.length === 0) {
       alert('登録対象がありません');
+      return;
+    }
+    // 欠陥チェック（日付なし / 金額なし / 科目未入力）
+    const invalidMsgs: string[] = [];
+    const isValidDate = (d: string) => /^\d{8}$/.test(d);
+    for (const i of targetIdx) {
+      const r = journalMatchResult.results[i];
+      const vendor = r.accrualEntries[0]?.voucher.vendorName || `#${i + 1}`;
+      r.accrualEntries.forEach((e, j) => {
+        const prefix = `${vendor}（計上 ${j + 1}/${r.accrualEntries.length}）`;
+        if (!isValidDate(e.date)) invalidMsgs.push(`${prefix}: 日付が未入力`);
+        if (e.amount == null || e.amount <= 0) invalidMsgs.push(`${prefix}: 金額が未入力`);
+        if (!e.debitAccount?.trim()) invalidMsgs.push(`${prefix}: 借方科目が未入力`);
+        if (!e.creditAccount?.trim()) invalidMsgs.push(`${prefix}: 貸方科目が未入力`);
+      });
+      if (r.paymentEntry) {
+        if (!isValidDate(r.paymentEntry.date)) invalidMsgs.push(`${vendor}（支払消込）: 日付が未入力`);
+        if (r.paymentEntry.amount == null || r.paymentEntry.amount <= 0) invalidMsgs.push(`${vendor}（支払消込）: 金額が未入力`);
+        if (!r.paymentEntry.debitAccount?.trim()) invalidMsgs.push(`${vendor}（支払消込）: 借方科目が未入力`);
+        if (!r.paymentEntry.creditAccount?.trim()) invalidMsgs.push(`${vendor}（支払消込）: 貸方科目が未入力`);
+      }
+    }
+    if (invalidMsgs.length > 0) {
+      alert(`以下の欠陥があるため登録できません:\n\n${invalidMsgs.slice(0, 20).join('\n')}${invalidMsgs.length > 20 ? `\n...他 ${invalidMsgs.length - 20} 件` : ''}`);
       return;
     }
     const groups = targetIdx.map((i) => {
@@ -6761,13 +6804,57 @@ function MatchResultTable({
     });
   };
 
+  // 計上明細行の追加（最後の行を複製、金額は空）
+  const addAccrualLine = (resultIdx: number) => {
+    setJournalMatchResult((prev) => {
+      if (!prev) return prev;
+      const results = prev.results.map((r, i) => {
+        if (i !== resultIdx) return r;
+        const last = r.accrualEntries[r.accrualEntries.length - 1];
+        if (!last) return r;
+        const newEntry = {
+          ...last,
+          amount: null,
+          description: '',
+          matchStatus: 'needs_review' as const,
+        };
+        return { ...r, accrualEntries: [...r.accrualEntries, newEntry] };
+      });
+      return { ...prev, results };
+    });
+  };
+
+  // 計上明細行の削除（最低1行は残す）
+  const deleteAccrualLine = (resultIdx: number, lineIdx: number) => {
+    setJournalMatchResult((prev) => {
+      if (!prev) return prev;
+      const results = prev.results.map((r, i) => {
+        if (i !== resultIdx) return r;
+        if (r.accrualEntries.length <= 1) return r;
+        return { ...r, accrualEntries: r.accrualEntries.filter((_, j) => j !== lineIdx) };
+      });
+      return { ...prev, results };
+    });
+  };
+
   return (
     <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[960px]">
+      <div>
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col style={{ width: '36px' }} />
+            <col style={{ width: '78px' }} />
+            <col style={{ width: '92px' }} />
+            <col />
+            <col />
+            <col style={{ width: '110px' }} />
+            <col />
+            <col style={{ width: '76px' }} />
+            <col style={{ width: '64px' }} />
+          </colgroup>
           <thead>
             <tr className="border-b border-slate-100">
-              <th className="px-2 py-3 w-10 text-center">
+              <th className="px-1 py-3 text-center">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -6775,14 +6862,14 @@ function MatchResultTable({
                   className="cursor-pointer"
                 />
               </th>
-              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
-              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
-              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
-              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
-              <th className="px-3 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
-              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
-              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">照合</th>
-              <th className="px-3 py-3 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest">操作</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
+              <th className="px-2 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">照合</th>
+              <th className="px-2 py-3 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -6798,6 +6885,7 @@ function MatchResultTable({
                 <Fragment key={i}>
                   {r.accrualEntries.map((ae, lineIdx) => {
                     const rowSpanTotal = r.accrualEntries.length + (r.paymentEntry ? 1 : 0) + (r.withholdingPaymentEntry ? 1 : 0);
+                    const dateIso = /^\d{8}$/.test(ae.date) ? `${ae.date.slice(0,4)}-${ae.date.slice(4,6)}-${ae.date.slice(6,8)}` : '';
                     return (
                     <tr key={`a-${i}-${lineIdx}`} className={`${rowBg} hover:bg-sky-50/20 transition-colors`}>
                       {lineIdx === 0 && (
@@ -6815,15 +6903,34 @@ function MatchResultTable({
                           {isRegistered && <div className="text-[9px] text-lime-600 mt-1">登録済</div>}
                         </td>
                       )}
-                      <td className="px-3 py-2">
-                        <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-medium">
-                          費用計上{r.accrualEntries.length > 1 ? `(${lineIdx + 1}/${r.accrualEntries.length})` : ''}
-                        </span>
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">
+                            費用計上{r.accrualEntries.length > 1 ? `(${lineIdx + 1}/${r.accrualEntries.length})` : ''}
+                          </span>
+                          {r.accrualEntries.length > 1 && !isRegistered && (
+                            <button
+                              type="button"
+                              onClick={() => deleteAccrualLine(i, lineIdx)}
+                              className="text-red-400 hover:text-red-600 text-xs leading-none"
+                              title="この行を削除"
+                            >×</button>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-3 py-2 text-xs font-mono text-slate-500">
-                        {ae.date === '不明' ? '—' : `${ae.date.slice(0,4)}/${ae.date.slice(4,6)}/${ae.date.slice(6,8)}`}
+                      <td className="px-2 py-2">
+                        <input
+                          type="date"
+                          value={dateIso}
+                          disabled={isRegistered}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/-/g, '');
+                            patchAccrual(i, lineIdx, { date: v || '不明' });
+                          }}
+                          className="w-full text-[11px] font-mono text-slate-600 border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:border-sky-400 disabled:bg-transparent disabled:border-transparent"
+                        />
                       </td>
-                      <td className="px-3 py-2 min-w-[160px]">
+                      <td className="px-2 py-2">
                         <AccountCombobox
                           value={ae.debitAccount}
                           onChange={(v) => patchAccrual(i, lineIdx, { debitAccount: v })}
@@ -6833,7 +6940,7 @@ function MatchResultTable({
                           dense
                         />
                       </td>
-                      <td className="px-3 py-2 min-w-[140px]">
+                      <td className="px-2 py-2">
                         <AccountCombobox
                           value={ae.creditAccount}
                           onChange={(v) => patchAccrual(i, lineIdx, { creditAccount: v as typeof ae.creditAccount })}
@@ -6843,15 +6950,38 @@ function MatchResultTable({
                           dense
                         />
                       </td>
-                      <td className="px-3 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
-                        {ae.amount != null ? `¥${ae.amount.toLocaleString()}` : '—'}
+                      <td className="px-2 py-2 text-right">
+                        <input
+                          type="number"
+                          value={ae.amount ?? ''}
+                          disabled={isRegistered}
+                          onChange={(e) => {
+                            const v = e.target.value === '' ? null : Number(e.target.value);
+                            patchAccrual(i, lineIdx, { amount: v });
+                          }}
+                          className="w-full text-right text-sm font-semibold text-slate-900 tabular-nums border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:border-sky-400 disabled:bg-transparent disabled:border-transparent"
+                          placeholder="0"
+                        />
                       </td>
-                      <td
-                        className={`px-3 py-2 text-xs text-slate-500 max-w-[180px] truncate ${voucherFirst?.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
-                        onClick={() => voucherFirst && showVoucherPdf(voucherFirst)}
-                        title={ae.description}
-                      >
-                        {ae.description || '—'}
+                      <td className="px-2 py-2">
+                        <div className="flex items-start gap-1">
+                          <input
+                            type="text"
+                            value={ae.description}
+                            disabled={isRegistered}
+                            onChange={(e) => patchAccrual(i, lineIdx, { description: e.target.value })}
+                            className="flex-1 min-w-0 text-xs text-slate-600 border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:border-sky-400 disabled:bg-transparent disabled:border-transparent"
+                            placeholder="摘要"
+                          />
+                          {voucherFirst?.sourceFileIndex != null && (
+                            <button
+                              type="button"
+                              onClick={() => showVoucherPdf(voucherFirst)}
+                              className="text-[10px] text-sky-500 hover:text-sky-700 whitespace-nowrap"
+                              title="元PDFを別ウインドウで開く"
+                            >📄</button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
@@ -6889,7 +7019,7 @@ function MatchResultTable({
                       <td className="px-3 py-2 text-xs font-mono text-slate-500">
                         {`${r.paymentEntry.date.slice(0,4)}/${r.paymentEntry.date.slice(4,6)}/${r.paymentEntry.date.slice(6,8)}`}
                       </td>
-                      <td className="px-3 py-2 min-w-[160px]">
+                      <td className="px-2 py-2">
                         <AccountCombobox
                           value={r.paymentEntry.debitAccount}
                           onChange={(v) => patchPayment(i, { debitAccount: v as '未払費用' })}
@@ -6899,7 +7029,7 @@ function MatchResultTable({
                           dense
                         />
                       </td>
-                      <td className="px-3 py-2 min-w-[140px]">
+                      <td className="px-2 py-2">
                         <AccountCombobox
                           value={r.paymentEntry.creditAccount}
                           onChange={(v) => patchPayment(i, { creditAccount: v as '普通預金' })}
@@ -6913,7 +7043,7 @@ function MatchResultTable({
                         {r.paymentEntry.amount != null ? `¥${r.paymentEntry.amount.toLocaleString()}` : '—'}
                       </td>
                       <td
-                        className={`px-3 py-2 text-xs text-slate-500 max-w-[180px] truncate ${r.paymentEntry.transaction.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
+                        className={`px-2 py-2 text-xs text-slate-500 break-words ${r.paymentEntry.transaction.sourceFileIndex != null ? 'cursor-pointer hover:text-sky-600' : ''}`}
                         onClick={() => r.paymentEntry && showTransactionPdf(r.paymentEntry.transaction)}
                         title={r.paymentEntry.description}
                       >
@@ -6946,7 +7076,7 @@ function MatchResultTable({
                         {r.withholdingPaymentEntry.amount != null ? `¥${r.withholdingPaymentEntry.amount.toLocaleString()}` : '—'}
                       </td>
                       <td
-                        className={`px-3 py-2 text-xs text-slate-500 max-w-[180px] truncate ${r.withholdingPaymentEntry.transaction.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
+                        className={`px-2 py-2 text-xs text-slate-500 break-words ${r.withholdingPaymentEntry.transaction.sourceFileIndex != null ? 'cursor-pointer hover:text-sky-600' : ''}`}
                         onClick={() => r.withholdingPaymentEntry && showTransactionPdf(r.withholdingPaymentEntry.transaction)}
                         title={r.withholdingPaymentEntry.description}
                       >
@@ -6954,6 +7084,20 @@ function MatchResultTable({
                       </td>
                       <td className="px-3 py-2">
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-lime-100 text-lime-600">自動</span>
+                      </td>
+                    </tr>
+                  )}
+                  {!isRegistered && (
+                    <tr key={`add-${i}`} className="bg-slate-50/40">
+                      <td colSpan={9} className="px-2 py-1 text-left border-b-2 border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => addAccrualLine(i)}
+                          className="text-[10px] text-sky-600 hover:text-sky-800 border border-dashed border-sky-300 hover:border-sky-500 rounded px-2 py-0.5 ml-10"
+                          title="この仕訳グループに計上行を追加"
+                        >
+                          + 行を追加
+                        </button>
                       </td>
                     </tr>
                   )}
