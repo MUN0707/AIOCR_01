@@ -132,7 +132,73 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ success: true, inserted: rows.length });
+
+    // 借方が固定資産科目の仕訳を検出し、fixed_assets に仮登録
+    const debitAccounts = Array.from(new Set(
+      rows.map((r) => r.debit_account).filter((v): v is string => typeof v === 'string' && v.length > 0)
+    ));
+    let newAssets: Array<{ id: string; asset_number: number; name: string }> = [];
+    if (debitAccounts.length > 0) {
+      const { data: acctRows } = await service
+        .from('accounts')
+        .select('name, fixed_asset_type')
+        .eq('user_id', user.id)
+        .in('name', debitAccounts);
+      const fixedAcctMap = new Map<string, string>();
+      for (const a of acctRows ?? []) {
+        if (a.fixed_asset_type && ['tangible', 'intangible', 'deferred'].includes(a.fixed_asset_type)) {
+          fixedAcctMap.set(a.name, a.fixed_asset_type);
+        }
+      }
+
+      if (fixedAcctMap.size > 0) {
+        // 現在の最大 asset_number
+        let nextNumQuery = service
+          .from('fixed_assets')
+          .select('asset_number')
+          .eq('user_id', user.id)
+          .order('asset_number', { ascending: false })
+          .limit(1);
+        if (clientId) nextNumQuery = nextNumQuery.eq('client_id', clientId);
+        else nextNumQuery = nextNumQuery.is('client_id', null);
+        const { data: maxRows } = await nextNumQuery;
+        let nextNum = (maxRows && maxRows[0]?.asset_number ? maxRows[0].asset_number : 0) + 1;
+
+        const inserts: Record<string, unknown>[] = [];
+        for (const r of rows) {
+          const debit = r.debit_account as string;
+          const category = fixedAcctMap.get(debit);
+          if (!category) continue;
+          const amt = Number(r.amount ?? 0);
+          if (amt <= 0) continue;
+          inserts.push({
+            user_id: user.id,
+            client_id: clientId,
+            asset_number: nextNum++,
+            category,
+            name: debit,
+            account_name: debit,
+            acquisition_date: null,
+            depreciation_start_date: null,
+            acquisition_cost: amt,
+            residual_value: 0,
+            useful_life_years: null,
+            method: 'straight_line',
+            status: 'pending',
+            note: `仕訳自動登録: ${r.description ?? ''}`,
+          });
+        }
+        if (inserts.length > 0) {
+          const { data: created } = await service
+            .from('fixed_assets')
+            .insert(inserts)
+            .select('id, asset_number, name');
+          newAssets = created ?? [];
+        }
+      }
+    }
+
+    return NextResponse.json({ success: true, inserted: rows.length, newAssets });
   } catch (error) {
     console.error('persist-match エラー:', error);
     const message = error instanceof Error ? error.message : '保存に失敗しました';

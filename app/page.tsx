@@ -1371,7 +1371,15 @@ export default function Home() {
         return next;
       });
       setSelectedVoucherIdx(new Set());
-      alert(`${targetIdx.length} 件の仕訳を登録しました`);
+      const newAssets: Array<{ id: string; asset_number: number; name: string }> = data.newAssets ?? [];
+      if (newAssets.length > 0) {
+        alert(`${targetIdx.length} 件の仕訳を登録しました\n固定資産 ${newAssets.length} 件を検出しました。詳細登録画面を開きます。`);
+        for (const a of newAssets) {
+          window.open(`/fixed-assets/${a.id}`, '_blank');
+        }
+      } else {
+        alert(`${targetIdx.length} 件の仕訳を登録しました`);
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : '登録失敗');
     } finally {
@@ -2067,6 +2075,8 @@ export default function Home() {
                 loading={ledgerLoading}
                 error={ledgerError}
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
+                clientId={selectedClientId}
+                onRefresh={fetchLedger}
               />
             ) : journalSubView === 'master' ? (
               <MasterView
@@ -4074,20 +4084,147 @@ function EditableRow({
 
 // ─── 残高ビュー（勘定科目別 + 未払費用 取引先別） ───────────────────────────
 
+interface FixedAssetRow {
+  id: string;
+  asset_number: number;
+  category: 'tangible' | 'intangible' | 'deferred';
+  name: string;
+  account_name: string;
+  acquisition_date: string | null;
+  depreciation_start_date: string | null;
+  acquisition_cost: number;
+  residual_value: number;
+  useful_life_years: number | null;
+  method: string;
+  last_depreciated_through: string | null;
+  status: 'pending' | 'active' | 'disposed';
+}
+
+interface AccountingRuleRow {
+  id: string;
+  effective_from_date: string;
+  depreciation_method_tangible: 'indirect' | 'direct';
+  depreciation_method_intangible: 'indirect' | 'direct';
+  depreciation_method_deferred: 'indirect' | 'direct';
+  depreciation_timing: 'monthly' | 'annual';
+}
+
 function BalanceView({
   entries,
   loading,
   error,
   clientName,
+  clientId,
+  onRefresh,
 }: {
   entries: LedgerEntry[] | null;
   loading: boolean;
   error: string | null;
   clientName: string | null;
+  clientId: string | null;
+  onRefresh: () => void;
 }) {
   // 期間フィルタ: YYYY-MM-DD（空=全期間）
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+
+  // 固定資産
+  const [fixedAssets, setFixedAssets] = useState<FixedAssetRow[]>([]);
+  const [rules, setRules] = useState<AccountingRuleRow[]>([]);
+  const [depMode, setDepMode] = useState<'append' | 'overwrite'>('append');
+  const [depTiming, setDepTiming] = useState<'monthly' | 'annual'>('annual');
+  const [depPeriodStart, setDepPeriodStart] = useState<string>('');
+  const [depPeriodEnd, setDepPeriodEnd] = useState<string>('');
+  const [depMsg, setDepMsg] = useState<string | null>(null);
+  const [checkRows, setCheckRows] = useState<Array<{ asset_id: string; asset_number: number; name: string; category: string; required: number; posted: number; diff: number }> | null>(null);
+  const [showRuleForm, setShowRuleForm] = useState(false);
+  const [newRule, setNewRule] = useState({
+    effective_from_date: '',
+    depreciation_method_tangible: 'indirect' as 'indirect' | 'direct',
+    depreciation_method_intangible: 'direct' as 'indirect' | 'direct',
+    depreciation_method_deferred: 'direct' as 'indirect' | 'direct',
+    depreciation_timing: 'annual' as 'monthly' | 'annual',
+  });
+
+  const fetchFixedAssets = async () => {
+    const params = new URLSearchParams();
+    if (clientId) params.set('clientId', clientId);
+    const res = await fetch(`/api/fixed-assets?${params}`);
+    const json = await res.json();
+    if (res.ok) setFixedAssets(json.assets ?? []);
+  };
+  const fetchRules = async () => {
+    const params = new URLSearchParams();
+    if (clientId) params.set('clientId', clientId);
+    const res = await fetch(`/api/accounting-rules?${params}`);
+    const json = await res.json();
+    if (res.ok) setRules(json.rules ?? []);
+  };
+  useEffect(() => {
+    fetchFixedAssets();
+    fetchRules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
+
+  const generateDepreciation = async () => {
+    if (!depPeriodStart || !depPeriodEnd) {
+      setDepMsg('期間を指定してください');
+      return;
+    }
+    setDepMsg('生成中...');
+    const res = await fetch('/api/depreciation/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId,
+        period_start: depPeriodStart,
+        period_end: depPeriodEnd,
+        mode: depMode,
+        timing: depTiming,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setDepMsg(`エラー: ${json.error}`);
+      return;
+    }
+    setDepMsg(`計上 ${json.inserted} 件 / スキップ ${json.skipped} 件`);
+    await fetchFixedAssets();
+    onRefresh();
+  };
+
+  const checkDepreciation = async () => {
+    if (!depPeriodStart || !depPeriodEnd) {
+      setDepMsg('期間を指定してください');
+      return;
+    }
+    const params = new URLSearchParams({ period_start: depPeriodStart, period_end: depPeriodEnd });
+    if (clientId) params.set('clientId', clientId);
+    const res = await fetch(`/api/depreciation/check?${params}`);
+    const json = await res.json();
+    if (!res.ok) { setDepMsg(`エラー: ${json.error}`); return; }
+    setCheckRows(json.rows ?? []);
+    setDepMsg(`理論値合計 ¥${json.total_required.toLocaleString()} / 計上済合計 ¥${json.total_posted.toLocaleString()} / 差額 ¥${json.total_diff.toLocaleString()}`);
+  };
+
+  const saveRule = async () => {
+    if (!newRule.effective_from_date) { alert('有効開始日を指定してください'); return; }
+    const res = await fetch('/api/accounting-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: clientId, ...newRule }),
+    });
+    const json = await res.json();
+    if (!res.ok) { alert(json.error); return; }
+    setShowRuleForm(false);
+    await fetchRules();
+  };
+
+  const deleteRule = async (id: string) => {
+    if (!confirm('このルールを削除しますか？')) return;
+    await fetch(`/api/accounting-rules?id=${id}`, { method: 'DELETE' });
+    await fetchRules();
+  };
 
   const toYmd = (iso: string) => iso.replace(/-/g, ''); // YYYY-MM-DD → YYYYMMDD
 
@@ -4255,6 +4392,183 @@ function BalanceView({
         </div>
       )}
 
+      {/* ─── 固定資産 ─────────────────────────────────────────────────── */}
+      <FixedAssetSection
+        assets={fixedAssets}
+        entries={filteredEntries}
+        clientId={clientId}
+        onRefresh={fetchFixedAssets}
+        depPeriodStart={depPeriodStart}
+      />
+
+      {/* 減価償却仕訳 生成パネル */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
+          <p className="text-sm font-semibold text-sky-700 tracking-tight">減価償却 仕訳生成 / 整合チェック</p>
+          <p className="text-[10px] text-sky-500/70 mt-0.5">期間内の活動中の資産を対象に自動計上</p>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">期首</p>
+              <input type="date" value={depPeriodStart} onChange={(e) => setDepPeriodStart(e.target.value)}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400" />
+            </div>
+            <span className="text-slate-300 pb-2">〜</span>
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">期末</p>
+              <input type="date" value={depPeriodEnd} onChange={(e) => setDepPeriodEnd(e.target.value)}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">計上タイミング</p>
+              <select value={depTiming} onChange={(e) => setDepTiming(e.target.value as 'monthly' | 'annual')}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-sky-400">
+                <option value="annual">年次（期末に1件）</option>
+                <option value="monthly">月次（各月末）</option>
+              </select>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">既存仕訳</p>
+              <select value={depMode} onChange={(e) => setDepMode(e.target.value as 'append' | 'overwrite')}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-sky-400">
+                <option value="append">未計上月のみ追加</option>
+                <option value="overwrite">期間内を上書き</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={generateDepreciation}
+              className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600">
+              減価償却仕訳を生成
+            </button>
+            <button onClick={checkDepreciation}
+              className="text-xs text-lime-700 border border-lime-300 bg-lime-50 rounded-xl px-4 py-2 font-semibold hover:bg-lime-100">
+              当期償却額をチェック
+            </button>
+          </div>
+          {depMsg && <p className="text-[11px] text-slate-500 font-mono">{depMsg}</p>}
+          {checkRows && checkRows.length > 0 && (
+            <div className="overflow-x-auto border border-slate-100 rounded-xl">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50/50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">資産</th>
+                    <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-widest">理論値</th>
+                    <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-widest">計上済</th>
+                    <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-widest">差額</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {checkRows.map((r) => (
+                    <tr key={r.asset_id}>
+                      <td className="px-3 py-2 text-slate-700">#{r.asset_number} {r.name}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-500">¥{r.required.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-500">¥{r.posted.toLocaleString()}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums font-semibold ${r.diff === 0 ? 'text-slate-400' : 'text-amber-600'}`}>
+                        {r.diff >= 0 ? '+' : ''}¥{r.diff.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 会計ルール */}
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-700 tracking-tight">減価償却 会計ルール</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">有効開始日の昇順 · 日付以降で新しいルールが適用</p>
+          </div>
+          <button onClick={() => setShowRuleForm(!showRuleForm)}
+            className="text-[11px] text-sky-600 border border-sky-200 bg-sky-50 rounded-lg px-3 py-1.5 hover:bg-sky-100">
+            {showRuleForm ? '閉じる' : '+ ルール追加'}
+          </button>
+        </div>
+        {showRuleForm && (
+          <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/20 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">有効開始日</p>
+                <input type="date" value={newRule.effective_from_date}
+                  onChange={(e) => setNewRule({ ...newRule, effective_from_date: e.target.value })}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-sky-400" />
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">計上タイミング</p>
+                <select value={newRule.depreciation_timing}
+                  onChange={(e) => setNewRule({ ...newRule, depreciation_timing: e.target.value as 'monthly' | 'annual' })}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-sky-400">
+                  <option value="annual">年次</option>
+                  <option value="monthly">月次</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {(['tangible', 'intangible', 'deferred'] as const).map((cat) => {
+                const label = cat === 'tangible' ? '有形' : cat === 'intangible' ? '無形' : '繰延';
+                const key = cat === 'tangible' ? 'depreciation_method_tangible' : cat === 'intangible' ? 'depreciation_method_intangible' : 'depreciation_method_deferred';
+                return (
+                  <div key={cat}>
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">{label}償却</p>
+                    <select value={newRule[key]}
+                      onChange={(e) => setNewRule({ ...newRule, [key]: e.target.value as 'indirect' | 'direct' })}
+                      className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-sky-400">
+                      <option value="indirect">間接法</option>
+                      <option value="direct">直接法</option>
+                    </select>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-end">
+              <button onClick={saveRule}
+                className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600">
+                ルールを保存
+              </button>
+            </div>
+          </div>
+        )}
+        {rules.length === 0 ? (
+          <div className="p-5 text-xs text-slate-400 text-center">
+            ルール未登録（デフォルト: 有形=間接法 / 無形=直接法 / 繰延=直接法 / 年次）
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-white">
+                <tr className="border-b border-slate-50">
+                  <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">有効開始日</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">有形</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">無形</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">繰延</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">タイミング</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {rules.map((r) => (
+                  <tr key={r.id}>
+                    <td className="px-3 py-2 font-mono text-slate-700">{r.effective_from_date}</td>
+                    <td className="px-3 py-2 text-slate-600">{r.depreciation_method_tangible === 'indirect' ? '間接法' : '直接法'}</td>
+                    <td className="px-3 py-2 text-slate-600">{r.depreciation_method_intangible === 'indirect' ? '間接法' : '直接法'}</td>
+                    <td className="px-3 py-2 text-slate-600">{r.depreciation_method_deferred === 'indirect' ? '間接法' : '直接法'}</td>
+                    <td className="px-3 py-2 text-slate-600">{r.depreciation_timing === 'monthly' ? '月次' : '年次'}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button onClick={() => deleteRule(r.id)} className="text-[10px] text-red-400 hover:text-red-600">削除</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* 勘定科目別 集計 */}
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
@@ -4289,6 +4603,202 @@ function BalanceView({
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── 固定資産セクション ─────────────────────────────────────────────────
+
+const FIXED_ASSET_CATEGORY_LABEL: Record<string, string> = {
+  tangible: '有形固定資産',
+  intangible: '無形固定資産',
+  deferred: '繰延資産',
+};
+
+function FixedAssetSection({
+  assets,
+  entries,
+  clientId,
+  onRefresh,
+  depPeriodStart,
+}: {
+  assets: FixedAssetRow[];
+  entries: LedgerEntry[];
+  clientId: string | null;
+  onRefresh: () => void;
+  depPeriodStart: string;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({
+    category: 'tangible' as 'tangible' | 'intangible' | 'deferred',
+    name: '',
+    account_name: '',
+    acquisition_cost: 0,
+  });
+
+  // 当期償却額を資産ごとに集計
+  const depByAsset = new Map<string, number>();
+  for (const e of entries) {
+    const tag = (e as unknown as { source_fixed_asset_id?: string }).source_fixed_asset_id;
+    if (!tag) continue;
+    depByAsset.set(tag, (depByAsset.get(tag) ?? 0) + Number(e.amount ?? 0));
+  }
+
+  // period start での簿価計算のため、開始日前の累計
+  const startYmd = depPeriodStart ? depPeriodStart.replace(/-/g, '') : '';
+  const depBeforeStart = new Map<string, number>();
+  if (startYmd) {
+    for (const e of entries) {
+      const tag = (e as unknown as { source_fixed_asset_id?: string }).source_fixed_asset_id;
+      if (!tag) continue;
+      if (!e.entry_date || e.entry_date >= startYmd) continue;
+      depBeforeStart.set(tag, (depBeforeStart.get(tag) ?? 0) + Number(e.amount ?? 0));
+    }
+  }
+
+  const grouped: Record<string, FixedAssetRow[]> = { tangible: [], intangible: [], deferred: [] };
+  for (const a of assets) grouped[a.category]?.push(a);
+
+  const createNew = async () => {
+    const res = await fetch('/api/fixed-assets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: clientId, ...form }),
+    });
+    const json = await res.json();
+    if (!res.ok) { alert(json.error); return; }
+    setCreating(false);
+    setForm({ category: 'tangible', name: '', account_name: '', acquisition_cost: 0 });
+    await onRefresh();
+    if (json.asset?.id) window.open(`/fixed-assets/${json.asset.id}`, '_blank');
+  };
+
+  const deleteAsset = async (id: string) => {
+    if (!confirm('この資産と紐付く償却仕訳を削除しますか？')) return;
+    const res = await fetch(`/api/fixed-assets/${id}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (!res.ok) { alert(json.error); return; }
+    await onRefresh();
+  };
+
+  return (
+    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100 bg-lime-50/40 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-lime-700 tracking-tight">固定資産</p>
+          <p className="text-[10px] text-lime-600/70 mt-0.5">3区分ごとに取得価額・簿価・当期償却を表示</p>
+        </div>
+        <button onClick={() => setCreating(!creating)}
+          className="text-[11px] text-lime-700 border border-lime-300 bg-white rounded-lg px-3 py-1.5 hover:bg-lime-50">
+          {creating ? '閉じる' : '+ 新規登録（仕訳に出ないもの）'}
+        </button>
+      </div>
+      {creating && (
+        <div className="px-5 py-4 border-b border-slate-100 bg-lime-50/20 space-y-3">
+          <p className="text-[10px] text-lime-700">
+            ※ 建物・備品など仕訳計上時に入出金仕訳から自動登録される資産は、仕訳実行後に詳細画面が自動で開きます。この画面は「固定資産 / 未払金」のように現金預金を経由しない取得時に使います。
+          </p>
+          <div className="grid grid-cols-4 gap-3">
+            <select value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value as typeof form.category })}
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-lime-400">
+              <option value="tangible">有形</option>
+              <option value="intangible">無形</option>
+              <option value="deferred">繰延</option>
+            </select>
+            <input type="text" placeholder="資産名" value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-lime-400" />
+            <input type="text" placeholder="勘定科目" value={form.account_name}
+              onChange={(e) => setForm({ ...form, account_name: e.target.value })}
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-lime-400" />
+            <input type="number" placeholder="取得価額" value={form.acquisition_cost}
+              onChange={(e) => setForm({ ...form, acquisition_cost: Number(e.target.value) })}
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs tabular-nums focus:outline-none focus:border-lime-400" />
+          </div>
+          <div className="flex justify-end">
+            <button onClick={createNew}
+              className="text-xs text-white bg-lime-500 rounded-xl px-4 py-2 font-semibold hover:bg-lime-600">
+              作成して詳細入力へ
+            </button>
+          </div>
+        </div>
+      )}
+      {assets.length === 0 ? (
+        <div className="p-5 text-xs text-slate-400 text-center">固定資産は未登録です</div>
+      ) : (
+        <div className="divide-y divide-slate-50">
+          {(['tangible', 'intangible', 'deferred'] as const).map((cat) => {
+            const list = grouped[cat];
+            if (list.length === 0) return null;
+            const subtotalCost = list.reduce((s, a) => s + Number(a.acquisition_cost), 0);
+            const subtotalDep = list.reduce((s, a) => s + (depByAsset.get(a.id) ?? 0), 0);
+            return (
+              <div key={cat}>
+                <div className="px-5 py-3 bg-slate-50/40 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-700">{FIXED_ASSET_CATEGORY_LABEL[cat]}</p>
+                  <p className="text-[11px] text-slate-500 tabular-nums">
+                    取得価額 計 ¥{subtotalCost.toLocaleString()} · 当期償却 計 ¥{subtotalDep.toLocaleString()}
+                  </p>
+                </div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-50">
+                      <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">#</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">名称 / 科目</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取得日</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取得価額</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">期首簿価</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">当期償却</th>
+                      <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">期末簿価</th>
+                      <th className="px-3 py-2 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest">状態</th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {list.map((a) => {
+                      const cost = Number(a.acquisition_cost);
+                      const before = depBeforeStart.get(a.id) ?? 0;
+                      const current = depByAsset.get(a.id) ?? 0;
+                      const openingBook = cost - before;
+                      const closingBook = openingBook - current;
+                      return (
+                        <tr key={a.id} className="hover:bg-slate-50/40">
+                          <td className="px-3 py-2 text-slate-400 font-mono">#{a.asset_number}</td>
+                          <td className="px-3 py-2">
+                            <a href={`/fixed-assets/${a.id}`} target="_blank" rel="noopener noreferrer"
+                              className="text-slate-700 font-medium hover:text-sky-600">
+                              {a.name}
+                            </a>
+                            <span className="ml-2 text-slate-400">{a.account_name}</span>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-slate-500">{a.acquisition_date ?? '—'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-600">¥{cost.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-500">¥{openingBook.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-sky-600">¥{current.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-700">¥{closingBook.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                              a.status === 'active' ? 'bg-lime-50 text-lime-700' :
+                              a.status === 'pending' ? 'bg-amber-50 text-amber-700' :
+                              'bg-slate-100 text-slate-500'
+                            }`}>
+                              {a.status === 'active' ? '有効' : a.status === 'pending' ? '未設定' : '除却'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <button onClick={() => deleteAsset(a.id)} className="text-[10px] text-red-400 hover:text-red-600">削除</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

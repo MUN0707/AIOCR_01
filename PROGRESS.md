@@ -302,3 +302,17 @@ public/sales-deck.pdf   — 営業資料PDF
 - 次にやること / 未解決:
   - 預り金の照合条件はまだ「金額一致＋日付 ≧ 計上日」のみ。複数の源泉を同じ税務署への1本にまとめて納付するケースは未対応（合算照合の拡張が必要）
   - ページ完全リロード時は state が消えるため、継続運用するなら draft テーブルが必要
+
+## 2026-04-15 (固定資産・減価償却 実装)
+- やったこと:
+  - 新マイグレーション `20260415_fixed_assets_depreciation.sql`: `fixed_assets`（3区分 / 定額法のみ実装）、`accounting_rules`（期間履歴で間接法/直接法切替 + 月次/年次）、`accounts.fixed_asset_type` 追加、`journal_entries` に `source_fixed_asset_id` + `depreciation_period` 追加
+  - API: `/api/fixed-assets` GET/POST, `/api/fixed-assets/[id]` GET/PATCH/DELETE, `/api/accounting-rules` GET/POST/DELETE, `/api/depreciation/generate` POST（月次/年次・append/overwrite モード）, `/api/depreciation/check` GET（理論値との差分）
+  - `/fixed-assets/[id]` 詳細登録画面（別タブ想定）を新設
+  - `persist-match` 改修: 借方が固定資産科目の仕訳を検出したら `fixed_assets` に `status='pending'` で自動連番登録し、フロントに `newAssets` を返す
+  - フロント (`app/page.tsx`): persist-match の返り値を見て `window.open('/fixed-assets/[id]')` を一括オープン。BalanceView に「固定資産」セクション（3区分ごと小計 + 資産1行展開 + 新規登録フォーム）、減価償却仕訳生成パネル（期間/タイミング/モード）、会計ルール設定パネル、期末整合チェックを追加
+- 背景/理由: 税理士実務向けに固定資産の残高管理・自動償却仕訳が必須。ユーザー要望は「取得仕訳は仕訳画面、詳細は別タブ、年度末決算仕訳 or 月次決算の選択、重複計上防止、期末整合チェック」
+- 次にやること / 未解決:
+  - **定率法・生産高比例法が未対応**（必須・memory にも TODO 記録済み）
+  - Supabase SQL Editor で `20260415_fixed_assets_depreciation.sql` を**手動実行する必要あり**
+  - 固定資産除却 (disposed) のフローは UI 未実装（売却/除却仕訳との連動）
+  - 会計ルール変更時、過去に生成済みの償却仕訳を再計算する仕組みは未実装（手動で overwrite 再生成が必要）
