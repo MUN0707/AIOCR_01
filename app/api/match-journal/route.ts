@@ -210,6 +210,62 @@ export async function POST(request: NextRequest) {
       };
     }
 
+    // ─── 源泉税の後日納付を自動照合（預り金 / 普通預金） ───
+    //  voucher.withholdingTax > 0 の各 result について、
+    //  残りの通帳出金で金額が一致するものがあれば 預り金 の支払消込を自動生成する。
+    //  税務署への納付は相手先名が異なるので、金額一致＋日付が計上日以降 を条件とする。
+    {
+      for (const r of results) {
+        const voucher = r.accrualEntries[0]?.voucher;
+        if (!voucher) continue;
+        const wh = voucher.withholdingTax && voucher.withholdingTax > 0 ? voucher.withholdingTax : 0;
+        if (wh <= 0) continue;
+        if (r.withholdingPaymentEntry) continue;
+
+        const accrualDate = r.accrualEntries[0]?.date;
+        const hit = availableTx.find(({ tx }) => {
+          if (!tx.debit) return false;
+          // 金額一致（完全 or 1% 以内）
+          const amountOk = tx.debit === wh || Math.abs(tx.debit - wh) / wh <= 0.01;
+          if (!amountOk) return false;
+          // 日付が計上日以降であること（前払いはない）
+          if (accrualDate && accrualDate !== '不明' && tx.transactionDate && tx.transactionDate !== '不明') {
+            if (tx.transactionDate < accrualDate) return false;
+          }
+          return true;
+        });
+        if (!hit) continue;
+
+        const payment: PaymentEntry = {
+          entryType: 'payment',
+          date: hit.tx.transactionDate,
+          debitAccount: '未払費用', // 型上の制約。実行時は '預り金' に差し替え
+          creditAccount: '普通預金',
+          amount: hit.tx.debit,
+          description: `${voucher.vendorName || ''} 源泉税納付`.trim(),
+          taxType: '対象外',
+          matchScore: 1,
+          matchStatus: 'auto',
+          transaction: hit.tx,
+          voucher,
+        };
+        (payment as unknown as { debitAccount: string }).debitAccount = '預り金';
+        r.withholdingPaymentEntry = payment;
+
+        const idxInAvailable = availableTx.indexOf(hit);
+        if (idxInAvailable >= 0) availableTx.splice(idxInAvailable, 1);
+        usedTxKeys.add(transactionKey(hit.tx));
+      }
+
+      // summary の未照合取引を再計算
+      summary = {
+        ...summary,
+        unmatchedTransactions: transactions.filter(
+          (tx) => tx.debit && !usedTxKeys.has(transactionKey(tx))
+        ),
+      };
+    }
+
     // ─── 摘要ルール（description pattern）を未照合取引に適用し、
     //    フロントの UnmatchedView で勘定科目を自動提案する ───
     const descRules = rules.filter((r) => r.pattern_type === 'description');
@@ -310,6 +366,25 @@ async function saveResultsToJournalEntries(
           match_status: r.paymentEntry.matchStatus,
           ocr_upload_id: r.paymentEntry.voucher.ocrUploadId ?? null,
           bank_ocr_upload_id: linkedBankUploadId,
+        });
+      }
+      if (r.withholdingPaymentEntry) {
+        rows.push({
+          user_id: user.id,
+          client_id: clientId,
+          log_id: logId,
+          voucher_group_id: voucherGroupId,
+          entry_type: 'payment',
+          entry_date: r.withholdingPaymentEntry.date,
+          debit_account: r.withholdingPaymentEntry.debitAccount,
+          credit_account: r.withholdingPaymentEntry.creditAccount,
+          amount: r.withholdingPaymentEntry.amount,
+          description: r.withholdingPaymentEntry.description,
+          tax_type: r.withholdingPaymentEntry.taxType,
+          vendor_name: vendor,
+          match_status: r.withholdingPaymentEntry.matchStatus,
+          ocr_upload_id: null,
+          bank_ocr_upload_id: r.withholdingPaymentEntry.transaction.ocrUploadId ?? null,
         });
       }
     }

@@ -1341,6 +1341,19 @@ export default function Home() {
               bank_ocr_upload_id: r.paymentEntry.transaction.ocrUploadId ?? null,
             }
           : undefined,
+        withholdingPaymentEntry: r.withholdingPaymentEntry
+          ? {
+              date: r.withholdingPaymentEntry.date,
+              debit_account: r.withholdingPaymentEntry.debitAccount,
+              credit_account: r.withholdingPaymentEntry.creditAccount,
+              amount: r.withholdingPaymentEntry.amount,
+              description: r.withholdingPaymentEntry.description,
+              tax_type: r.withholdingPaymentEntry.taxType,
+              match_status: r.withholdingPaymentEntry.matchStatus,
+              ocr_upload_id: null,
+              bank_ocr_upload_id: r.withholdingPaymentEntry.transaction.ocrUploadId ?? null,
+            }
+          : undefined,
       };
     });
     setPersisting(true);
@@ -1399,6 +1412,14 @@ export default function Home() {
         const p = r.paymentEntry;
         rows.push([
           '支払消込', p.date, p.debitAccount, p.creditAccount,
+          p.amount != null ? String(p.amount) : '',
+          p.description, p.taxType, p.matchStatus, String(p.matchScore),
+        ]);
+      }
+      if (r.withholdingPaymentEntry) {
+        const p = r.withholdingPaymentEntry;
+        rows.push([
+          '源泉納付', p.date, p.debitAccount, p.creditAccount,
           p.amount != null ? String(p.amount) : '',
           p.description, p.taxType, p.matchStatus, String(p.matchScore),
         ]);
@@ -1943,23 +1964,83 @@ export default function Home() {
             )}
 
             {journalSubView === 'unmatched' ? (
-              <UnmatchedView
-                transactions={journalMatchResult?.summary.unmatchedTransactions ?? []}
-                accounts={unmatchedTxAccounts}
-                setAccounts={setUnmatchedTxAccounts}
-                descriptions={unmatchedTxDescriptions}
-                setDescriptions={setUnmatchedTxDescriptions}
-                selected={unmatchedSelected}
-                setSelected={setUnmatchedSelected}
-                bulkAccount={unmatchedBulkAccount}
-                setBulkAccount={setUnmatchedBulkAccount}
-                bulkDescription={unmatchedBulkDescription}
-                setBulkDescription={setUnmatchedBulkDescription}
-                accountsList={accountsList}
-                addAccountLocal={addAccountLocal}
-                onShowPdf={showTransactionPdf}
-                onGoExecute={() => setJournalSubView('execute')}
-              />
+              <div className="space-y-5">
+                {/* 未登録の仕訳（照合済みだが DB にまだ保存されていないもの） */}
+                {journalMatchResult && journalMatchResult.results.some((_, i) => !registeredVoucherIdx.has(i)) && (
+                  <div className="space-y-3">
+                    <div className="bg-white border border-sky-100 rounded-2xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900 tracking-tight">
+                          未登録の仕訳 <span className="text-sky-600">
+                            {journalMatchResult.results.filter((_, i) => !registeredVoucherIdx.has(i)).length}
+                          </span> 件
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          照合済みですが、まだ DB に保存されていません。チェックして「選択を登録」か「残り全て登録」で確定できます。
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          onClick={() => handlePersistSelected(true)}
+                          disabled={persisting || selectedVoucherIdx.size === 0}
+                          className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          選択を登録（{selectedVoucherIdx.size}）
+                        </button>
+                        <button
+                          onClick={() => handlePersistSelected(false)}
+                          disabled={persisting}
+                          className="text-xs text-white bg-lime-600 rounded-xl px-4 py-2 font-semibold hover:bg-lime-700 transition-all disabled:opacity-40"
+                        >
+                          残り全て登録
+                        </button>
+                        <button
+                          onClick={() => setJournalSubView('execute')}
+                          className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
+                        >
+                          仕訳実行タブへ
+                        </button>
+                      </div>
+                    </div>
+                    <MatchResultTable
+                      journalMatchResult={journalMatchResult}
+                      setJournalMatchResult={setJournalMatchResult}
+                      accountsList={accountsList}
+                      addAccountLocal={addAccountLocal}
+                      selectedVoucherIdx={selectedVoucherIdx}
+                      setSelectedVoucherIdx={setSelectedVoucherIdx}
+                      registeredVoucherIdx={registeredVoucherIdx}
+                      showVoucherPdf={showVoucherPdf}
+                      showTransactionPdf={showTransactionPdf}
+                      onCreateVendorRule={async (vendorName, debitAccount) => {
+                        if (!vendorName.trim() || !debitAccount.trim()) return;
+                        await addRule('vendor', vendorName, debitAccount);
+                        alert(`取引先ルールを追加しました: ${vendorName} → ${debitAccount}`);
+                      }}
+                      onlyUnregistered
+                    />
+                  </div>
+                )}
+
+                {/* 証憑がない入出金（従来の未照合） */}
+                <UnmatchedView
+                  transactions={journalMatchResult?.summary.unmatchedTransactions ?? []}
+                  accounts={unmatchedTxAccounts}
+                  setAccounts={setUnmatchedTxAccounts}
+                  descriptions={unmatchedTxDescriptions}
+                  setDescriptions={setUnmatchedTxDescriptions}
+                  selected={unmatchedSelected}
+                  setSelected={setUnmatchedSelected}
+                  bulkAccount={unmatchedBulkAccount}
+                  setBulkAccount={setUnmatchedBulkAccount}
+                  bulkDescription={unmatchedBulkDescription}
+                  setBulkDescription={setUnmatchedBulkDescription}
+                  accountsList={accountsList}
+                  addAccountLocal={addAccountLocal}
+                  onShowPdf={showTransactionPdf}
+                  onGoExecute={() => setJournalSubView('execute')}
+                />
+              </div>
             ) : journalSubView === 'ledger' ? (
               <LedgerView
                 entries={ledgerEntries}
@@ -5896,6 +5977,7 @@ function MatchResultTable({
   showVoucherPdf,
   showTransactionPdf,
   onCreateVendorRule,
+  onlyUnregistered = false,
 }: {
   journalMatchResult: { results: MatchResult[]; summary: MatchSummary };
   setJournalMatchResult: React.Dispatch<React.SetStateAction<{ results: MatchResult[]; summary: MatchSummary } | null>>;
@@ -5907,7 +5989,12 @@ function MatchResultTable({
   showVoucherPdf: (voucher: VoucherInput) => void;
   showTransactionPdf: (tx: TransactionInput) => void;
   onCreateVendorRule: (vendorName: string, debitAccount: string) => void;
+  onlyUnregistered?: boolean;
 }) {
+  // onlyUnregistered モードでは、まだ登録していない voucher group のみ表示
+  const visibleIndices = journalMatchResult.results
+    .map((_, i) => i)
+    .filter((i) => !onlyUnregistered || !registeredVoucherIdx.has(i));
   const toggleVoucher = (i: number) => {
     if (registeredVoucherIdx.has(i)) return;
     setSelectedVoucherIdx((prev) => {
@@ -5975,7 +6062,8 @@ function MatchResultTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {journalMatchResult.results.map((r, i) => {
+            {visibleIndices.map((i) => {
+              const r = journalMatchResult.results[i];
               const isRegistered = registeredVoucherIdx.has(i);
               const isSelected = selectedVoucherIdx.has(i);
               const voucherFirst = r.accrualEntries[0]?.voucher;
@@ -5984,11 +6072,13 @@ function MatchResultTable({
               const rowBg = isRegistered ? 'bg-lime-50/40 opacity-70' : isSelected ? 'bg-sky-50/40' : '';
               return (
                 <Fragment key={i}>
-                  {r.accrualEntries.map((ae, lineIdx) => (
+                  {r.accrualEntries.map((ae, lineIdx) => {
+                    const rowSpanTotal = r.accrualEntries.length + (r.paymentEntry ? 1 : 0) + (r.withholdingPaymentEntry ? 1 : 0);
+                    return (
                     <tr key={`a-${i}-${lineIdx}`} className={`${rowBg} hover:bg-sky-50/20 transition-colors`}>
                       {lineIdx === 0 && (
                         <td
-                          rowSpan={r.accrualEntries.length + (r.paymentEntry ? 1 : 0)}
+                          rowSpan={rowSpanTotal}
                           className="px-2 py-3 text-center align-top"
                         >
                           <input
@@ -6065,7 +6155,8 @@ function MatchResultTable({
                         </td>
                       )}
                     </tr>
-                  ))}
+                    );
+                  })}
                   {r.paymentEntry && (
                     <tr className={`${rowBg} bg-slate-50/20 hover:bg-lime-50/20`}>
                       <td className="px-3 py-2">
@@ -6110,6 +6201,35 @@ function MatchResultTable({
                         }`}>
                           {r.paymentEntry.matchStatus === 'auto' ? `自動 ${Math.round(r.paymentEntry.matchScore * 100)}%` : `要確認 ${Math.round(r.paymentEntry.matchScore * 100)}%`}
                         </span>
+                      </td>
+                    </tr>
+                  )}
+                  {r.withholdingPaymentEntry && (
+                    <tr className={`${rowBg} bg-amber-50/20 hover:bg-amber-50/40`}>
+                      <td className="px-3 py-2">
+                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">源泉納付</span>
+                      </td>
+                      <td className="px-3 py-2 text-xs font-mono text-slate-500">
+                        {`${r.withholdingPaymentEntry.date.slice(0,4)}/${r.withholdingPaymentEntry.date.slice(4,6)}/${r.withholdingPaymentEntry.date.slice(6,8)}`}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">{r.withholdingPaymentEntry.debitAccount}</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{r.withholdingPaymentEntry.creditAccount}</span>
+                      </td>
+                      <td className="px-3 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                        {r.withholdingPaymentEntry.amount != null ? `¥${r.withholdingPaymentEntry.amount.toLocaleString()}` : '—'}
+                      </td>
+                      <td
+                        className={`px-3 py-2 text-xs text-slate-500 max-w-[180px] truncate ${r.withholdingPaymentEntry.transaction.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
+                        onClick={() => r.withholdingPaymentEntry && showTransactionPdf(r.withholdingPaymentEntry.transaction)}
+                        title={r.withholdingPaymentEntry.description}
+                      >
+                        {r.withholdingPaymentEntry.description}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-lime-100 text-lime-600">自動</span>
                       </td>
                     </tr>
                   )}

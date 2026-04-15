@@ -293,3 +293,12 @@ public/sales-deck.pdf   — 営業資料PDF
   - 預り金の第2段階照合（後日の税務署支払い）はまだ未照合タブで手動割当 → ルール化候補
   - MasterView のルール一覧、正規化後パターンの見え方がやや分かりづらいので UI 調整余地あり
   - 部分登録後に `journalMatchResult` を再マッチせず表示し続けているが、ページ遷移で state が消える点は要検討（draft テーブル化が将来の検討事項）
+
+## 2026-04-15 17:20
+- やったこと: 追加2項目の実装
+  - 預り金の自動照合: matcher API に post-pass を追加。voucher.withholdingTax>0 の各結果について、残りの通帳出金で金額一致＋計上日以降 の取引があれば `withholdingPaymentEntry` (預り金/普通預金) を自動生成。MatchResult 型に `withholdingPaymentEntry?: PaymentEntry` を追加し、テーブル・CSV・persist-match・save の全経路で反映
+  - 部分登録後の未登録仕訳を未照合タブで可視化: MatchResultTable に `onlyUnregistered` フィルタ prop を追加。未照合タブに「未登録の仕訳 N 件」セクションを常駐させ、そこからも「選択を登録 / 残り全て登録 / 仕訳実行タブへ」が呼べる
+- 背景/理由: 1件目の対応で手動照合を求めた箇所を自動化。未登録仕訳は journalMatchResult state のみに保存されているのでタブ遷移で失われる心配はないが、未照合タブに集約して見やすくした
+- 次にやること / 未解決:
+  - 預り金の照合条件はまだ「金額一致＋日付 ≧ 計上日」のみ。複数の源泉を同じ税務署への1本にまとめて納付するケースは未対応（合算照合の拡張が必要）
+  - ページ完全リロード時は state が消えるため、継続運用するなら draft テーブルが必要

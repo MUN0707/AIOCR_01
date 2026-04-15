@@ -105,6 +105,11 @@ export interface MatchResult {
    */
   accrualEntries: AccrualEntry[];
   paymentEntry?: PaymentEntry;    // 照合成功時のみ生成（支払消込）。支払は請求書ヘッダ合計で1本。
+  /**
+   * 源泉税の後日納付を通帳に照合できた場合に生成される支払消込仕訳。
+   * 預り金 / 普通預金 で、date は実際の納付日。
+   */
+  withholdingPaymentEntry?: PaymentEntry;
 }
 
 export interface MatchSummary {
