@@ -531,6 +531,8 @@ export default function Home() {
   const [unmatchedSelected, setUnmatchedSelected] = useState<Set<number>>(new Set());
   const [unmatchedBulkAccount, setUnmatchedBulkAccount] = useState<string>('');
   const [unmatchedBulkDescription, setUnmatchedBulkDescription] = useState<string>('');
+  // 固定資産の売却などで消込済みの unmatched idx（元配列のインデックス）
+  const [consumedUnmatchedIdx, setConsumedUnmatchedIdx] = useState<Set<number>>(new Set());
 
   // ─── 勘定科目ルール（相手先→科目 / 摘要→科目） ──────────────────────────
   interface AccountRule { id: string; pattern_type: 'vendor' | 'description'; pattern: string; debit_account: string; created_at?: string }
@@ -2032,7 +2034,7 @@ export default function Home() {
 
                 {/* 証憑がない入出金（従来の未照合） */}
                 <UnmatchedView
-                  transactions={journalMatchResult?.summary.unmatchedTransactions ?? []}
+                  transactions={(journalMatchResult?.summary.unmatchedTransactions ?? []).filter((_, i) => !consumedUnmatchedIdx.has(i))}
                   accounts={unmatchedTxAccounts}
                   setAccounts={setUnmatchedTxAccounts}
                   descriptions={unmatchedTxDescriptions}
@@ -2077,6 +2079,9 @@ export default function Home() {
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
                 clientId={selectedClientId}
                 onRefresh={fetchLedger}
+                unmatchedTransactions={journalMatchResult?.summary.unmatchedTransactions ?? []}
+                consumedUnmatchedIdx={consumedUnmatchedIdx}
+                onConsumeUnmatched={(idx) => setConsumedUnmatchedIdx((prev) => new Set(prev).add(idx))}
               />
             ) : journalSubView === 'master' ? (
               <MasterView
@@ -4116,6 +4121,9 @@ function BalanceView({
   clientName,
   clientId,
   onRefresh,
+  unmatchedTransactions,
+  consumedUnmatchedIdx,
+  onConsumeUnmatched,
 }: {
   entries: LedgerEntry[] | null;
   loading: boolean;
@@ -4123,6 +4131,9 @@ function BalanceView({
   clientName: string | null;
   clientId: string | null;
   onRefresh: () => void;
+  unmatchedTransactions: TransactionInput[];
+  consumedUnmatchedIdx: Set<number>;
+  onConsumeUnmatched: (idx: number) => void;
 }) {
   // 期間フィルタ: YYYY-MM-DD（空=全期間）
   const [startDate, setStartDate] = useState<string>('');
@@ -4224,6 +4235,31 @@ function BalanceView({
     if (!confirm('このルールを削除しますか？')) return;
     await fetch(`/api/accounting-rules?id=${id}`, { method: 'DELETE' });
     await fetchRules();
+  };
+
+  const [recalcMode, setRecalcMode] = useState<'rewrite' | 'adjust'>('rewrite');
+  const [recalcFrom, setRecalcFrom] = useState<string>('');
+  const [recalcTo, setRecalcTo] = useState<string>('');
+  const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
+  const runRecalc = async () => {
+    if (!recalcFrom || !recalcTo) { setRecalcMsg('期間を指定してください'); return; }
+    if (!confirm(`${recalcMode === 'rewrite' ? '既存の償却仕訳を削除して再生成' : '差額を一括修正仕訳として計上'}します。よろしいですか?`)) return;
+    setRecalcMsg('再計算中...');
+    const res = await fetch('/api/depreciation/recalc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId,
+        from_date: recalcFrom,
+        to_date: recalcTo,
+        mode: recalcMode,
+        timing: depTiming,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) { setRecalcMsg(`エラー: ${json.error}`); return; }
+    setRecalcMsg(`完了: 削除 ${json.deleted ?? 0} 件 / 計上 ${json.inserted} 件 / 調整額合計 ¥${(json.adjustment_total ?? 0).toLocaleString()}`);
+    onRefresh();
   };
 
   const toYmd = (iso: string) => iso.replace(/-/g, ''); // YYYY-MM-DD → YYYYMMDD
@@ -4397,8 +4433,11 @@ function BalanceView({
         assets={fixedAssets}
         entries={filteredEntries}
         clientId={clientId}
-        onRefresh={fetchFixedAssets}
+        onRefresh={() => { fetchFixedAssets(); onRefresh(); }}
         depPeriodStart={depPeriodStart}
+        unmatchedTransactions={unmatchedTransactions}
+        consumedUnmatchedIdx={consumedUnmatchedIdx}
+        onConsumeUnmatched={onConsumeUnmatched}
       />
 
       {/* 減価償却仕訳 生成パネル */}
@@ -4533,6 +4572,40 @@ function BalanceView({
             </div>
           </div>
         )}
+        {/* 過去償却仕訳の再計算パネル */}
+        <div className="px-5 py-4 border-b border-slate-100 bg-amber-50/30">
+          <p className="text-xs font-semibold text-amber-700 mb-2">ルール変更時の過去償却仕訳 再計算</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <p className="text-[10px] text-slate-400 mb-1">再計算開始日</p>
+              <input type="date" value={recalcFrom} onChange={(e) => setRecalcFrom(e.target.value)}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-amber-400" />
+            </div>
+            <span className="text-slate-300 pb-2">〜</span>
+            <div>
+              <p className="text-[10px] text-slate-400 mb-1">終了日</p>
+              <input type="date" value={recalcTo} onChange={(e) => setRecalcTo(e.target.value)}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-amber-400" />
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-400 mb-1">モード</p>
+              <select value={recalcMode} onChange={(e) => setRecalcMode(e.target.value as 'rewrite' | 'adjust')}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-amber-400">
+                <option value="rewrite">既存を削除して再生成</option>
+                <option value="adjust">差額を修正仕訳で計上</option>
+              </select>
+            </div>
+            <button onClick={runRecalc}
+              className="text-xs text-white bg-amber-500 rounded-xl px-4 py-2 font-semibold hover:bg-amber-600">
+              再計算を実行
+            </button>
+          </div>
+          {recalcMsg && <p className="text-[11px] text-slate-600 font-mono mt-2">{recalcMsg}</p>}
+          <p className="text-[10px] text-slate-400 mt-1.5">
+            再生成: 既存の償却仕訳を期間削除→最新ルール適用 / 修正仕訳: 既存は保持し差額のみ開始日に1件計上
+          </p>
+        </div>
+
         {rules.length === 0 ? (
           <div className="p-5 text-xs text-slate-400 text-center">
             ルール未登録（デフォルト: 有形=間接法 / 無形=直接法 / 繰延=直接法 / 年次）
@@ -4621,13 +4694,68 @@ function FixedAssetSection({
   clientId,
   onRefresh,
   depPeriodStart,
+  unmatchedTransactions,
+  consumedUnmatchedIdx,
+  onConsumeUnmatched,
 }: {
   assets: FixedAssetRow[];
   entries: LedgerEntry[];
   clientId: string | null;
   onRefresh: () => void;
   depPeriodStart: string;
+  unmatchedTransactions: TransactionInput[];
+  consumedUnmatchedIdx: Set<number>;
+  onConsumeUnmatched: (idx: number) => void;
 }) {
+  void clientId; // 未使用警告回避
+  // 処分ダイアログ
+  const [disposeTarget, setDisposeTarget] = useState<FixedAssetRow | null>(null);
+  const [disposeForm, setDisposeForm] = useState({
+    disposal_type: 'retired' as 'retired' | 'sold',
+    disposal_date: '',
+    disposal_amount: 0,
+    cash_account: '普通預金',
+    bank_idx: null as number | null,
+  });
+  const [disposing, setDisposing] = useState(false);
+
+  const openDispose = (a: FixedAssetRow) => {
+    setDisposeTarget(a);
+    setDisposeForm({
+      disposal_type: 'retired',
+      disposal_date: new Date().toISOString().slice(0, 10),
+      disposal_amount: 0,
+      cash_account: '普通預金',
+      bank_idx: null,
+    });
+  };
+
+  const confirmDispose = async () => {
+    if (!disposeTarget) return;
+    setDisposing(true);
+    try {
+      const bankIdx = disposeForm.bank_idx;
+      const bankTx = bankIdx != null ? unmatchedTransactions[bankIdx] : null;
+      const res = await fetch(`/api/fixed-assets/${disposeTarget.id}/dispose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          disposal_type: disposeForm.disposal_type,
+          disposal_date: disposeForm.disposal_date,
+          disposal_amount: disposeForm.disposal_amount,
+          cash_account: disposeForm.cash_account,
+          bank_ocr_upload_id: bankTx?.ocrUploadId ?? null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { alert(json.error); return; }
+      if (bankIdx != null) onConsumeUnmatched(bankIdx);
+      setDisposeTarget(null);
+      await onRefresh();
+    } finally {
+      setDisposing(false);
+    }
+  };
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     category: 'tangible' as 'tangible' | 'intangible' | 'deferred',
@@ -4786,7 +4914,10 @@ function FixedAssetSection({
                               {a.status === 'active' ? '有効' : a.status === 'pending' ? '未設定' : '除却'}
                             </span>
                           </td>
-                          <td className="px-3 py-2 text-right">
+                          <td className="px-3 py-2 text-right whitespace-nowrap">
+                            {a.status !== 'disposed' && (
+                              <button onClick={() => openDispose(a)} className="text-[10px] text-amber-600 hover:text-amber-700 mr-2">処分</button>
+                            )}
                             <button onClick={() => deleteAsset(a.id)} className="text-[10px] text-red-400 hover:text-red-600">削除</button>
                           </td>
                         </tr>
@@ -4797,6 +4928,89 @@ function FixedAssetSection({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* 処分ダイアログ */}
+      {disposeTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div>
+              <p className="text-base font-semibold text-slate-900">固定資産の処分</p>
+              <p className="text-xs text-slate-500 mt-0.5">#{disposeTarget.asset_number} {disposeTarget.name}</p>
+            </div>
+            <div className="flex gap-2">
+              {(['retired', 'sold'] as const).map((t) => (
+                <button key={t}
+                  onClick={() => setDisposeForm({ ...disposeForm, disposal_type: t })}
+                  className={`flex-1 text-xs rounded-xl border px-3 py-2 font-medium ${
+                    disposeForm.disposal_type === t
+                      ? 'bg-sky-50 border-sky-400 text-sky-700'
+                      : 'bg-white border-slate-200 text-slate-500'
+                  }`}>
+                  {t === 'retired' ? '除却（廃棄）' : '売却'}
+                </button>
+              ))}
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase mb-1">処分日</p>
+              <input type="date" value={disposeForm.disposal_date}
+                onChange={(e) => setDisposeForm({ ...disposeForm, disposal_date: e.target.value })}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-sky-400" />
+            </div>
+            {disposeForm.disposal_type === 'sold' && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase mb-1">売却額</p>
+                    <input type="number" value={disposeForm.disposal_amount}
+                      onChange={(e) => setDisposeForm({ ...disposeForm, disposal_amount: Number(e.target.value) })}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs tabular-nums focus:outline-none focus:border-sky-400" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase mb-1">入金科目</p>
+                    <select value={disposeForm.cash_account}
+                      onChange={(e) => setDisposeForm({ ...disposeForm, cash_account: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-sky-400">
+                      <option value="普通預金">普通預金</option>
+                      <option value="現金">現金</option>
+                      <option value="未収金">未収金</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase mb-1">紐付ける入出金明細（未照合の入金）</p>
+                  <select value={disposeForm.bank_idx ?? ''}
+                    onChange={(e) => setDisposeForm({ ...disposeForm, bank_idx: e.target.value === '' ? null : Number(e.target.value) })}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-sky-400">
+                    <option value="">紐付けない</option>
+                    {unmatchedTransactions.map((tx, i) => {
+                      if (consumedUnmatchedIdx.has(i)) return null;
+                      if (!tx.credit || tx.credit <= 0) return null; // 入金のみ
+                      return (
+                        <option key={i} value={i}>
+                          {tx.transactionDate} · ¥{tx.credit.toLocaleString()} · {tx.description.slice(0, 20)}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    選択すると未照合リストから除外され、生成される仕訳に銀行明細が紐付きます
+                  </p>
+                </div>
+              </>
+            )}
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button type="button" onClick={() => setDisposeTarget(null)}
+                className="text-xs text-slate-500 border border-slate-200 rounded-xl px-4 py-2 hover:bg-slate-50">
+                キャンセル
+              </button>
+              <button type="button" onClick={confirmDispose} disabled={disposing}
+                className="text-xs text-white bg-amber-500 rounded-xl px-5 py-2 font-semibold hover:bg-amber-600 disabled:opacity-50">
+                {disposing ? '処理中...' : '処分仕訳を生成'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

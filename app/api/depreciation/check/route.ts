@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { theoreticalInPeriod, type AssetForCalc, type DepreciationMethod } from '@/lib/depreciation/calculator';
 
 export const maxDuration = 15;
 
@@ -69,17 +70,16 @@ export async function GET(request: NextRequest) {
 
   for (const a of assets ?? []) {
     if (!a.useful_life_years || !a.depreciation_start_date) continue;
-    const depreciable = Number(a.acquisition_cost) - Number(a.residual_value);
-    if (depreciable <= 0) continue;
-    const annual = Math.floor(depreciable / a.useful_life_years);
-
-    const start = new Date(a.depreciation_start_date);
-    const ps = new Date(periodStart);
-    const pe = new Date(periodEnd);
-    const effStart = start > ps ? start : ps;
-    if (effStart > pe) continue;
-    const months = (pe.getFullYear() - effStart.getFullYear()) * 12 + (pe.getMonth() - effStart.getMonth()) + 1;
-    const required = Math.floor((annual / 12) * Math.max(months, 0));
+    if (a.method === 'units_of_production') continue;
+    const calcAsset: AssetForCalc = {
+      acquisition_cost: Number(a.acquisition_cost),
+      residual_value: Number(a.residual_value),
+      useful_life_years: a.useful_life_years,
+      method: a.method as DepreciationMethod,
+      depreciation_start_date: a.depreciation_start_date,
+    };
+    const required = theoreticalInPeriod(calcAsset, new Date(periodStart), new Date(periodEnd));
+    if (required <= 0 && (postedByAsset.get(a.id) ?? 0) === 0) continue;
 
     const posted = postedByAsset.get(a.id) ?? 0;
     totalRequired += required;

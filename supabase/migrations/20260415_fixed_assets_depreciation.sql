@@ -29,9 +29,12 @@ create table if not exists public.fixed_assets (
   acquisition_cost numeric not null default 0,
   residual_value numeric not null default 0,
   useful_life_years int,
-  method text not null default 'straight_line' check (method in ('straight_line','declining_balance','units_of_production')),
+  method text not null default 'straight_line' check (method in ('straight_line','declining_balance','declining_balance_old','units_of_production')),
   last_depreciated_through text,
   status text not null default 'active' check (status in ('pending','active','disposed')),
+  disposal_date date,
+  disposal_type text check (disposal_type in ('retired','sold')),
+  disposal_amount numeric,
   note text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()

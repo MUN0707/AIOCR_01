@@ -220,17 +220,19 @@ export default function FixedAssetDetailPage({ params }: { params: Promise<{ id:
           {/* 償却方法 */}
           <div>
             <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">償却方法</label>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 grid grid-cols-2 gap-2">
               {[
                 { v: 'straight_line', label: '定額法' },
-                { v: 'declining_balance', label: '定率法（未対応）' },
+                { v: 'declining_balance', label: '新定率法 (200%)' },
+                { v: 'declining_balance_old', label: '旧定率法 (H19年改正前)' },
+                { v: 'units_of_production', label: '生産高比例法 (未対応)' },
               ].map((opt) => (
                 <button
                   key={opt.v}
                   type="button"
-                  disabled={opt.v !== 'straight_line'}
+                  disabled={opt.v === 'units_of_production'}
                   onClick={() => update('method', opt.v)}
-                  className={`flex-1 text-xs rounded-xl border px-3 py-2 font-medium transition-colors ${
+                  className={`text-xs rounded-xl border px-3 py-2 font-medium transition-colors ${
                     asset.method === opt.v
                       ? 'bg-sky-50 border-sky-400 text-sky-700'
                       : 'bg-white border-slate-200 text-slate-500 disabled:opacity-40 disabled:cursor-not-allowed'
@@ -240,6 +242,9 @@ export default function FixedAssetDetailPage({ params }: { params: Promise<{ id:
                 </button>
               ))}
             </div>
+            <p className="text-[10px] text-slate-400 mt-1.5">
+              新定率法: 平成24年4月1日以降取得 (200%定率) / 旧定率法: 平成19年3月31日以前取得
+            </p>
           </div>
 
           {/* 計算プレビュー */}

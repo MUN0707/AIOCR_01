@@ -316,3 +316,25 @@ public/sales-deck.pdf   — 営業資料PDF
   - Supabase SQL Editor で `20260415_fixed_assets_depreciation.sql` を**手動実行する必要あり**
   - 固定資産除却 (disposed) のフローは UI 未実装（売却/除却仕訳との連動）
   - 会計ルール変更時、過去に生成済みの償却仕訳を再計算する仕組みは未実装（手動で overwrite 再生成が必要）
+
+## 2026-04-15 #2 (固定資産: 定率法・除却売却・ルール再計算)
+- やったこと:
+  - Supabase MCP 経由で `20260415_fixed_assets_depreciation` マイグレーション適用（migration ファイル側も disposal_date/disposal_type/disposal_amount カラム追加で同期）
+  - `lib/depreciation/calculator.ts` 新設: `straight_line` / `declining_balance` (新200%定率) / `declining_balance_old` (旧定率法: `1 - (10%/取得価額)^(1/n)` 近似) の月次償却計算を共通化
+  - `/api/depreciation/generate` を calculator.ts ベースに全面書き換え（年次/月次 × append/overwrite の既存ロジックは維持）
+  - `/api/depreciation/check` も calculator.ts 経由に変更
+  - `/api/depreciation/recalc` 新設: 会計ルール変更時の再計算。`mode=rewrite` (期間内償却仕訳を削除→最新ルールで再生成) と `mode=adjust` (既存は保持し差額のみ開始日に一括修正仕訳) を選択
+  - `/api/fixed-assets/[id]/dispose` 新設: 除却 (`retired`) / 売却 (`sold`) を判定し、累計額消込 + 固定資産除却損/売却損益を自動生成。間接法/直接法は当日有効の accounting_rule を参照
+  - `app/fixed-assets/[id]/page.tsx`: 定率法・旧定率法を選択可能に（生産高比例法は disabled のまま）
+  - `app/page.tsx`:
+    - 新 state `consumedUnmatchedIdx: Set<number>`: 売却時に消し込んだ未照合入金の元配列インデックスを保持
+    - UnmatchedView の transactions prop をこの state でフィルタ → 売却紐付け後は未照合リストから消える
+    - FixedAssetSection に「処分」ボタン + ダイアログ追加。売却モード時は入出金明細の credit>0 を select で選択可能、選択時に journal_entry に `bank_ocr_upload_id` が紐付き、同時に `onConsumeUnmatched(idx)` で未照合から除外
+    - 会計ルールパネルに「再計算」パネル追加（期間 / モード選択 / 実行ボタン）
+- 背景/理由: 前回の実装で TODO に残っていた定率法・除却/売却・ルール再計算を対応。ユーザー要望「売却仕訳で消し込んだ入出金明細が未照合に残らないようにする」を `consumedUnmatchedIdx` でセッション内で解決
+- 次にやること / 未解決:
+  - **定率法の税法厳密性**: 改定償却率・保証率・国税庁償却率表は未対応（memory: project_todo_depreciation_declining.md）
+  - **生産高比例法**: enum のみ、実装なし（memory: project_todo_depreciation_units.md）
+  - `consumedUnmatchedIdx` はセッション state なのでページリロードで消える（永続化するなら bank_tx テーブル側にフラグ列が必要）
+  - 会計ルール変更時の自動起動は未実装。手動で「再計算を実行」ボタンを押す必要あり
+  - 有形除却時に固定資産台帳ページから「取消」する動線なし（手動で journal_entries から該当 entry_type='disposal' を削除 + status を戻す必要）

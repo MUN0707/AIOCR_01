@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { enumerateMonthly, type AssetForCalc, type DepreciationMethod } from '@/lib/depreciation/calculator';
 
 export const maxDuration = 30;
 
@@ -8,9 +9,9 @@ export const maxDuration = 30;
  * 減価償却仕訳の自動生成
  * body:
  *   clientId: string | null
- *   period_start: 'YYYY-MM-DD'  (当期首)
- *   period_end:   'YYYY-MM-DD'  (生成対象の最終日)
- *   mode: 'overwrite' | 'append'  (上書き / 未計上月のみ追加)
+ *   period_start: 'YYYY-MM-DD'
+ *   period_end:   'YYYY-MM-DD'
+ *   mode: 'overwrite' | 'append'
  *   timing: 'monthly' | 'annual'
  */
 export async function POST(request: NextRequest) {
@@ -32,7 +33,6 @@ export async function POST(request: NextRequest) {
 
     const service = createServiceClient();
 
-    // 対象資産取得
     let assetQuery = service
       .from('fixed_assets')
       .select('*')
@@ -44,7 +44,6 @@ export async function POST(request: NextRequest) {
     const { data: assets, error: assetErr } = await assetQuery;
     if (assetErr) return NextResponse.json({ error: assetErr.message }, { status: 500 });
 
-    // 会計ルール取得（期間開始日以前で最新）
     let ruleQuery = service
       .from('accounting_rules')
       .select('*')
@@ -62,50 +61,41 @@ export async function POST(request: NextRequest) {
       depreciation_method_deferred: 'direct',
     };
 
-    const creditAccountFor = (category: string): string => {
-      if (category === 'tangible') {
-        return rule.depreciation_method_tangible === 'indirect' ? '減価償却累計額' : '';
-      }
-      if (category === 'intangible') {
-        return rule.depreciation_method_intangible === 'indirect' ? '減価償却累計額' : '';
-      }
-      return rule.depreciation_method_deferred === 'indirect' ? '減価償却累計額' : '';
+    const creditAccountFor = (category: string, assetAccountName: string): string => {
+      const key = category === 'tangible' ? 'depreciation_method_tangible'
+        : category === 'intangible' ? 'depreciation_method_intangible'
+        : 'depreciation_method_deferred';
+      return rule[key] === 'indirect' ? '減価償却累計額' : assetAccountName;
     };
 
     const rows: Record<string, unknown>[] = [];
-    const overwriteAssetIds: string[] = [];
+    const targetAssetIds: string[] = [];
+    const periodStartDate = new Date(periodStart);
+    const periodEndDate = new Date(periodEnd);
 
     for (const asset of assets ?? []) {
       if (!asset.useful_life_years || asset.useful_life_years <= 0) continue;
       if (!asset.depreciation_start_date) continue;
-      if (asset.method !== 'straight_line') continue; // 定率法等は未対応
+      if (asset.method === 'units_of_production') continue; // 未対応
 
-      const depreciable = Number(asset.acquisition_cost) - Number(asset.residual_value);
-      if (depreciable <= 0) continue;
-      const annualAmt = Math.floor(depreciable / asset.useful_life_years);
-      const monthlyAmt = Math.floor(annualAmt / 12);
+      const calcAsset: AssetForCalc = {
+        acquisition_cost: Number(asset.acquisition_cost),
+        residual_value: Number(asset.residual_value),
+        useful_life_years: asset.useful_life_years,
+        method: asset.method as DepreciationMethod,
+        depreciation_start_date: asset.depreciation_start_date,
+      };
 
-      const startDate = new Date(asset.depreciation_start_date);
-      const periodStartDate = new Date(periodStart);
-      const periodEndDate = new Date(periodEnd);
+      const months = enumerateMonthly(calcAsset, periodStartDate, periodEndDate);
+      if (months.length === 0) continue;
 
-      const creditAccount = creditAccountFor(asset.category) || asset.account_name;
+      const creditAccount = creditAccountFor(asset.category, asset.account_name);
       const debitAccount = '減価償却費';
 
       if (timing === 'monthly') {
-        // 月次: 対象期間内の月末ごとに生成
-        const cursor = new Date(Math.max(startDate.getTime(), periodStartDate.getTime()));
-        cursor.setDate(1);
-        while (cursor <= periodEndDate) {
-          const y = cursor.getFullYear();
-          const m = cursor.getMonth();
-          const lastDay = new Date(y, m + 1, 0);
-          if (lastDay > periodEndDate) break;
-          if (lastDay < startDate) { cursor.setMonth(cursor.getMonth() + 1); continue; }
-
-          const ymd = `${y}${String(m + 1).padStart(2, '0')}${String(lastDay.getDate()).padStart(2, '0')}`;
-          const periodLabel = `${y}-${String(m + 1).padStart(2, '0')}`;
-
+        for (const m of months) {
+          const ymd = `${m.year}${String(m.month).padStart(2, '0')}${String(m.lastDay.getDate()).padStart(2, '0')}`;
+          const periodLabel = `${m.year}-${String(m.month).padStart(2, '0')}`;
           rows.push({
             user_id: user.id,
             client_id: clientId,
@@ -113,7 +103,7 @@ export async function POST(request: NextRequest) {
             entry_date: ymd,
             debit_account: debitAccount,
             credit_account: creditAccount,
-            amount: monthlyAmt,
+            amount: m.amount,
             description: `${asset.name} 減価償却 ${periodLabel}`,
             tax_type: '対象外',
             vendor_name: '',
@@ -121,22 +111,16 @@ export async function POST(request: NextRequest) {
             source_fixed_asset_id: asset.id,
             depreciation_period: periodLabel,
           });
-
-          cursor.setMonth(cursor.getMonth() + 1);
         }
       } else {
-        // 年次: 期末日に1件計上（期間内の月数分）
-        const monthsInPeriod = countMonthsInPeriod(startDate, periodStartDate, periodEndDate);
-        if (monthsInPeriod <= 0) continue;
-        const amt = Math.floor((annualAmt / 12) * monthsInPeriod);
-        if (amt <= 0) continue;
-
+        // 年次: 期間内の月合計を期末日に1件
+        const total = months.reduce((s, r) => s + r.amount, 0);
+        if (total <= 0) continue;
         const endY = periodEndDate.getFullYear();
-        const endM = periodEndDate.getMonth();
+        const endM = periodEndDate.getMonth() + 1;
         const endD = periodEndDate.getDate();
-        const ymd = `${endY}${String(endM + 1).padStart(2, '0')}${String(endD).padStart(2, '0')}`;
+        const ymd = `${endY}${String(endM).padStart(2, '0')}${String(endD).padStart(2, '0')}`;
         const periodLabel = `${endY}`;
-
         rows.push({
           user_id: user.id,
           client_id: clientId,
@@ -144,7 +128,7 @@ export async function POST(request: NextRequest) {
           entry_date: ymd,
           debit_account: debitAccount,
           credit_account: creditAccount,
-          amount: amt,
+          amount: total,
           description: `${asset.name} 減価償却 ${periodLabel}年度`,
           tax_type: '対象外',
           vendor_name: '',
@@ -154,34 +138,31 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      overwriteAssetIds.push(asset.id);
+      targetAssetIds.push(asset.id);
     }
 
-    // 上書きモード: 既存仕訳を削除
-    if (mode === 'overwrite' && overwriteAssetIds.length > 0) {
-      const startYmd = periodStart.replace(/-/g, '');
-      const endYmd = periodEnd.replace(/-/g, '');
+    const startYmd = periodStart.replace(/-/g, '');
+    const endYmd = periodEnd.replace(/-/g, '');
+
+    if (mode === 'overwrite' && targetAssetIds.length > 0) {
       await service
         .from('journal_entries')
         .delete()
         .eq('user_id', user.id)
         .eq('entry_type', 'depreciation')
-        .in('source_fixed_asset_id', overwriteAssetIds)
+        .in('source_fixed_asset_id', targetAssetIds)
         .gte('entry_date', startYmd)
         .lte('entry_date', endYmd);
     }
 
-    // appendモード: 既存期間を skip
     let rowsToInsert = rows;
-    if (mode === 'append' && overwriteAssetIds.length > 0) {
-      const startYmd = periodStart.replace(/-/g, '');
-      const endYmd = periodEnd.replace(/-/g, '');
+    if (mode === 'append' && targetAssetIds.length > 0) {
       const { data: existing } = await service
         .from('journal_entries')
         .select('source_fixed_asset_id, depreciation_period')
         .eq('user_id', user.id)
         .eq('entry_type', 'depreciation')
-        .in('source_fixed_asset_id', overwriteAssetIds)
+        .in('source_fixed_asset_id', targetAssetIds)
         .gte('entry_date', startYmd)
         .lte('entry_date', endYmd);
 
@@ -199,10 +180,7 @@ export async function POST(request: NextRequest) {
       if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
     }
 
-    // last_depreciated_through を更新
-    for (const assetId of overwriteAssetIds) {
-      const asset = assets!.find((a) => a.id === assetId);
-      if (!asset) continue;
+    for (const assetId of targetAssetIds) {
       const lastLabel = timing === 'monthly'
         ? (() => {
             const d = new Date(periodEnd);
@@ -225,12 +203,4 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : '生成に失敗しました';
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-
-function countMonthsInPeriod(startDate: Date, periodStart: Date, periodEnd: Date): number {
-  const effectiveStart = startDate > periodStart ? startDate : periodStart;
-  if (effectiveStart > periodEnd) return 0;
-  const sy = effectiveStart.getFullYear(), sm = effectiveStart.getMonth();
-  const ey = periodEnd.getFullYear(), em = periodEnd.getMonth();
-  return (ey - sy) * 12 + (em - sm) + 1;
 }
