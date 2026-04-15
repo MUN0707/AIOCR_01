@@ -14,6 +14,11 @@ type HistoryItem = {
   item_count: number;
 };
 
+type ClientItem = {
+  id: string;
+  name: string;
+};
+
 type InvoiceItem = {
   index?: number;
   pageStart?: number;
@@ -30,6 +35,7 @@ type UploadDetail = {
     file_name: string;
     mode: string;
     created_at: string;
+    client_id: string | null;
     ocr_result: {
       invoices?: InvoiceItem[];
       transactions?: unknown[];
@@ -79,6 +85,10 @@ export default function HistoryPage() {
   const [edited, setEdited] = useState<Record<string, Record<string, string>>>({});
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [clients, setClients] = useState<ClientItem[]>([]);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -88,11 +98,15 @@ export default function HistoryPage() {
         router.push('/login');
         return;
       }
-      const meRes = await fetch('/api/me');
-      const me = meRes.ok ? await meRes.json() : { isAdmin: false };
-      if (!me.isAdmin) {
-        router.push('/');
-        return;
+      // 履歴は所有者本人なら管理者でなくても閲覧可能（誤アップロード修正のため）
+      try {
+        const meRes = await fetch('/api/me');
+        if (meRes.ok) {
+          const me = await meRes.json();
+          setIsAdmin(!!me.isAdmin);
+        }
+      } catch {
+        // silent
       }
       const res = await fetch('/api/history');
       if (!res.ok) {
@@ -101,6 +115,17 @@ export default function HistoryPage() {
       }
       const data = await res.json();
       setItems(data.items ?? []);
+
+      // 法人（クライアント）一覧
+      try {
+        const cRes = await fetch('/api/clients');
+        if (cRes.ok) {
+          const cData = await cRes.json();
+          setClients(cData.clients ?? []);
+        }
+      } catch {
+        // silent
+      }
     })();
   }, [router]);
 
@@ -126,6 +151,49 @@ export default function HistoryPage() {
       ...prev,
       [itemIdx]: { ...(prev[itemIdx] ?? {}), [field]: value },
     }));
+  };
+
+  const handleDeleteJournalEntries = async () => {
+    if (!detail) return;
+    const ok = window.confirm(
+      `このアップロードから作成された仕訳をすべて削除します。\n（アップロード履歴自体は残ります）\n\nよろしいですか？`
+    );
+    if (!ok) return;
+    setActionBusy(true);
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/history/${detail.upload.id}?target=journal_entries`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '削除失敗');
+      setActionMessage(`仕訳 ${data.deleted} 件を削除しました${data.skipped ? `（締め済み ${data.skipped} 件はスキップ）` : ''}`);
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : '削除失敗');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleReassignClient = async (newClientId: string | null) => {
+    if (!detail) return;
+    setActionBusy(true);
+    setActionMessage(null);
+    try {
+      const res = await fetch(`/api/history/${detail.upload.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ clientId: newClientId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '変更失敗');
+      setActionMessage(`法人を変更しました（仕訳 ${data.updated} 件を移動${data.skipped ? `／締め済み ${data.skipped} 件はスキップ` : ''}）`);
+      await loadDetail(detail.upload.id);
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : '変更失敗');
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   const handleSaveCorrections = async () => {
@@ -283,17 +351,50 @@ export default function HistoryPage() {
 
                   {/* OCR結果 + 編集 */}
                   <div className="p-5 overflow-x-auto">
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-between mb-4 gap-2">
                       <h2 className="text-sm font-semibold text-slate-900 truncate pr-3">
                         {detail.upload.file_name}
                       </h2>
-                      <button
-                        onClick={handleSaveCorrections}
-                        disabled={saving || Object.keys(edited).length === 0}
-                        className="text-xs font-semibold bg-sky-500 text-white rounded-xl px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-sky-600 transition-colors shrink-0"
-                      >
-                        {saving ? '保存中...' : '修正を保存'}
-                      </button>
+                      {isAdmin && (
+                        <button
+                          onClick={handleSaveCorrections}
+                          disabled={saving || Object.keys(edited).length === 0}
+                          className="text-xs font-semibold bg-sky-500 text-white rounded-xl px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-sky-600 transition-colors shrink-0"
+                        >
+                          {saving ? '保存中...' : '修正を保存'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 操作パネル: 別法人へ紐付け / 仕訳一括削除 */}
+                    <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-semibold text-slate-500 tracking-wide">紐付け法人</span>
+                        <select
+                          value={detail.upload.client_id ?? ''}
+                          disabled={actionBusy}
+                          onChange={(e) => handleReassignClient(e.target.value || null)}
+                          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-sky-400"
+                        >
+                          <option value="">（未設定）</option>
+                          {clients.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                        <div className="ml-auto">
+                          <button
+                            type="button"
+                            onClick={handleDeleteJournalEntries}
+                            disabled={actionBusy}
+                            className="text-[11px] font-semibold text-red-600 border border-red-200 bg-white rounded-lg px-3 py-1.5 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                          >
+                            このOCRから作られた仕訳を一括削除
+                          </button>
+                        </div>
+                      </div>
+                      {actionMessage && (
+                        <p className="text-[11px] text-slate-600">{actionMessage}</p>
+                      )}
                     </div>
 
                     {saveMessage && (

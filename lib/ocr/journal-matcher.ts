@@ -42,6 +42,12 @@ export interface VoucherInput {
   sourceFileIndex?: number;  // 元PDF（フロント側 invoiceFiles のインデックス）
   sourceFileName?: string;   // 元PDFのファイル名
   ocrUploadId?: string | null; // ocr_uploads.id（仕訳から元PDF参照用）
+  /**
+   * 月末計上モード（monthEnd）で使用する「役務提供期間」の終了日。
+   * 例: "2026年2月分" → 20260228 / "2/1~2/28" → 20260228
+   * UI で OCR 抽出結果を確認・修正したうえでセットする想定。
+   */
+  periodEnd?: string | null;
 }
 
 export interface TransactionInput {
@@ -172,7 +178,14 @@ function parseDate(s: string): Date | null {
 
 // ─── メイン照合関数 ────────────────────────────────────────────────────────
 
-export type AccountingMethod = 'accrual' | 'cash';
+export type AccountingMethod = 'accrual' | 'cash' | 'monthEnd';
+
+/**
+ * 摘要モード:
+ *   - 'vendor': 会社名のみ
+ *   - 'full':   会社名 + 明細行の内容（複数行は「最初の行 ほか」で省略）
+ */
+export type DescriptionMode = 'vendor' | 'full';
 
 /**
  * 証票リスト × 入出金リストを照合して仕訳を生成する。
@@ -201,26 +214,158 @@ function getEffectiveLines(voucher: VoucherInput): VoucherLine[] {
   ];
 }
 
-function buildDescription(voucher: VoucherInput, line: VoucherLine, multiline: boolean): string {
-  const base = [voucher.vendorName, line.description || voucher.description]
-    .filter(Boolean)
-    .join(' ')
-    .trim();
-  if (!multiline) return base;
-  return base;
+/**
+ * 摘要の組み立て。
+ * - mode='vendor'  : 会社名のみ
+ * - mode='full'    : 会社名 + 明細内容（複数行は「最初の行 ほか」）
+ *
+ * isFirstLine: そのラインが effectiveLines の先頭かどうか（「ほか」省略判定に使う）
+ * totalLines:  明細行数
+ */
+function buildDescription(
+  voucher: VoucherInput,
+  line: VoucherLine,
+  totalLines: number,
+  isFirstLine: boolean,
+  mode: DescriptionMode
+): string {
+  const vendor = voucher.vendorName?.trim() ?? '';
+  if (mode === 'vendor') return vendor || line.description || voucher.description || '';
+
+  // mode === 'full'
+  const lineDesc = (line.description || voucher.description || '').trim();
+  // 複数行ある場合は、先頭行だけ詳細内容 + 「ほか」でまとめ、残りの行はシンプルに
+  if (totalLines > 1) {
+    if (isFirstLine) {
+      const head = lineDesc || vendor;
+      return [vendor, head ? `${head} ほか` : ''].filter(Boolean).join(' ').trim();
+    }
+    return [vendor, lineDesc].filter(Boolean).join(' ').trim();
+  }
+  // 単一行は 会社名 + 内容
+  return [vendor, lineDesc].filter(Boolean).join(' ').trim();
+}
+
+/**
+ * 請求書から「役務提供期間の末日」を推測して YYYYMMDD で返す。
+ * 見つからない場合は null。
+ *
+ * 対応パターン（例）:
+ *   "2026年2月分", "2月分", "R6年2月分"   → その月の末日
+ *   "2/1~2/28", "2/1〜2/28", "2/1-2/28"  → 末日（"2/28"）
+ *   "2026/2/1 ~ 2026/2/28"              → 末日
+ *   "2026-02"                           → 2026年2月末日
+ *
+ * 年が明示されていない場合は voucher.invoiceDate の年（なければ null）を補う。
+ * 抽出対象テキスト: voucher.description と lines[].description をすべて連結した文字列。
+ */
+export function extractPeriodEndFromVoucher(voucher: VoucherInput): string | null {
+  const texts = [voucher.description ?? ''];
+  for (const l of voucher.lines ?? []) texts.push(l.description ?? '');
+  const joined = texts.join(' ');
+  if (!joined.trim()) return null;
+
+  const invoiceYear = (() => {
+    const d = parseDate(voucher.invoiceDate);
+    return d ? d.getFullYear() : null;
+  })();
+
+  // 1. "YYYY/M/D ~ YYYY/M/D" や "M/D~M/D"
+  const rangeRe = /(\d{4})?[\/\-.](\d{1,2})[\/\-.](\d{1,2})\s*[~〜\-–−]\s*(\d{4})?[\/\-.]?(\d{1,2})[\/\-.](\d{1,2})/;
+  const rm = joined.match(rangeRe);
+  if (rm) {
+    const y = parseInt(rm[4] ?? rm[1] ?? String(invoiceYear ?? ''), 10);
+    const m = parseInt(rm[5], 10);
+    const d = parseInt(rm[6], 10);
+    if (y && m && d) {
+      return `${y}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`;
+    }
+  }
+
+  // 2. "M/D~M/D" (年なし)
+  const rangeNoYearRe = /(\d{1,2})\/(\d{1,2})\s*[~〜\-–−]\s*(\d{1,2})\/(\d{1,2})/;
+  const rnm = joined.match(rangeNoYearRe);
+  if (rnm && invoiceYear) {
+    const m = parseInt(rnm[3], 10);
+    const d = parseInt(rnm[4], 10);
+    if (m && d) {
+      return `${invoiceYear}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`;
+    }
+  }
+
+  // 3. "YYYY年M月分" / "M月分"
+  const monthRe = /(?:(\d{4})年)?(\d{1,2})月分/;
+  const mm = joined.match(monthRe);
+  if (mm) {
+    const y = parseInt(mm[1] ?? String(invoiceYear ?? ''), 10);
+    const m = parseInt(mm[2], 10);
+    if (y && m) {
+      const last = new Date(y, m, 0).getDate();
+      return `${y}${String(m).padStart(2, '0')}${String(last).padStart(2, '0')}`;
+    }
+  }
+
+  // 4. "YYYY-MM" / "YYYY/MM"
+  const ymRe = /(\d{4})[\/\-](\d{1,2})(?![\/\-\d])/;
+  const ym = joined.match(ymRe);
+  if (ym) {
+    const y = parseInt(ym[1], 10);
+    const m = parseInt(ym[2], 10);
+    if (y && m) {
+      const last = new Date(y, m, 0).getDate();
+      return `${y}${String(m).padStart(2, '0')}${String(last).padStart(2, '0')}`;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * YYYYMMDD 文字列の月末日を返す。不明/不正な場合は元の文字列を返す。
+ */
+function toMonthEnd(ymd: string): string {
+  if (!ymd || ymd === '不明') return ymd;
+  const clean = ymd.replace(/[-/]/g, '');
+  if (clean.length !== 8) return ymd;
+  const y = parseInt(clean.slice(0, 4), 10);
+  const m = parseInt(clean.slice(4, 6), 10);
+  if (!y || !m) return ymd;
+  const last = new Date(y, m, 0).getDate(); // m は 1〜12。Date(y, m, 0) で前月末 = 当月末日
+  return `${y}${String(m).padStart(2, '0')}${String(last).padStart(2, '0')}`;
+}
+
+export interface MatchOptions {
+  accountingMethod?: AccountingMethod;
+  descriptionMode?: DescriptionMode;
 }
 
 export function matchVouchersToTransactions(
   vouchers: VoucherInput[],
   transactions: TransactionInput[],
-  accountingMethod: AccountingMethod = 'accrual'
+  accountingMethodOrOptions: AccountingMethod | MatchOptions = 'accrual'
 ): { results: MatchResult[]; summary: MatchSummary } {
+  // 後方互換: 第3引数が文字列の場合は accountingMethod 扱い
+  const opts: MatchOptions = typeof accountingMethodOrOptions === 'string'
+    ? { accountingMethod: accountingMethodOrOptions }
+    : accountingMethodOrOptions;
+  const accountingMethod: AccountingMethod = opts.accountingMethod ?? 'accrual';
+  const descriptionMode: DescriptionMode = opts.descriptionMode ?? 'vendor';
+
   const usedTxIndices = new Set<number>();
 
   const results: MatchResult[] = vouchers.map((voucher) => {
     const invoiceDate = parseDate(voucher.invoiceDate);
     const effectiveLines = getEffectiveLines(voucher);
-    const multiline = effectiveLines.length > 1;
+    const totalLines = effectiveLines.length;
+
+    // 費用計上の日付は計上方式で決まる
+    // - accrual / monthEnd: 請求書側の日付（monthEnd は periodEnd → 無ければ請求書日を月末化）
+    // - cash:               支払日（照合成功時のみ）
+    const accrualBaseDate = accountingMethod === 'monthEnd'
+      ? (voucher.periodEnd && voucher.periodEnd !== '不明'
+          ? voucher.periodEnd
+          : toMonthEnd(voucher.invoiceDate))
+      : voucher.invoiceDate;
 
     // 出金トランザクションのみスコアリング（照合は請求書ヘッダ合計で行う）
     const scored = transactions
@@ -246,13 +391,13 @@ export function matchVouchersToTransactions(
     if (accountingMethod === 'cash') {
       if (matchStatus === 'unmatched' || !best) {
         // 支払が見つからない場合は未払の placeholder を明細ごとに出す
-        const placeholders: AccrualEntry[] = effectiveLines.map((line) => ({
+        const placeholders: AccrualEntry[] = effectiveLines.map((line, idx) => ({
           entryType:     'accrual',
           date:          voucher.invoiceDate,
           debitAccount:  line.debitAccount || '仕入高',
           creditAccount: '未払費用',
           amount:        line.amountInclTax,
-          description:   buildDescription(voucher, line, multiline),
+          description:   buildDescription(voucher, line, totalLines, idx === 0, descriptionMode),
           taxType:       line.taxType || voucher.taxType,
           matchStatus:   'unmatched',
           voucher,
@@ -260,14 +405,14 @@ export function matchVouchersToTransactions(
         return { accrualEntries: placeholders };
       }
       usedTxIndices.add(best.idx);
-      const cashEntries: AccrualEntry[] = effectiveLines.map((line) => {
+      const cashEntries: AccrualEntry[] = effectiveLines.map((line, idx) => {
         const entry: AccrualEntry = {
           entryType:     'accrual',
           date:          best.tx.transactionDate,
           debitAccount:  line.debitAccount || '仕入高',
           creditAccount: '未払費用', // ランタイムで '普通預金' に上書き
           amount:        line.amountInclTax,
-          description:   buildDescription(voucher, line, multiline),
+          description:   buildDescription(voucher, line, totalLines, idx === 0, descriptionMode),
           taxType:       line.taxType || voucher.taxType,
           matchStatus:   best.score >= 0.7 ? 'auto' : 'needs_review',
           voucher,
@@ -278,15 +423,15 @@ export function matchVouchersToTransactions(
       return { accrualEntries: cashEntries };
     }
 
-    // ─── 発生主義（既定） ───
+    // ─── 発生主義 / 月末計上（accrual / monthEnd） ───
     // 費用計上仕訳を明細ごとに生成
-    const accrualEntries: AccrualEntry[] = effectiveLines.map((line) => ({
+    const accrualEntries: AccrualEntry[] = effectiveLines.map((line, idx) => ({
       entryType:     'accrual',
-      date:          voucher.invoiceDate,
+      date:          accrualBaseDate,
       debitAccount:  line.debitAccount || '未払費用',
       creditAccount: '未払費用',
       amount:        line.amountInclTax,
-      description:   buildDescription(voucher, line, multiline),
+      description:   buildDescription(voucher, line, totalLines, idx === 0, descriptionMode),
       taxType:       line.taxType || voucher.taxType,
       matchStatus,
       voucher,

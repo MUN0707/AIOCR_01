@@ -4,6 +4,7 @@ import {
   type VoucherInput,
   type TransactionInput,
   type AccountingMethod,
+  type DescriptionMode,
 } from '@/lib/ocr/journal-matcher';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
@@ -17,7 +18,11 @@ export async function POST(request: NextRequest) {
     const rawVouchers: VoucherInput[] = body.vouchers ?? [];
     const transactions: TransactionInput[] = body.transactions ?? [];
     const clientId: string | null = body.clientId ?? null;
-    const accountingMethod: AccountingMethod = body.accountingMethod === 'cash' ? 'cash' : 'accrual';
+    const accountingMethod: AccountingMethod =
+      body.accountingMethod === 'cash' ? 'cash'
+      : body.accountingMethod === 'monthEnd' ? 'monthEnd'
+      : 'accrual';
+    const descriptionMode: DescriptionMode = body.descriptionMode === 'full' ? 'full' : 'vendor';
 
     if (rawVouchers.length === 0 && transactions.length === 0) {
       return NextResponse.json(
@@ -67,7 +72,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { results, summary } = matchVouchersToTransactions(vouchers, transactions, accountingMethod);
+    const { results, summary } = matchVouchersToTransactions(vouchers, transactions, {
+      accountingMethod,
+      descriptionMode,
+    });
 
     // ─── 改善分析用のログ保存＋仕訳明細テーブルにも保存 ───
     try {
@@ -97,6 +105,8 @@ export async function POST(request: NextRequest) {
           const vendor = firstAccrual?.voucher?.vendorName ?? '';
           // 同一請求書から派生した仕訳を紐付けるグループID
           const voucherGroupId = crypto.randomUUID();
+          // 照合できた通帳取引の upload_id を全行に伝搬（accrual/payment の両方から遡れるように）
+          const linkedBankUploadId: string | null = r.paymentEntry?.transaction.ocrUploadId ?? null;
           for (const e of r.accrualEntries) {
             rows.push({
               user_id: user.id,
@@ -113,10 +123,11 @@ export async function POST(request: NextRequest) {
               vendor_name: vendor,
               match_status: e.matchStatus,
               ocr_upload_id: e.voucher.ocrUploadId ?? null,
+              bank_ocr_upload_id: linkedBankUploadId,
             });
           }
           if (r.paymentEntry) {
-            // 支払仕訳は請求書PDFに紐付ける（ユーザーが仕訳から元証憑を辿れるように）
+            // 支払仕訳は請求書PDFにも通帳PDFにも紐付ける
             rows.push({
               user_id: user.id,
               client_id: clientId,
@@ -132,6 +143,7 @@ export async function POST(request: NextRequest) {
               vendor_name: vendor,
               match_status: r.paymentEntry.matchStatus,
               ocr_upload_id: r.paymentEntry.voucher.ocrUploadId ?? null,
+              bank_ocr_upload_id: linkedBankUploadId,
             });
           }
         }

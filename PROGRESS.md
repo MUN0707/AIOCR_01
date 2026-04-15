@@ -246,3 +246,31 @@ public/sales-deck.pdf   — 営業資料PDF
   - 現在の期間ラベルと「対象 N / 全 M 件」を表示
   - 該当0件時の空表示も対応
 - 背景/理由: ユーザー要望「残高はいつからいつの残高か指定できるようにして」
+
+## 2026-04-15 (自動仕訳の計上方式3択 + 摘要モード + OCR履歴連携)
+- やったこと:
+  - **計上方式を3択に拡張**: ①現金主義 / ②請求書日（発生主義） / ③役務提供月末（`monthEnd`）
+    - `lib/ocr/journal-matcher.ts`: `AccountingMethod = 'accrual' | 'cash' | 'monthEnd'` に追加、`matchVouchersToTransactions` を `MatchOptions` 受付に変更（後方互換あり）
+    - 月末計上モードは `voucher.periodEnd` を最優先、無ければ請求書日を月末化して費用計上
+    - `extractPeriodEndFromVoucher()` を新設: 「〇月分」「2/1~2/28」「YYYY-MM」等を regex 抽出
+  - **摘要モードを2択に**: `DescriptionMode = 'vendor' | 'full'`、`buildDescription` を刷新。
+    - `full` で複数行のときは「最初の行 ほか」にまとめる（ユーザー指定のライン数ベース）
+  - **自動仕訳UI**: 計上方式の3択 + 摘要モード2択ラジオを追加。月末計上モード選択時は照合前に期間確認モーダルを出し、自動抽出した末日を手修正できる
+  - **journal_entries に `bank_ocr_upload_id` 追加**（マイグレーション適用済 / index 付き）
+  - **match-journal API**: payment 行の通帳 upload_id を accrual/payment 双方にコピーして保存
+  - **日記帳UI**: 既存の請求書PDFアイコンに加えて **通帳PDFアイコン（IconArchive, lime色）** を並べて表示。`/api/journal-pdf?source=bank` を新設（既存を拡張）
+  - **履歴ページを一般ユーザーにも開放**: `/api/history` と `/history` から admin チェックを外し、誤アップロード修正のため本人は自分の履歴を見られるように
+    - ヘッダの「履歴」ボタンも常時表示に変更
+    - admin 向けの OCR 補正フォームのみ `isAdmin` でガード
+  - **履歴ページに操作UI追加**:
+    - 「このOCRから作られた仕訳を一括削除」ボタン（締め済みはスキップ）
+    - 「紐付け法人を変更」ドロップダウン（ocr_uploads + 派生 journal_entries を一括で付け替え、締め済みはスキップ）
+  - 新 API: `app/api/history/[id]/route.ts`（DELETE / PATCH）
+- 背景/理由: ユーザー要望
+  - 「自動仕訳で簡易〜複雑まで選べるようにしたい」→ 計上方式3択・摘要モード2択
+  - 「間違えて別会社の請求書を取り込んでしまったら修正したい」→ 一括削除 + 別法人紐付け
+  - 「通帳OCR・請求書OCRで読んだものを自動仕訳に連携」→ 日記帳の各仕訳から元の請求書/通帳PDFを直接開けるように（履歴からの呼び出し型ではなく、仕訳側に通帳をリンク）
+- 次にやること:
+  - 実ブラウザで 3 計上方式 × 2 摘要モードの組合せを通しで動作確認
+  - 月末計上モードで実請求書（「3月分」「3/1~3/31」等）の抽出精度を検証
+  - 履歴ページの一括削除・別法人紐付けが締めロックを正しく尊重するか確認

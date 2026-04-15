@@ -11,6 +11,8 @@ export async function GET(request: NextRequest) {
 
   const url = new URL(request.url);
   const entryId = url.searchParams.get('entryId');
+  // 'invoice'(既定) | 'bank' — 請求書PDF か 通帳PDF かを指定
+  const source = url.searchParams.get('source') === 'bank' ? 'bank' : 'invoice';
   if (!entryId) {
     return NextResponse.json({ error: 'entryId required' }, { status: 400 });
   }
@@ -19,7 +21,7 @@ export async function GET(request: NextRequest) {
 
   const { data: entry, error: entryError } = await service
     .from('journal_entries')
-    .select('id, user_id, ocr_upload_id')
+    .select('id, user_id, ocr_upload_id, bank_ocr_upload_id')
     .eq('id', entryId)
     .single();
 
@@ -29,14 +31,15 @@ export async function GET(request: NextRequest) {
   if (entry.user_id !== user.id) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
-  if (!entry.ocr_upload_id) {
+  const targetUploadId = source === 'bank' ? entry.bank_ocr_upload_id : entry.ocr_upload_id;
+  if (!targetUploadId) {
     return NextResponse.json({ error: 'no pdf linked' }, { status: 404 });
   }
 
   const { data: upload } = await service
     .from('ocr_uploads')
     .select('id, file_name, storage_path')
-    .eq('id', entry.ocr_upload_id)
+    .eq('id', targetUploadId)
     .single();
 
   if (!upload) {

@@ -80,11 +80,12 @@ interface LedgerEntry {
   updated_at: string;
   locked: boolean;
   ocr_upload_id: string | null;
+  bank_ocr_upload_id: string | null;
 }
 
-async function openJournalPdf(entryId: string): Promise<void> {
+async function openJournalPdf(entryId: string, source: 'invoice' | 'bank' = 'invoice'): Promise<void> {
   try {
-    const res = await fetch(`/api/journal-pdf?entryId=${entryId}`);
+    const res = await fetch(`/api/journal-pdf?entryId=${entryId}&source=${source}`);
     if (!res.ok) {
       alert('PDFが取得できませんでした');
       return;
@@ -126,6 +127,18 @@ function downloadCsv(rows: string[][], fileName: string) {
 }
 
 const GUEST_MAX_USES = 5;
+
+/** YYYYMMDD の月末化（不明/不正はそのまま） */
+function toMonthEndClient(ymd: string): string {
+  if (!ymd || ymd === '不明') return ymd;
+  const c = ymd.replace(/[-/]/g, '');
+  if (c.length !== 8) return ymd;
+  const y = parseInt(c.slice(0, 4), 10);
+  const m = parseInt(c.slice(4, 6), 10);
+  if (!y || !m) return ymd;
+  const last = new Date(y, m, 0).getDate();
+  return `${y}${String(m).padStart(2, '0')}${String(last).padStart(2, '0')}`;
+}
 
 // ─── SVG アイコン（line スタイル・装飾なし） ────────────────────────────────
 
@@ -465,7 +478,6 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   // undefined = 初期ロード中 / null = ゲスト / User = ログイン済み
   const [user, setUser] = useState<User | null | undefined>(undefined);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [usageInfo, setUsageInfo] = useState<{ count: number; limit: number } | null>(null);
 
@@ -493,7 +505,12 @@ export default function Home() {
   const invoiceFileInputRef = useRef<HTMLInputElement>(null);
   const [bankDragOver, setBankDragOver] = useState(false);
   const [invoiceDragOver, setInvoiceDragOver] = useState(false);
-  const [accountingMethod, setAccountingMethod] = useState<'accrual' | 'cash'>('accrual');
+  const [accountingMethod, setAccountingMethod] = useState<'accrual' | 'cash' | 'monthEnd'>('accrual');
+  const [descriptionMode, setDescriptionMode] = useState<'vendor' | 'full'>('vendor');
+  // 月末計上モードの期間確認モーダル
+  const [periodConfirmOpen, setPeriodConfirmOpen] = useState(false);
+  // voucher index -> periodEnd(YYYYMMDD) の編集バッファ
+  const [periodEndBuf, setPeriodEndBuf] = useState<Record<number, string>>({});
   // 明細合計 ≠ 税込合計 のエラーをユーザーに通知してスクショ提出を依頼するモーダル
   const [lineSumMismatch, setLineSumMismatch] = useState<null | {
     fileName: string;
@@ -799,10 +816,6 @@ export default function Home() {
         const count = parseInt(localStorage.getItem('guestUseCount') || '0');
         if (count >= GUEST_MAX_USES) setGuestLimitReached(true);
       } else {
-        fetch('/api/me')
-          .then((r) => r.json())
-          .then((d) => setIsAdmin(!!d.isAdmin))
-          .catch(() => {});
         fetch('/api/usage')
           .then((r) => r.json())
           .then((d) => { if (d.count != null) setUsageInfo({ count: d.count, limit: d.limit }); })
@@ -1133,17 +1146,42 @@ export default function Home() {
   // ─── 自動仕訳モード: 照合実行 ─────────────────────────────────────────────
   const handleRunMatch = async () => {
     if (!bankOcr || !invoiceOcr) return;
+    // 月末計上モードは periodEnd 確認モーダルを通してから実行する
+    if (accountingMethod === 'monthEnd' && !periodConfirmOpen) {
+      // 初期値を matcher の期間抽出で埋める
+      const { extractPeriodEndFromVoucher } = await import('@/lib/ocr/journal-matcher');
+      const buf: Record<number, string> = {};
+      invoiceOcr.vouchers.forEach((v, idx) => {
+        const hit = extractPeriodEndFromVoucher(v);
+        // 抽出できなければ請求書日の月末で補完
+        buf[idx] = hit ?? toMonthEndClient(v.invoiceDate);
+      });
+      setPeriodEndBuf(buf);
+      setPeriodConfirmOpen(true);
+      return;
+    }
     setMatchProcessing(true);
     setJournalError(null);
     try {
+      // 月末計上モード: 各 voucher に periodEnd を埋め込んで送る
+      const vouchers = accountingMethod === 'monthEnd' && invoiceOcr
+        ? invoiceOcr.vouchers.map((v, idx) => ({ ...v, periodEnd: periodEndBuf[idx] ?? null }))
+        : invoiceOcr.vouchers;
       const res = await fetch('/api/match-journal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: bankOcr.transactions, vouchers: invoiceOcr.vouchers, clientId: selectedClientId, accountingMethod }),
+        body: JSON.stringify({
+          transactions: bankOcr.transactions,
+          vouchers,
+          clientId: selectedClientId,
+          accountingMethod,
+          descriptionMode,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setJournalMatchResult(data);
+      setPeriodConfirmOpen(false);
     } catch (e) {
       setJournalError(e instanceof Error ? e.message : '照合エラー');
     } finally {
@@ -1371,16 +1409,14 @@ export default function Home() {
             </button>
           ) : (
             <div className="flex items-center gap-2">
-              {isAdmin && (
-                <button
-                  onClick={() => router.push('/history')}
-                  className="text-xs font-medium text-sky-600 border border-sky-200 rounded-xl
-                    px-4 py-2 hover:bg-sky-50 hover:border-sky-300
-                    transition-all duration-200 tracking-wide"
-                >
-                  履歴
-                </button>
-              )}
+              <button
+                onClick={() => router.push('/history')}
+                className="text-xs font-medium text-sky-600 border border-sky-200 rounded-xl
+                  px-4 py-2 hover:bg-sky-50 hover:border-sky-300
+                  transition-all duration-200 tracking-wide"
+              >
+                履歴
+              </button>
               <button
                 onClick={handleSignOut}
                 className="text-xs text-slate-400 border border-slate-200 rounded-xl
@@ -2060,43 +2096,174 @@ export default function Home() {
               </div>
             )}
 
-            {/* 経理方式トグル */}
+            {/* 経理方式 + 摘要モード */}
             {!journalMatchResult && bankOcr && invoiceOcr && (
-              <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
-                <p className="text-sm font-semibold text-slate-700 tracking-tight mb-3">経理方式</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <label className={`cursor-pointer border rounded-xl p-3 transition-all ${
-                    accountingMethod === 'accrual' ? 'border-sky-400 bg-sky-50/40' : 'border-slate-200 hover:border-slate-300'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="accountingMethod"
-                      value="accrual"
-                      checked={accountingMethod === 'accrual'}
-                      onChange={() => setAccountingMethod('accrual')}
-                      className="mr-2"
-                    />
-                    <span className="text-sm font-semibold text-slate-700">発生主義</span>
-                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed pl-5">
-                      請求書日で費用計上 → 支払日で未払費用を取り崩し
-                    </p>
-                  </label>
-                  <label className={`cursor-pointer border rounded-xl p-3 transition-all ${
-                    accountingMethod === 'cash' ? 'border-lime-400 bg-lime-50/40' : 'border-slate-200 hover:border-slate-300'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="accountingMethod"
-                      value="cash"
-                      checked={accountingMethod === 'cash'}
-                      onChange={() => setAccountingMethod('cash')}
-                      className="mr-2"
-                    />
-                    <span className="text-sm font-semibold text-slate-700">現金主義</span>
-                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed pl-5">
-                      支払日に費用 / 普通預金 を直接計上（未払費用は使わない）
-                    </p>
-                  </label>
+              <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700 tracking-tight mb-3">計上方式</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <label className={`cursor-pointer border rounded-xl p-3 transition-all ${
+                      accountingMethod === 'cash' ? 'border-lime-400 bg-lime-50/40' : 'border-slate-200 hover:border-slate-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="accountingMethod"
+                        value="cash"
+                        checked={accountingMethod === 'cash'}
+                        onChange={() => setAccountingMethod('cash')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm font-semibold text-slate-700">① 現金主義</span>
+                      <p className="text-[11px] text-slate-400 mt-1 leading-relaxed pl-5">
+                        支払日に費用 / 普通預金 を直接計上（シンプル）
+                      </p>
+                    </label>
+                    <label className={`cursor-pointer border rounded-xl p-3 transition-all ${
+                      accountingMethod === 'accrual' ? 'border-sky-400 bg-sky-50/40' : 'border-slate-200 hover:border-slate-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="accountingMethod"
+                        value="accrual"
+                        checked={accountingMethod === 'accrual'}
+                        onChange={() => setAccountingMethod('accrual')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm font-semibold text-slate-700">② 請求書日</span>
+                      <p className="text-[11px] text-slate-400 mt-1 leading-relaxed pl-5">
+                        請求書日で費用計上 → 支払日で未払消込（発生主義）
+                      </p>
+                    </label>
+                    <label className={`cursor-pointer border rounded-xl p-3 transition-all ${
+                      accountingMethod === 'monthEnd' ? 'border-violet-400 bg-violet-50/40' : 'border-slate-200 hover:border-slate-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="accountingMethod"
+                        value="monthEnd"
+                        checked={accountingMethod === 'monthEnd'}
+                        onChange={() => setAccountingMethod('monthEnd')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm font-semibold text-slate-700">③ 役務提供月末</span>
+                      <p className="text-[11px] text-slate-400 mt-1 leading-relaxed pl-5">
+                        摘要から「〇月分」等を読み取り、その月の月末に計上（照合前に確認）
+                      </p>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm font-semibold text-slate-700 tracking-tight mb-3">摘要</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label className={`cursor-pointer border rounded-xl p-3 transition-all ${
+                      descriptionMode === 'vendor' ? 'border-sky-400 bg-sky-50/40' : 'border-slate-200 hover:border-slate-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="descriptionMode"
+                        value="vendor"
+                        checked={descriptionMode === 'vendor'}
+                        onChange={() => setDescriptionMode('vendor')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm font-semibold text-slate-700">① 会社名のみ</span>
+                      <p className="text-[11px] text-slate-400 mt-1 leading-relaxed pl-5">
+                        摘要は「◯◯株式会社」だけ
+                      </p>
+                    </label>
+                    <label className={`cursor-pointer border rounded-xl p-3 transition-all ${
+                      descriptionMode === 'full' ? 'border-lime-400 bg-lime-50/40' : 'border-slate-200 hover:border-slate-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="descriptionMode"
+                        value="full"
+                        checked={descriptionMode === 'full'}
+                        onChange={() => setDescriptionMode('full')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm font-semibold text-slate-700">② 会社名 + 内訳</span>
+                      <p className="text-[11px] text-slate-400 mt-1 leading-relaxed pl-5">
+                        複数行は「最初の内容 ほか」とまとめる
+                      </p>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 月末計上モードの期間確認モーダル */}
+            {periodConfirmOpen && invoiceOcr && (
+              <div
+                className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
+                onClick={() => setPeriodConfirmOpen(false)}
+              >
+                <div
+                  className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">計上日（役務提供期間の末日）を確認</h3>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        請求書摘要から抽出した期間末日です。違う場合は手動で修正してください。
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setPeriodConfirmOpen(false)}
+                      className="text-slate-400 hover:text-slate-700 transition-colors"
+                      aria-label="閉じる"
+                    >
+                      <IconX className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+                    {invoiceOcr.vouchers.map((v, idx) => {
+                      const buf = periodEndBuf[idx] ?? '';
+                      const dateInput = buf && buf.length === 8
+                        ? `${buf.slice(0, 4)}-${buf.slice(4, 6)}-${buf.slice(6, 8)}`
+                        : '';
+                      return (
+                        <div key={idx} className="flex items-center gap-3 border border-slate-200 rounded-xl px-3 py-2">
+                          <span className="text-[10px] text-slate-400 w-6 text-right">#{idx + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-slate-700 truncate">{v.vendorName || '(不明)'}</p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              請求書日 {v.invoiceDate} / {v.amountInclTax != null ? `¥${Number(v.amountInclTax).toLocaleString()}` : '金額不明'}
+                            </p>
+                          </div>
+                          <input
+                            type="date"
+                            value={dateInput}
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/-/g, '');
+                              setPeriodEndBuf((prev) => ({ ...prev, [idx]: raw }));
+                            }}
+                            className="text-xs font-mono border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-400"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => setPeriodConfirmOpen(false)}
+                      className="text-xs text-slate-500 border border-slate-200 rounded-xl px-4 py-2 hover:bg-slate-50 transition-colors"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPeriodConfirmOpen(false);
+                        // 次の tick で handleRunMatch を呼ぶと modal の条件分岐を抜けて本処理に入る
+                        setTimeout(() => handleRunMatch(), 0);
+                      }}
+                      className="text-xs font-semibold bg-violet-500 text-white rounded-xl px-5 py-2 hover:bg-violet-600 transition-colors"
+                    >
+                      この期間で照合
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -3429,19 +3596,33 @@ function EditableRow({
           </span>
         </td>
         <td className="px-2 py-2 text-center">
-          {entry.ocr_upload_id ? (
-            <button
-              type="button"
-              onClick={() => openJournalPdf(entry.id)}
-              className="text-sky-500 hover:text-sky-700 transition-colors"
-              title="元PDFを開く"
-              aria-label="元PDFを開く"
-            >
-              <IconFile className="w-4 h-4 mx-auto" />
-            </button>
-          ) : (
-            <span className="text-slate-200 text-[10px]">—</span>
-          )}
+          <div className="flex items-center justify-center gap-1">
+            {entry.ocr_upload_id ? (
+              <button
+                type="button"
+                onClick={() => openJournalPdf(entry.id, 'invoice')}
+                className="text-sky-500 hover:text-sky-700 transition-colors"
+                title="請求書PDFを開く"
+                aria-label="請求書PDFを開く"
+              >
+                <IconFile className="w-4 h-4" />
+              </button>
+            ) : null}
+            {entry.bank_ocr_upload_id ? (
+              <button
+                type="button"
+                onClick={() => openJournalPdf(entry.id, 'bank')}
+                className="text-lime-500 hover:text-lime-700 transition-colors"
+                title="通帳PDFを開く"
+                aria-label="通帳PDFを開く"
+              >
+                <IconArchive className="w-4 h-4" />
+              </button>
+            ) : null}
+            {!entry.ocr_upload_id && !entry.bank_ocr_upload_id && (
+              <span className="text-slate-200 text-[10px]">—</span>
+            )}
+          </div>
         </td>
         <td className="px-2 py-2 text-xs text-slate-600">{entry.debit_account}</td>
         <td className="px-2 py-2 text-xs text-slate-600">{entry.credit_account}</td>
@@ -3481,19 +3662,33 @@ function EditableRow({
         </span>
       </td>
       <td className="px-2 py-1.5 text-center">
-        {entry.ocr_upload_id ? (
-          <button
-            type="button"
-            onClick={() => openJournalPdf(entry.id)}
-            className="text-sky-500 hover:text-sky-700 transition-colors"
-            title="元PDFを開く"
-            aria-label="元PDFを開く"
-          >
-            <IconFile className="w-4 h-4 mx-auto" />
-          </button>
-        ) : (
-          <span className="text-slate-200 text-[10px]">—</span>
-        )}
+        <div className="flex items-center justify-center gap-1">
+          {entry.ocr_upload_id ? (
+            <button
+              type="button"
+              onClick={() => openJournalPdf(entry.id, 'invoice')}
+              className="text-sky-500 hover:text-sky-700 transition-colors"
+              title="請求書PDFを開く"
+              aria-label="請求書PDFを開く"
+            >
+              <IconFile className="w-4 h-4" />
+            </button>
+          ) : null}
+          {entry.bank_ocr_upload_id ? (
+            <button
+              type="button"
+              onClick={() => openJournalPdf(entry.id, 'bank')}
+              className="text-lime-500 hover:text-lime-700 transition-colors"
+              title="通帳PDFを開く"
+              aria-label="通帳PDFを開く"
+            >
+              <IconArchive className="w-4 h-4" />
+            </button>
+          ) : null}
+          {!entry.ocr_upload_id && !entry.bank_ocr_upload_id && (
+            <span className="text-slate-200 text-[10px]">—</span>
+          )}
+        </div>
       </td>
       <td className="px-2 py-1.5">
         <AccountCombobox
