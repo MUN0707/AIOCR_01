@@ -497,6 +497,12 @@ export default function Home() {
   const [bankOcr, setBankOcr] = useState<{ transactions: TransactionInput[]; bankName: string; accountNumber: string } | null>(null);
   const [invoiceOcr, setInvoiceOcr] = useState<{ vouchers: VoucherInput[]; count: number } | null>(null);
   const [journalMatchResult, setJournalMatchResult] = useState<{ results: MatchResult[]; summary: MatchSummary } | null>(null);
+  // 照合後に投入する「請求書ごとの源泉徴収税額」バッファ（voucher index → 金額）
+  const [withholdingTaxBuf, setWithholdingTaxBuf] = useState<Record<number, number>>({});
+  // #9 部分登録: 「すでに登録した voucher index の集合」「今回登録対象として選択中の集合」
+  const [registeredVoucherIdx, setRegisteredVoucherIdx] = useState<Set<number>>(new Set());
+  const [selectedVoucherIdx, setSelectedVoucherIdx] = useState<Set<number>>(new Set());
+  const [persisting, setPersisting] = useState(false);
   const [bankProcessing, setBankProcessing] = useState(false);
   const [invoiceProcessing, setInvoiceProcessing] = useState(false);
   const [matchProcessing, setMatchProcessing] = useState(false);
@@ -525,6 +531,54 @@ export default function Home() {
   const [unmatchedSelected, setUnmatchedSelected] = useState<Set<number>>(new Set());
   const [unmatchedBulkAccount, setUnmatchedBulkAccount] = useState<string>('');
   const [unmatchedBulkDescription, setUnmatchedBulkDescription] = useState<string>('');
+
+  // ─── 勘定科目ルール（相手先→科目 / 摘要→科目） ──────────────────────────
+  interface AccountRule { id: string; pattern_type: 'vendor' | 'description'; pattern: string; debit_account: string; created_at?: string }
+  const [rulesList, setRulesList] = useState<AccountRule[]>([]);
+
+  const fetchRules = useCallback(async () => {
+    try {
+      const res = await fetch('/api/account-rules', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setRulesList(data.rules ?? []);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const addRule = useCallback(async (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => {
+    try {
+      const res = await fetch('/api/account-rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pattern_type, pattern, debit_account }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'ルール追加に失敗しました');
+        return null;
+      }
+      setRulesList((prev) => {
+        const without = prev.filter((r) => !(r.pattern_type === data.rule.pattern_type && r.pattern === data.rule.pattern));
+        return [...without, data.rule];
+      });
+      return data.rule as AccountRule;
+    } catch {
+      alert('ルール追加に失敗しました');
+      return null;
+    }
+  }, []);
+
+  const deleteRule = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/account-rules?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) return;
+      setRulesList((prev) => prev.filter((r) => r.id !== id));
+    } catch {
+      // silent
+    }
+  }, []);
 
   // ─── 勘定科目マスタ State（起動時に1回だけロード） ────────────────────────
   interface AccountItem { id: string; name: string; reading: string; category: string; sub_category?: string | null; display_order?: number | null }
@@ -729,11 +783,53 @@ export default function Home() {
   const [reportScreenshot, setReportScreenshot] = useState<string | null>(null);
   const [reportSending, setReportSending] = useState(false);
   const [reportMessage, setReportMessage] = useState<string | null>(null);
+  // #3 ドラッグ可能モーダル: 位置 + ドラッグ状態
+  const [reportModalPos, setReportModalPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const reportDragRef = useRef<{ dragging: boolean; offsetX: number; offsetY: number }>({ dragging: false, offsetX: 0, offsetY: 0 });
+
+  const onReportDragStart = useCallback((e: React.MouseEvent) => {
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    reportDragRef.current = {
+      dragging: true,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+    };
+    e.preventDefault();
+  }, []);
+
+  useEffect(() => {
+    if (!showReportModal) return;
+    const handleMove = (e: MouseEvent) => {
+      if (!reportDragRef.current.dragging) return;
+      setReportModalPos({
+        x: e.clientX - reportDragRef.current.offsetX,
+        y: e.clientY - reportDragRef.current.offsetY,
+      });
+    };
+    const handleUp = () => {
+      reportDragRef.current.dragging = false;
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [showReportModal]);
 
   const openReportModal = () => {
     setReportComment('');
     setReportScreenshot(null);
     setReportMessage(null);
+    // 画面中央より少し上に初期配置（clientWidth/clientHeight を使って中央に）
+    if (typeof window !== 'undefined') {
+      const w = 520;
+      setReportModalPos({
+        x: Math.max(20, (window.innerWidth - w) / 2),
+        y: Math.max(20, window.innerHeight * 0.12),
+      });
+    }
     setShowReportModal(true);
   };
 
@@ -825,12 +921,13 @@ export default function Home() {
           .then((r) => r.json())
           .then((d) => { if (d.clients) setClients(d.clients); })
           .catch(() => {});
-        // 勘定科目・取引先マスタを起動時に1回ロード
+        // 勘定科目・取引先マスタ・ルールを起動時に1回ロード
         fetchAccounts();
         fetchVendors();
+        fetchRules();
       }
     });
-  }, [fetchAccounts, fetchVendors]);
+  }, [fetchAccounts, fetchVendors, fetchRules]);
 
   const isGuest = user === null;
 
@@ -1164,9 +1261,14 @@ export default function Home() {
     setJournalError(null);
     try {
       // 月末計上モード: 各 voucher に periodEnd を埋め込んで送る
-      const vouchers = accountingMethod === 'monthEnd' && invoiceOcr
-        ? invoiceOcr.vouchers.map((v, idx) => ({ ...v, periodEnd: periodEndBuf[idx] ?? null }))
-        : invoiceOcr.vouchers;
+      // 源泉税バッファは全モード共通で適用
+      const base = invoiceOcr.vouchers.map((v, idx) => ({
+        ...v,
+        withholdingTax: withholdingTaxBuf[idx] && withholdingTaxBuf[idx] > 0 ? withholdingTaxBuf[idx] : null,
+      }));
+      const vouchers = accountingMethod === 'monthEnd'
+        ? base.map((v, idx) => ({ ...v, periodEnd: periodEndBuf[idx] ?? null }))
+        : base;
       const res = await fetch('/api/match-journal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1176,16 +1278,91 @@ export default function Home() {
           clientId: selectedClientId,
           accountingMethod,
           descriptionMode,
+          save: false, // 照合時は DB 保存しない（部分登録対応）
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setJournalMatchResult(data);
+      setJournalMatchResult({ results: data.results, summary: data.summary });
+      // 摘要ルールによる未照合取引の科目自動提案を state に反映
+      if (data.suggestedUnmatchedAccounts && typeof data.suggestedUnmatchedAccounts === 'object') {
+        setUnmatchedTxAccounts((prev) => ({ ...data.suggestedUnmatchedAccounts, ...prev }));
+      }
+      // 登録状態リセット
+      setRegisteredVoucherIdx(new Set());
+      setSelectedVoucherIdx(new Set());
       setPeriodConfirmOpen(false);
     } catch (e) {
       setJournalError(e instanceof Error ? e.message : '照合エラー');
     } finally {
       setMatchProcessing(false);
+    }
+  };
+
+  // 部分登録: 選択した voucher グループだけを DB に保存
+  const handlePersistSelected = async (onlySelected: boolean) => {
+    if (!journalMatchResult || persisting) return;
+    const targetIdx: number[] = [];
+    journalMatchResult.results.forEach((_, i) => {
+      if (registeredVoucherIdx.has(i)) return;
+      if (onlySelected && !selectedVoucherIdx.has(i)) return;
+      targetIdx.push(i);
+    });
+    if (targetIdx.length === 0) {
+      alert('登録対象がありません');
+      return;
+    }
+    const groups = targetIdx.map((i) => {
+      const r = journalMatchResult.results[i];
+      const vendor = r.accrualEntries[0]?.voucher.vendorName ?? '';
+      return {
+        vendor_name: vendor,
+        accrualEntries: r.accrualEntries.map((e) => ({
+          date: e.date,
+          debit_account: e.debitAccount,
+          credit_account: e.creditAccount,
+          amount: e.amount,
+          description: e.description,
+          tax_type: e.taxType,
+          match_status: e.matchStatus,
+          ocr_upload_id: e.voucher.ocrUploadId ?? null,
+          bank_ocr_upload_id: r.paymentEntry?.transaction.ocrUploadId ?? null,
+        })),
+        paymentEntry: r.paymentEntry
+          ? {
+              date: r.paymentEntry.date,
+              debit_account: r.paymentEntry.debitAccount,
+              credit_account: r.paymentEntry.creditAccount,
+              amount: r.paymentEntry.amount,
+              description: r.paymentEntry.description,
+              tax_type: r.paymentEntry.taxType,
+              match_status: r.paymentEntry.matchStatus,
+              ocr_upload_id: r.paymentEntry.voucher.ocrUploadId ?? null,
+              bank_ocr_upload_id: r.paymentEntry.transaction.ocrUploadId ?? null,
+            }
+          : undefined,
+      };
+    });
+    setPersisting(true);
+    try {
+      const res = await fetch('/api/journal-entries/persist-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: selectedClientId, groups }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '登録失敗');
+      setRegisteredVoucherIdx((prev) => {
+        const next = new Set(prev);
+        for (const i of targetIdx) next.add(i);
+        return next;
+      });
+      setSelectedVoucherIdx(new Set());
+      alert(`${targetIdx.length} 件の仕訳を登録しました`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '登録失敗');
+    } finally {
+      setPersisting(false);
     }
   };
 
@@ -1201,6 +1378,9 @@ export default function Home() {
     setUnmatchedSelected(new Set());
     setUnmatchedBulkAccount('');
     setUnmatchedBulkDescription('');
+    setWithholdingTaxBuf({});
+    setRegisteredVoucherIdx(new Set());
+    setSelectedVoucherIdx(new Set());
   };
 
   const handleDownloadJournal = () => {
@@ -1722,27 +1902,38 @@ export default function Home() {
         {/* ─── 自動仕訳モード専用UI ────────────────────────────────────────── */}
         {mode === 'journal-entry' && (
           <section className="space-y-5">
-            {/* サブビュー切替: 実行 / 日記帳 / 残高 / マスタ */}
-            <div className="flex items-center justify-center gap-1 bg-slate-100/60 rounded-xl p-1 max-w-xl mx-auto">
-              {([
-                { key: 'execute', label: '仕訳実行' },
-                { key: 'unmatched', label: '未照合' },
-                { key: 'ledger', label: '日記帳' },
-                { key: 'balance', label: '残高' },
-                { key: 'master', label: 'マスタ' },
-              ] as const).map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => setJournalSubView(item.key)}
-                  className={`flex-1 text-xs font-semibold px-4 py-2 rounded-lg transition-all tracking-wide ${
-                    journalSubView === item.key
-                      ? 'bg-white text-sky-600 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
+            {/* サブビュー切替: 実行 / 日記帳 / 残高 / マスタ + 常駐のエラー報告ボタン */}
+            <div className="relative max-w-xl mx-auto">
+              <div className="flex items-center justify-center gap-1 bg-slate-100/60 rounded-xl p-1">
+                {([
+                  { key: 'execute', label: '仕訳実行' },
+                  { key: 'unmatched', label: '未照合' },
+                  { key: 'ledger', label: '日記帳' },
+                  { key: 'balance', label: '残高' },
+                  { key: 'master', label: 'マスタ' },
+                ] as const).map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => setJournalSubView(item.key)}
+                    className={`flex-1 text-xs font-semibold px-4 py-2 rounded-lg transition-all tracking-wide ${
+                      journalSubView === item.key
+                        ? 'bg-white text-sky-600 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={openReportModal}
+                className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-[calc(100%+8px)] inline-flex items-center gap-1 text-[11px] text-amber-700 border border-amber-200 bg-amber-50 rounded-lg px-2.5 py-1.5 hover:bg-amber-100 transition-all whitespace-nowrap"
+                title="この画面について開発者にフィードバックを送る"
+              >
+                <IconAlertCircle className="w-3 h-3" />
+                エラー報告
+              </button>
             </div>
 
             {journalError && journalSubView === 'execute' && (
@@ -1787,6 +1978,7 @@ export default function Home() {
                 addAccountLocal={addAccountLocal}
                 vendorsList={vendorsList}
                 addVendorLocal={addVendorLocal}
+                onAddRule={addRule}
               />
             ) : journalSubView === 'balance' ? (
               <BalanceView
@@ -1803,6 +1995,9 @@ export default function Home() {
                 onReloadVendors={fetchVendors}
                 onCreateAccount={addAccountLocal}
                 onCreateVendor={addVendorLocal}
+                rulesList={rulesList}
+                onCreateRule={addRule}
+                onDeleteRule={deleteRule}
               />
             ) : journalMatchResult ? (
               <div className="space-y-4">
@@ -1820,10 +2015,13 @@ export default function Home() {
                         自動照合 {journalMatchResult.summary.autoMatched} 件 ·
                         要確認 {journalMatchResult.summary.needsReview} 件 ·
                         未照合 {journalMatchResult.summary.unmatched} 件
+                        {registeredVoucherIdx.size > 0 && (
+                          <span className="ml-2 text-lime-600">· 登録済 {registeredVoucherIdx.size} 件</span>
+                        )}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
                       onClick={handleResetJournal}
                       className="text-xs text-slate-500 border border-slate-200 rounded-xl px-4 py-2.5 hover:bg-slate-50 transition-all duration-200 tracking-wide"
@@ -1838,113 +2036,51 @@ export default function Home() {
                       エラー報告
                     </button>
                     <button
+                      onClick={() => handlePersistSelected(true)}
+                      disabled={persisting || selectedVoucherIdx.size === 0}
+                      className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2.5 font-semibold hover:bg-sky-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed tracking-wide"
+                    >
+                      選択を登録（{selectedVoucherIdx.size}）
+                    </button>
+                    <button
+                      onClick={() => handlePersistSelected(false)}
+                      disabled={persisting}
+                      className="text-xs text-white bg-lime-600 rounded-xl px-4 py-2.5 font-semibold hover:bg-lime-700 transition-all disabled:opacity-40 tracking-wide"
+                    >
+                      残り全て登録
+                    </button>
+                    <button
                       onClick={handleDownloadJournal}
                       className="inline-flex items-center gap-1.5 text-xs text-white bg-lime-500 rounded-xl px-4 py-2.5 font-semibold hover:bg-lime-600 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 shadow-sm shadow-lime-200/60 tracking-wide"
                     >
                       <IconArchive className="w-3.5 h-3.5" />
-                      仕訳CSVをDL
+                      CSV DL
                     </button>
                   </div>
                 </div>
 
                 {/* 仕訳テーブル */}
-                <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[760px]">
-                      <thead>
-                        <tr className="border-b border-slate-100">
-                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
-                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Date</th>
-                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
-                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
-                          <th className="px-4 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
-                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
-                          <th className="px-4 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">照合</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {journalMatchResult.results.map((r, i) => (
-                          <Fragment key={i}>
-                            {/* 費用計上行（複数明細対応：1請求書から複数行になることがある） */}
-                            {r.accrualEntries.map((ae, lineIdx) => (
-                              <tr
-                                key={`a-${i}-${lineIdx}`}
-                                className={`hover:bg-sky-50/30 transition-colors ${ae.voucher.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
-                                onClick={() => showVoucherPdf(ae.voucher)}
-                                title={ae.voucher.sourceFileIndex != null ? 'クリックで元PDF表示' : ''}
-                              >
-                                <td className="px-4 py-3">
-                                  <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-medium">
-                                    費用計上{r.accrualEntries.length > 1 ? `(${lineIdx + 1}/${r.accrualEntries.length})` : ''}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-xs font-mono text-slate-500">
-                                  {ae.date === '不明' ? '—' : `${ae.date.slice(0,4)}/${ae.date.slice(4,6)}/${ae.date.slice(6,8)}`}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{ae.debitAccount}</span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{ae.creditAccount}</span>
-                                </td>
-                                <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
-                                  {ae.amount != null ? `¥${ae.amount.toLocaleString()}` : '—'}
-                                </td>
-                                <td className="px-4 py-3 text-xs text-slate-500 max-w-[160px] truncate">{ae.description || '—'}</td>
-                                <td className="px-4 py-3">
-                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                                    ae.matchStatus === 'auto' ? 'bg-lime-100 text-lime-600'
-                                    : ae.matchStatus === 'needs_review' ? 'bg-amber-100 text-amber-600'
-                                    : 'bg-red-100 text-red-500'
-                                  }`}>
-                                    {ae.matchStatus === 'auto' ? '自動照合' : ae.matchStatus === 'needs_review' ? '要確認' : '未照合'}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                            {/* 支払消込行 */}
-                            {r.paymentEntry && (
-                              <tr
-                                className={`hover:bg-lime-50/30 transition-colors bg-slate-50/30 ${r.paymentEntry.transaction.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
-                                onClick={() => r.paymentEntry && showTransactionPdf(r.paymentEntry.transaction)}
-                                title={r.paymentEntry.transaction.sourceFileIndex != null ? 'クリックで元PDF表示' : ''}
-                              >
-                                <td className="px-4 py-3">
-                                  <span className="text-[10px] bg-lime-100 text-lime-700 px-2 py-0.5 rounded-full font-medium">支払消込</span>
-                                </td>
-                                <td className="px-4 py-3 text-xs font-mono text-slate-500">
-                                  {`${r.paymentEntry.date.slice(0,4)}/${r.paymentEntry.date.slice(4,6)}/${r.paymentEntry.date.slice(6,8)}`}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className="text-xs font-medium text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">{r.paymentEntry.debitAccount}</span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{r.paymentEntry.creditAccount}</span>
-                                </td>
-                                <td className="px-4 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums">
-                                  {r.paymentEntry.amount != null ? `¥${r.paymentEntry.amount.toLocaleString()}` : '—'}
-                                </td>
-                                <td className="px-4 py-3 text-xs text-slate-500 max-w-[160px] truncate">{r.paymentEntry.description}</td>
-                                <td className="px-4 py-3">
-                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                                    r.paymentEntry.matchStatus === 'auto' ? 'bg-lime-100 text-lime-600' : 'bg-amber-100 text-amber-600'
-                                  }`}>
-                                    {r.paymentEntry.matchStatus === 'auto' ? `自動 ${Math.round(r.paymentEntry.matchScore * 100)}%` : `要確認 ${Math.round(r.paymentEntry.matchScore * 100)}%`}
-                                  </span>
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="px-5 py-3 border-t border-slate-50 bg-slate-50/30">
-                    <p className="text-[10px] text-slate-300 tracking-widest uppercase">
-                      Output: CSV · 費用計上 / 支払消込 · 借方 / 貸方 / 金額 / 摘要 / 照合スコア
-                    </p>
-                  </div>
-                </div>
+                <MatchResultTable
+                  journalMatchResult={journalMatchResult}
+                  setJournalMatchResult={setJournalMatchResult}
+                  accountsList={accountsList}
+                  addAccountLocal={addAccountLocal}
+                  selectedVoucherIdx={selectedVoucherIdx}
+                  setSelectedVoucherIdx={setSelectedVoucherIdx}
+                  registeredVoucherIdx={registeredVoucherIdx}
+                  showVoucherPdf={showVoucherPdf}
+                  showTransactionPdf={showTransactionPdf}
+                  onCreateVendorRule={async (vendorName, debitAccount) => {
+                    if (!vendorName.trim() || !debitAccount.trim()) return;
+                    await addRule('vendor', vendorName, debitAccount);
+                    alert(`取引先ルールを追加しました: ${vendorName} → ${debitAccount}`);
+                  }}
+                />
+                <p className="text-[11px] text-slate-400 px-2 leading-relaxed">
+                  行をクリックで元PDF表示 / 科目セルをクリックで編集・新規作成 / チェックした行だけ先に登録できます。
+                  <br />
+                  「取引先 🏷️」ボタンで「この相手先は常にこの科目」というルールをマスタに登録できます。
+                </p>
 
                 {/* 証憑なしの入出金は「未照合」タブで編集 */}
                 {journalMatchResult.summary.unmatchedTransactions && journalMatchResult.summary.unmatchedTransactions.length > 0 && (
@@ -2266,6 +2402,39 @@ export default function Home() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* 源泉徴収税の入力（請求書 OCR が終わっていて未照合のあいだ表示） */}
+            {!journalMatchResult && invoiceOcr && invoiceOcr.vouchers.length > 0 && journalSubView === 'execute' && (
+              <details className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+                <summary className="text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                  源泉徴収税を設定する（支払報酬などに該当する請求書のみ・任意）
+                </summary>
+                <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+                  {invoiceOcr.vouchers.map((v, idx) => (
+                    <div key={idx} className="flex items-center gap-2 text-xs">
+                      <span className="flex-1 truncate text-slate-600">{v.vendorName || '(相手先不明)'}</span>
+                      <span className="text-slate-400 tabular-nums">¥{v.amountInclTax?.toLocaleString() ?? '—'}</span>
+                      <span className="text-slate-300">源泉</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={withholdingTaxBuf[idx] ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 0 : Number(e.target.value);
+                          setWithholdingTaxBuf((prev) => ({ ...prev, [idx]: val }));
+                        }}
+                        placeholder="0"
+                        className="w-24 border border-slate-200 rounded-md px-2 py-1 text-xs text-right tabular-nums focus:outline-none focus:border-sky-400"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-[10px] text-slate-400 leading-relaxed">
+                  入力した源泉税は「未払費用 / 預り金」の振替仕訳として計上され、
+                  支払消込は「税込 − 源泉」のネット金額で通帳と照合されます。
+                </p>
+              </details>
             )}
 
             {/* 照合実行ボタン */}
@@ -2831,24 +3000,43 @@ export default function Home() {
         </div>
       )}
 
-      {/* ─── エラー報告モーダル ───────────────────────────────────────── */}
+      {/* ─── エラー報告モーダル（ドラッグ可能・背景透過） ─────────────── */}
       {showReportModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4"
-          onClick={() => !reportSending && setShowReportModal(false)}
+          className="fixed z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+          style={{
+            left: `${reportModalPos.x}px`,
+            top: `${reportModalPos.y}px`,
+            width: '520px',
+            maxHeight: '80vh',
+          }}
+          onPaste={handleReportPaste}
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-            onPaste={handleReportPaste}
+            className="bg-white overflow-y-auto"
+            style={{ maxHeight: '80vh' }}
           >
-            <div className="px-6 pt-6 pb-4 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <IconAlertCircle className="w-4 h-4 text-amber-500" />
-                <h3 className="text-base font-semibold text-slate-900 tracking-tight">エラー報告</h3>
+            <div
+              className="px-6 pt-4 pb-3 border-b border-slate-100 cursor-move select-none bg-slate-50/60"
+              onMouseDown={onReportDragStart}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <IconAlertCircle className="w-4 h-4 text-amber-500" />
+                  <h3 className="text-base font-semibold text-slate-900 tracking-tight">エラー報告</h3>
+                  <span className="text-[10px] text-slate-400 ml-1">(ここをドラッグで移動)</span>
+                </div>
+                <button
+                  onClick={() => !reportSending && setShowReportModal(false)}
+                  disabled={reportSending}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-100"
+                  aria-label="閉じる"
+                >
+                  <IconX className="w-4 h-4" />
+                </button>
               </div>
               <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                スクショとコメントを管理者に送信します。<br />
+                スクショとコメントを管理者に送信します。
                 スクショは <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px]">Win+Shift+S</kbd> で切り取り後、下の枠内に <kbd className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px]">Ctrl+V</kbd> で貼付、またはファイル選択。
               </p>
             </div>
@@ -3316,6 +3504,7 @@ function LedgerView({
   addAccountLocal,
   vendorsList,
   addVendorLocal,
+  onAddRule,
 }: {
   entries: LedgerEntry[] | null;
   loading: boolean;
@@ -3333,6 +3522,7 @@ function LedgerView({
   addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
   vendorsList: AccountOption[];
   addVendorLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
+  onAddRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
 }) {
   const [closingInput, setClosingInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -3533,6 +3723,7 @@ function LedgerView({
                 addAccountLocal={addAccountLocal}
                 vendorsList={vendorsList}
                 addVendorLocal={addVendorLocal}
+                onAddRule={onAddRule}
               />
             ))}
           </tbody>
@@ -3553,6 +3744,7 @@ function EditableRow({
   addAccountLocal,
   vendorsList,
   addVendorLocal,
+  onAddRule,
 }: {
   entry: LedgerEntry;
   selected: boolean;
@@ -3562,6 +3754,7 @@ function EditableRow({
   addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
   vendorsList: AccountOption[];
   addVendorLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
+  onAddRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
 }) {
   const [date, setDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
   const [debitAccount, setDebitAccount] = useState(entry.debit_account);
@@ -3754,14 +3947,45 @@ function EditableRow({
         />
       </td>
       <td className="px-2 py-1.5">
-        <input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={() => {
-            if (description !== entry.description) saveIfChanged({ description });
-          }}
-          className="w-full text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
-        />
+        <div className="flex items-center gap-1">
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onBlur={() => {
+              if (description !== entry.description) saveIfChanged({ description });
+            }}
+            className="flex-1 text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+          />
+          {/* ルール化: 相手先→科目 */}
+          <button
+            type="button"
+            title="この相手先は常にこの借方科目というルールを追加"
+            disabled={!vendorName.trim() || !debitAccount.trim()}
+            onClick={async () => {
+              if (!vendorName.trim() || !debitAccount.trim()) return;
+              if (!confirm(`相手先ルールを追加:\n「${vendorName}」→ ${debitAccount}`)) return;
+              await onAddRule('vendor', vendorName, debitAccount);
+            }}
+            className="text-[9px] shrink-0 text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded px-1 py-0.5 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            🏷️相手先
+          </button>
+          {/* ルール化: 摘要パターン */}
+          <button
+            type="button"
+            title="摘要にこのキーワードを含む取引は常にこの借方科目というルールを追加"
+            disabled={!description.trim() || !debitAccount.trim()}
+            onClick={async () => {
+              const pat = prompt('摘要キーワード（この文字列を含む取引にルールが適用されます）', description);
+              if (!pat || !pat.trim()) return;
+              if (!confirm(`摘要ルールを追加:\n「${pat}」を含む → ${debitAccount}`)) return;
+              await onAddRule('description', pat, debitAccount);
+            }}
+            className="text-[9px] shrink-0 text-lime-700 border border-lime-200 bg-lime-50 hover:bg-lime-100 rounded px-1 py-0.5 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            🏷️摘要
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -4205,6 +4429,8 @@ function AccountCombobox({
 
 // ─── マスタ管理ビュー（勘定科目・取引先の編集） ─────────────────────────────
 
+interface RuleItem { id: string; pattern_type: 'vendor' | 'description'; pattern: string; debit_account: string; created_at?: string }
+
 function MasterView({
   accountsList,
   vendorsList,
@@ -4212,6 +4438,9 @@ function MasterView({
   onReloadVendors,
   onCreateAccount,
   onCreateVendor,
+  rulesList,
+  onCreateRule,
+  onDeleteRule,
 }: {
   accountsList: AccountOption[];
   vendorsList: AccountOption[];
@@ -4219,7 +4448,18 @@ function MasterView({
   onReloadVendors: () => void;
   onCreateAccount: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
   onCreateVendor: (name: string, reading?: string) => Promise<AccountOption | null>;
+  rulesList: RuleItem[];
+  onCreateRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
+  onDeleteRule: (id: string) => Promise<void>;
 }) {
+  const [newRule, setNewRule] = useState<{ pattern_type: 'vendor' | 'description'; pattern: string; debit_account: string }>({
+    pattern_type: 'vendor', pattern: '', debit_account: '',
+  });
+  const handleAddRule = async () => {
+    if (!newRule.pattern.trim() || !newRule.debit_account.trim()) return;
+    await onCreateRule(newRule.pattern_type, newRule.pattern, newRule.debit_account);
+    setNewRule({ pattern_type: newRule.pattern_type, pattern: '', debit_account: '' });
+  };
   const [newAcc, setNewAcc] = useState({ name: '', reading: '', sub_category: '' });
   const [newVen, setNewVen] = useState({ name: '', reading: '' });
   const [accSearch, setAccSearch] = useState('');
@@ -4346,6 +4586,7 @@ function MasterView({
   };
 
   return (
+    <div className="space-y-5">
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       {/* 勘定科目マスタ */}
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
@@ -4487,6 +4728,95 @@ function MasterView({
           </table>
         </div>
       </div>
+    </div>
+
+    {/* 勘定科目ルール（相手先→科目 / 摘要→科目） */}
+    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100 bg-amber-50/40 flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-amber-700 tracking-tight">勘定科目ルール</p>
+          <p className="text-[10px] text-amber-500/70 mt-0.5">
+            {rulesList.length} 件 · 仕訳照合時に自動で借方科目を上書きします
+          </p>
+        </div>
+      </div>
+      <div className="p-4 border-b border-slate-50 grid grid-cols-1 md:grid-cols-[120px_1fr_1fr_auto] gap-2 items-center">
+        <select
+          value={newRule.pattern_type}
+          onChange={(e) => setNewRule({ ...newRule, pattern_type: e.target.value as 'vendor' | 'description' })}
+          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-sky-400"
+        >
+          <option value="vendor">相手先</option>
+          <option value="description">摘要</option>
+        </select>
+        <input
+          value={newRule.pattern}
+          onChange={(e) => setNewRule({ ...newRule, pattern: e.target.value })}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleAddRule(); }}
+          placeholder={newRule.pattern_type === 'vendor' ? '例: アルソック' : '例: フリコミテスウリョウ'}
+          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
+        />
+        <input
+          value={newRule.debit_account}
+          onChange={(e) => setNewRule({ ...newRule, debit_account: e.target.value })}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleAddRule(); }}
+          placeholder="借方科目（例: 支払手数料）"
+          list="rule-accounts"
+          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400"
+        />
+        <datalist id="rule-accounts">
+          {accountsList.map((a) => <option key={a.id ?? a.name} value={a.name} />)}
+        </datalist>
+        <button
+          onClick={handleAddRule}
+          disabled={!newRule.pattern.trim() || !newRule.debit_account.trim()}
+          className="text-xs text-white bg-amber-500 rounded-lg px-3 py-1.5 font-semibold hover:bg-amber-600 disabled:opacity-40"
+        >
+          追加
+        </button>
+      </div>
+      <div className="max-h-[400px] overflow-y-auto">
+        {rulesList.length === 0 ? (
+          <p className="px-4 py-6 text-center text-xs text-slate-400">ルールはまだありません</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50/60">
+              <tr>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest w-[80px]">種別</th>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">パターン（正規化後）</th>
+                <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">借方科目</th>
+                <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-widest w-[80px]"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {rulesList.map((r) => (
+                <tr key={r.id} className="hover:bg-slate-50/30">
+                  <td className="px-3 py-2">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      r.pattern_type === 'vendor' ? 'bg-sky-100 text-sky-600' : 'bg-lime-100 text-lime-700'
+                    }`}>
+                      {r.pattern_type === 'vendor' ? '相手先' : '摘要'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-xs font-mono text-slate-600 truncate">{r.pattern}</td>
+                  <td className="px-3 py-2 text-xs text-slate-700">{r.debit_account}</td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      onClick={() => {
+                        if (confirm('このルールを削除しますか？')) onDeleteRule(r.id);
+                      }}
+                      className="text-[10px] text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50"
+                    >
+                      削除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
     </div>
   );
 }
@@ -5551,5 +5881,244 @@ function EquityRowBlock({ row }: { row: FsEquityRow }) {
         <td colSpan={2} className="fs-num"><strong>{formatYen(row.ending)}</strong></td>
       </tr>
     </>
+  );
+}
+
+// ─── 仕訳照合結果テーブル（編集可能・科目コンボボックス・チェックボックス） ─────
+function MatchResultTable({
+  journalMatchResult,
+  setJournalMatchResult,
+  accountsList,
+  addAccountLocal,
+  selectedVoucherIdx,
+  setSelectedVoucherIdx,
+  registeredVoucherIdx,
+  showVoucherPdf,
+  showTransactionPdf,
+  onCreateVendorRule,
+}: {
+  journalMatchResult: { results: MatchResult[]; summary: MatchSummary };
+  setJournalMatchResult: React.Dispatch<React.SetStateAction<{ results: MatchResult[]; summary: MatchSummary } | null>>;
+  accountsList: AccountOption[];
+  addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
+  selectedVoucherIdx: Set<number>;
+  setSelectedVoucherIdx: React.Dispatch<React.SetStateAction<Set<number>>>;
+  registeredVoucherIdx: Set<number>;
+  showVoucherPdf: (voucher: VoucherInput) => void;
+  showTransactionPdf: (tx: TransactionInput) => void;
+  onCreateVendorRule: (vendorName: string, debitAccount: string) => void;
+}) {
+  const toggleVoucher = (i: number) => {
+    if (registeredVoucherIdx.has(i)) return;
+    setSelectedVoucherIdx((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  };
+  const allSelectable = journalMatchResult.results
+    .map((_, i) => i)
+    .filter((i) => !registeredVoucherIdx.has(i));
+  const allSelected = allSelectable.length > 0 && allSelectable.every((i) => selectedVoucherIdx.has(i));
+  const toggleAll = () => {
+    setSelectedVoucherIdx(() => {
+      if (allSelected) return new Set();
+      return new Set(allSelectable);
+    });
+  };
+
+  // 非破壊で journalMatchResult の1フィールドを更新
+  const patchAccrual = (resultIdx: number, lineIdx: number, patch: Partial<MatchResult['accrualEntries'][number]>) => {
+    setJournalMatchResult((prev) => {
+      if (!prev) return prev;
+      const results = prev.results.map((r, i) => {
+        if (i !== resultIdx) return r;
+        const accrualEntries = r.accrualEntries.map((e, j) => (j === lineIdx ? { ...e, ...patch } : e));
+        return { ...r, accrualEntries };
+      });
+      return { ...prev, results };
+    });
+  };
+  const patchPayment = (resultIdx: number, patch: Partial<NonNullable<MatchResult['paymentEntry']>>) => {
+    setJournalMatchResult((prev) => {
+      if (!prev) return prev;
+      const results = prev.results.map((r, i) => {
+        if (i !== resultIdx || !r.paymentEntry) return r;
+        return { ...r, paymentEntry: { ...r.paymentEntry, ...patch } };
+      });
+      return { ...prev, results };
+    });
+  };
+
+  return (
+    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[960px]">
+          <thead>
+            <tr className="border-b border-slate-100">
+              <th className="px-2 py-3 w-10 text-center">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  className="cursor-pointer"
+                />
+              </th>
+              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
+              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">日付</th>
+              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
+              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
+              <th className="px-3 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
+              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
+              <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">照合</th>
+              <th className="px-3 py-3 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {journalMatchResult.results.map((r, i) => {
+              const isRegistered = registeredVoucherIdx.has(i);
+              const isSelected = selectedVoucherIdx.has(i);
+              const voucherFirst = r.accrualEntries[0]?.voucher;
+              const vendorName = voucherFirst?.vendorName ?? '';
+              const firstDebit = r.accrualEntries[0]?.debitAccount ?? '';
+              const rowBg = isRegistered ? 'bg-lime-50/40 opacity-70' : isSelected ? 'bg-sky-50/40' : '';
+              return (
+                <Fragment key={i}>
+                  {r.accrualEntries.map((ae, lineIdx) => (
+                    <tr key={`a-${i}-${lineIdx}`} className={`${rowBg} hover:bg-sky-50/20 transition-colors`}>
+                      {lineIdx === 0 && (
+                        <td
+                          rowSpan={r.accrualEntries.length + (r.paymentEntry ? 1 : 0)}
+                          className="px-2 py-3 text-center align-top"
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={isRegistered}
+                            checked={isSelected || isRegistered}
+                            onChange={() => toggleVoucher(i)}
+                            className="cursor-pointer"
+                          />
+                          {isRegistered && <div className="text-[9px] text-lime-600 mt-1">登録済</div>}
+                        </td>
+                      )}
+                      <td className="px-3 py-2">
+                        <span className="text-[10px] bg-sky-100 text-sky-600 px-2 py-0.5 rounded-full font-medium">
+                          費用計上{r.accrualEntries.length > 1 ? `(${lineIdx + 1}/${r.accrualEntries.length})` : ''}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs font-mono text-slate-500">
+                        {ae.date === '不明' ? '—' : `${ae.date.slice(0,4)}/${ae.date.slice(4,6)}/${ae.date.slice(6,8)}`}
+                      </td>
+                      <td className="px-3 py-2 min-w-[160px]">
+                        <AccountCombobox
+                          value={ae.debitAccount}
+                          onChange={(v) => patchAccrual(i, lineIdx, { debitAccount: v })}
+                          onCommit={(v) => patchAccrual(i, lineIdx, { debitAccount: v })}
+                          accounts={accountsList}
+                          onCreate={addAccountLocal}
+                          dense
+                        />
+                      </td>
+                      <td className="px-3 py-2 min-w-[140px]">
+                        <AccountCombobox
+                          value={ae.creditAccount}
+                          onChange={(v) => patchAccrual(i, lineIdx, { creditAccount: v as typeof ae.creditAccount })}
+                          onCommit={(v) => patchAccrual(i, lineIdx, { creditAccount: v as typeof ae.creditAccount })}
+                          accounts={accountsList}
+                          onCreate={addAccountLocal}
+                          dense
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                        {ae.amount != null ? `¥${ae.amount.toLocaleString()}` : '—'}
+                      </td>
+                      <td
+                        className={`px-3 py-2 text-xs text-slate-500 max-w-[180px] truncate ${voucherFirst?.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
+                        onClick={() => voucherFirst && showVoucherPdf(voucherFirst)}
+                        title={ae.description}
+                      >
+                        {ae.description || '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                          ae.matchStatus === 'auto' ? 'bg-lime-100 text-lime-600'
+                          : ae.matchStatus === 'needs_review' ? 'bg-amber-100 text-amber-600'
+                          : 'bg-red-100 text-red-500'
+                        }`}>
+                          {ae.matchStatus === 'auto' ? '自動照合' : ae.matchStatus === 'needs_review' ? '要確認' : '未照合'}
+                        </span>
+                      </td>
+                      {lineIdx === 0 && (
+                        <td
+                          rowSpan={r.accrualEntries.length + (r.paymentEntry ? 1 : 0)}
+                          className="px-3 py-2 text-center align-top"
+                        >
+                          <button
+                            type="button"
+                            disabled={!vendorName || !firstDebit}
+                            onClick={() => onCreateVendorRule(vendorName, r.accrualEntries[0]?.debitAccount ?? '')}
+                            className="text-[10px] text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded-md px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="この取引先→科目のルールをマスタに登録"
+                          >
+                            🏷️ 取引先
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {r.paymentEntry && (
+                    <tr className={`${rowBg} bg-slate-50/20 hover:bg-lime-50/20`}>
+                      <td className="px-3 py-2">
+                        <span className="text-[10px] bg-lime-100 text-lime-700 px-2 py-0.5 rounded-full font-medium">支払消込</span>
+                      </td>
+                      <td className="px-3 py-2 text-xs font-mono text-slate-500">
+                        {`${r.paymentEntry.date.slice(0,4)}/${r.paymentEntry.date.slice(4,6)}/${r.paymentEntry.date.slice(6,8)}`}
+                      </td>
+                      <td className="px-3 py-2 min-w-[160px]">
+                        <AccountCombobox
+                          value={r.paymentEntry.debitAccount}
+                          onChange={(v) => patchPayment(i, { debitAccount: v as '未払費用' })}
+                          onCommit={(v) => patchPayment(i, { debitAccount: v as '未払費用' })}
+                          accounts={accountsList}
+                          onCreate={addAccountLocal}
+                          dense
+                        />
+                      </td>
+                      <td className="px-3 py-2 min-w-[140px]">
+                        <AccountCombobox
+                          value={r.paymentEntry.creditAccount}
+                          onChange={(v) => patchPayment(i, { creditAccount: v as '普通預金' })}
+                          onCommit={(v) => patchPayment(i, { creditAccount: v as '普通預金' })}
+                          accounts={accountsList}
+                          onCreate={addAccountLocal}
+                          dense
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                        {r.paymentEntry.amount != null ? `¥${r.paymentEntry.amount.toLocaleString()}` : '—'}
+                      </td>
+                      <td
+                        className={`px-3 py-2 text-xs text-slate-500 max-w-[180px] truncate ${r.paymentEntry.transaction.sourceFileIndex != null ? 'cursor-pointer' : ''}`}
+                        onClick={() => r.paymentEntry && showTransactionPdf(r.paymentEntry.transaction)}
+                        title={r.paymentEntry.description}
+                      >
+                        {r.paymentEntry.description}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                          r.paymentEntry.matchStatus === 'auto' ? 'bg-lime-100 text-lime-600' : 'bg-amber-100 text-amber-600'
+                        }`}>
+                          {r.paymentEntry.matchStatus === 'auto' ? `自動 ${Math.round(r.paymentEntry.matchScore * 100)}%` : `要確認 ${Math.round(r.paymentEntry.matchScore * 100)}%`}
+                        </span>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

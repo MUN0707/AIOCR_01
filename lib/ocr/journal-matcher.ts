@@ -48,6 +48,12 @@ export interface VoucherInput {
    * UI で OCR 抽出結果を確認・修正したうえでセットする想定。
    */
   periodEnd?: string | null;
+  /**
+   * 源泉徴収税額。>0 の場合、計上仕訳は税込全額を計上し、
+   * 支払消込はネット（税込 - 源泉）で照合する。
+   * 追加で「未払費用 / 預り金」の振替仕訳が1行生まれる。
+   */
+  withholdingTax?: number | null;
 }
 
 export interface TransactionInput {
@@ -367,11 +373,16 @@ export function matchVouchersToTransactions(
           : toMonthEnd(voucher.invoiceDate))
       : voucher.invoiceDate;
 
+    // 源泉徴収税を引いたネット金額で照合する
+    const wh = voucher.withholdingTax && voucher.withholdingTax > 0 ? voucher.withholdingTax : 0;
+    const gross = voucher.amountInclTax;
+    const netForMatch = gross != null ? gross - wh : null;
+
     // 出金トランザクションのみスコアリング（照合は請求書ヘッダ合計で行う）
     const scored = transactions
       .map((tx, idx) => {
         if (usedTxIndices.has(idx) || !tx.debit) return null;
-        const as = amountScore(tx.debit, voucher.amountInclTax);
+        const as = amountScore(tx.debit, netForMatch);
         if (as === 0) return null;
         const ds = dateProximityScore(parseDate(tx.transactionDate), invoiceDate);
         const ns = nameSimilarityScore(tx.description, voucher.vendorName);
@@ -436,6 +447,24 @@ export function matchVouchersToTransactions(
       matchStatus,
       voucher,
     }));
+
+    // 源泉税がある場合は「未払費用 / 預り金」の振替仕訳を追加
+    // （貸方は 預り金 固定。UI 側で creditAccount を表示する）
+    if (wh > 0) {
+      accrualEntries.push({
+        entryType:     'accrual',
+        date:          accrualBaseDate,
+        debitAccount:  '未払費用',
+        // 型上 '未払費用' 固定だが実行時は '預り金' に差し替える
+        creditAccount: '未払費用',
+        amount:        wh,
+        description:   `${voucher.vendorName || ''} 源泉税`.trim(),
+        taxType:       '対象外',
+        matchStatus,
+        voucher,
+      });
+      (accrualEntries[accrualEntries.length - 1] as unknown as { creditAccount: string }).creditAccount = '預り金';
+    }
 
     if (matchStatus === 'unmatched') {
       return { accrualEntries };
