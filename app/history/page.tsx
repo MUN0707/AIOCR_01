@@ -29,6 +29,18 @@ type InvoiceItem = {
   fileName?: string;
 };
 
+type JournalEntryItem = {
+  id: string;
+  entry_type: string;
+  entry_date: string;
+  debit_account: string;
+  credit_account: string;
+  amount: number;
+  description: string | null;
+  vendor_name: string | null;
+  match_status: string;
+};
+
 type UploadDetail = {
   upload: {
     id: string;
@@ -49,6 +61,7 @@ type UploadDetail = {
     corrected_value: string | null;
     created_at: string;
   }>;
+  journalEntries: JournalEntryItem[];
 };
 
 const MODE_LABEL: Record<string, string> = {
@@ -89,6 +102,7 @@ export default function HistoryPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [modeFilter, setModeFilter] = useState<string>('all');
 
   useEffect(() => {
     (async () => {
@@ -270,6 +284,22 @@ export default function HistoryPage() {
     }
   };
 
+  const MODE_CATEGORIES: Array<{ key: string; label: string; modes: string[] }> = [
+    { key: 'all', label: 'すべて', modes: [] },
+    { key: 'invoice', label: '請求書', modes: ['invoice', 'invoice-single'] },
+    { key: 'bank', label: '入出金明細', modes: ['bank-statement'] },
+    { key: 'tax', label: '確定申告書', modes: ['tax-return'] },
+  ];
+
+  const filteredItems = items
+    ? modeFilter === 'all'
+      ? items
+      : items.filter((it) => {
+          const cat = MODE_CATEGORIES.find((c) => c.key === modeFilter);
+          return cat ? cat.modes.includes(it.mode) : true;
+        })
+    : [];
+
   if (items === null) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center text-slate-400 text-sm">
@@ -318,8 +348,31 @@ export default function HistoryPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-6">
             {/* 一覧 */}
-            <div className="space-y-2 lg:max-h-[calc(100vh-220px)] lg:overflow-y-auto lg:pr-2">
-              {items.map((it) => (
+            <div className="lg:max-h-[calc(100vh-220px)] lg:overflow-y-auto lg:pr-2">
+              {/* カテゴリタブ */}
+              <div className="flex gap-1.5 mb-3 flex-wrap">
+                {MODE_CATEGORIES.map((cat) => {
+                  const count = cat.key === 'all'
+                    ? items.length
+                    : items.filter((it) => cat.modes.includes(it.mode)).length;
+                  if (cat.key !== 'all' && count === 0) return null;
+                  return (
+                    <button
+                      key={cat.key}
+                      onClick={() => setModeFilter(cat.key)}
+                      className={`text-[11px] font-semibold px-3 py-1.5 rounded-full transition-colors ${
+                        modeFilter === cat.key
+                          ? 'bg-sky-500 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {cat.label} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="space-y-2">
+              {filteredItems.map((it) => (
                 <button
                   key={it.id}
                   onClick={() => loadDetail(it.id)}
@@ -342,6 +395,7 @@ export default function HistoryPage() {
                   </div>
                 </button>
               ))}
+              </div>
             </div>
 
             {/* 詳細 */}
@@ -463,6 +517,55 @@ export default function HistoryPage() {
                       <pre className="text-[11px] bg-slate-50 p-3 rounded-xl overflow-x-auto text-slate-600">
                         {JSON.stringify(detail.upload.ocr_result, null, 2)}
                       </pre>
+                    )}
+
+                    {/* 紐づく仕訳一覧 */}
+                    {detail.journalEntries && detail.journalEntries.length > 0 && (
+                      <div className="mt-6 pt-4 border-t border-slate-100">
+                        <p className="text-[11px] font-semibold text-slate-500 mb-3">
+                          紐づく仕訳 ({detail.journalEntries.length}件)
+                        </p>
+                        <div className="space-y-2">
+                          {detail.journalEntries.map((je) => (
+                            <div key={je.id} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                              <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                                <span className="text-[10px] font-bold text-slate-400">
+                                  {je.entry_date?.replace(/(\d{4})(\d{2})(\d{2})/, '$1/$2/$3') ?? '-'}
+                                </span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  je.entry_type === 'accrual'
+                                    ? 'bg-violet-100 text-violet-700'
+                                    : 'bg-emerald-100 text-emerald-700'
+                                }`}>
+                                  {je.entry_type === 'accrual' ? '費用計上' : '支払'}
+                                </span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  je.match_status === 'auto'
+                                    ? 'bg-sky-100 text-sky-700'
+                                    : je.match_status === 'needs_review'
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {je.match_status === 'auto' ? '自動照合' : je.match_status === 'needs_review' ? '要確認' : '未照合'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 text-[11px] text-slate-700">
+                                <span className="font-semibold">{je.debit_account}</span>
+                                <span className="text-slate-400">/</span>
+                                <span className="font-semibold">{je.credit_account}</span>
+                                <span className="ml-auto font-bold text-slate-900">
+                                  ¥{je.amount?.toLocaleString() ?? '-'}
+                                </span>
+                              </div>
+                              {(je.vendor_name || je.description) && (
+                                <p className="text-[10px] text-slate-400 mt-1 truncate">
+                                  {je.vendor_name}{je.vendor_name && je.description ? ' / ' : ''}{je.description}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
 
                     {detail.corrections.length > 0 && (

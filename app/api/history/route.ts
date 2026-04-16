@@ -36,10 +36,33 @@ export async function GET(request: NextRequest) {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
+    // このアップロードに紐づく仕訳を取得（請求書側 or 通帳側）
+    const { data: journalFromVoucher } = await service
+      .from('journal_entries')
+      .select('id, entry_type, entry_date, debit_account, credit_account, amount, description, vendor_name, match_status')
+      .eq('ocr_upload_id', id)
+      .order('entry_date', { ascending: true });
+
+    const { data: journalFromBank } = await service
+      .from('journal_entries')
+      .select('id, entry_type, entry_date, debit_account, credit_account, amount, description, vendor_name, match_status')
+      .eq('bank_ocr_upload_id', id)
+      .order('entry_date', { ascending: true });
+
+    // 重複排除して結合
+    const allJournals = [...(journalFromVoucher ?? []), ...(journalFromBank ?? [])];
+    const seen = new Set<string>();
+    const journalEntries = allJournals.filter((j) => {
+      if (seen.has(j.id)) return false;
+      seen.add(j.id);
+      return true;
+    });
+
     return NextResponse.json({
       upload: data,
       pdfUrl: signed?.signedUrl ?? null,
       corrections: corrections ?? [],
+      journalEntries,
     });
   }
 
