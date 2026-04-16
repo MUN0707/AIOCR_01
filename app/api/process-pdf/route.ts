@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { processInvoicePdf, processInvoicePdfSingle, InvoiceLineSumMismatchError } from '@/lib/ocr/invoice-ocr';
 import { processTaxReturnPdf } from '@/lib/ocr/tax-return-ocr';
@@ -73,6 +74,32 @@ export async function POST(request: NextRequest) {
 
     const pdfBuffer = Buffer.from(await file.arrayBuffer());
 
+    // 重複チェック: SHA-256 ハッシュで同一ファイルを検出
+    const fileHash = createHash('sha256').update(pdfBuffer).digest('hex');
+    const service = createServiceClient();
+
+    if (userId) {
+      const { data: existing } = await service
+        .from('ocr_uploads')
+        .select('id, file_name, created_at')
+        .eq('user_id', userId)
+        .eq('file_hash', fileHash)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        const uploadedAt = new Date(existing.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+        return NextResponse.json(
+          {
+            error: `同一ファイルが既にアップロードされています。\n（${existing.file_name}／${uploadedAt}）`,
+            errorCode: 'DUPLICATE_FILE',
+            existingUploadId: existing.id,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let responseBody: any;
     if (mode === 'tax-return') {
@@ -113,7 +140,6 @@ export async function POST(request: NextRequest) {
     }
 
     // OCR成功後に使用量をインクリメント（サービスクライアントでRLSをバイパス）
-    const service = createServiceClient();
     if (trackUsage && userId) {
       await service.rpc('increment_usage', { p_user_id: userId, p_year_month: yearMonth });
     }
@@ -145,6 +171,7 @@ export async function POST(request: NextRequest) {
           input_tokens: responseBody.usage?.inputTokens ?? null,
           output_tokens: responseBody.usage?.outputTokens ?? null,
           cost_jpy: responseBody.usage?.costJpy ?? null,
+          file_hash: fileHash,
           ...(clientId ? { client_id: clientId } : {}),
         })
         .select('id')

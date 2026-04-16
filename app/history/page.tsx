@@ -180,8 +180,16 @@ export default function HistoryPage() {
 
     const oldName = clients.find((c) => c.id === detail.upload.client_id)?.name ?? '（未設定）';
     const newName = newClientId ? (clients.find((c) => c.id === newClientId)?.name ?? '不明') : '（未設定）';
-    const msg = `法人を「${oldName}」→「${newName}」に変更します。\nこの OCR から作成された仕訳も新しい法人に移動されます（締め済みの仕訳はスキップ）。\n\nよろしいですか？`;
-    if (!window.confirm(msg)) return;
+
+    // 3択: 移動 / 削除 / キャンセル
+    const choice = window.prompt(
+      `法人を「${oldName}」→「${newName}」に変更します。\n\nこの OCR から作成された仕訳をどうしますか？\n（締め済みの仕訳はスキップされます）\n\n1 = 新しい法人に移動する\n2 = 仕訳を削除する（再照合で作り直す場合）\n\n番号を入力してください:`,
+      '1'
+    );
+    if (!choice || !['1', '2'].includes(choice.trim())) return;
+    const deleteEntries = choice.trim() === '2';
+
+    if (deleteEntries && !window.confirm('本当に仕訳を削除しますか？この操作は取り消せません。')) return;
 
     setActionBusy(true);
     setActionMessage(null);
@@ -189,11 +197,15 @@ export default function HistoryPage() {
       const res = await fetch(`/api/history/${detail.upload.id}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ clientId: newClientId }),
+        body: JSON.stringify({ clientId: newClientId, deleteEntries }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '変更失敗');
-      setActionMessage(`法人を変更しました（仕訳 ${data.updated} 件を移動${data.skipped ? `／締め済み ${data.skipped} 件はスキップ` : ''}）`);
+      if (deleteEntries) {
+        setActionMessage(`法人を変更し、仕訳 ${data.deleted} 件を削除しました${data.skipped ? `（締め済み ${data.skipped} 件はスキップ）` : ''}`);
+      } else {
+        setActionMessage(`法人を変更しました（仕訳 ${data.updated} 件を移動${data.skipped ? `／締め済み ${data.skipped} 件はスキップ` : ''}）`);
+      }
       await loadDetail(detail.upload.id);
     } catch (e) {
       setActionMessage(e instanceof Error ? e.message : '変更失敗');

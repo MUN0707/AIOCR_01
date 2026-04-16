@@ -568,9 +568,35 @@ export default function Home() {
       alert('通帳または請求書を1つ以上選択してください');
       return;
     }
+
+    // 選択したアップロードに紐づく旧仕訳を削除するか確認
+    const allUploadIds = [...bankIds, ...invoiceIds];
+    const deleteOld = window.confirm(
+      '選択したデータに紐づく既存の仕訳を削除してから再照合しますか？\n\n' +
+      '「OK」→ 旧仕訳を削除して再照合\n' +
+      '「��ャンセル」→ 旧仕訳はそのまま残して再照合'
+    );
+
     setLoadingExistingData(true);
     setJournalError(null);
     try {
+      // 旧仕訳を削除する場合
+      if (deleteOld) {
+        let totalDeleted = 0;
+        let totalSkipped = 0;
+        for (const uid of allUploadIds) {
+          const delRes = await fetch(`/api/history/${uid}?target=journal_entries`, { method: 'DELETE' });
+          if (delRes.ok) {
+            const d = await delRes.json();
+            totalDeleted += d.deleted ?? 0;
+            totalSkipped += d.skipped ?? 0;
+          }
+        }
+        if (totalDeleted > 0 || totalSkipped > 0) {
+          alert(`旧仕訳 ${totalDeleted} 件を削除しました${totalSkipped ? `（締め済み ${totalSkipped} 件はスキップ）` : ''}`);
+        }
+      }
+
       const res = await fetch('/api/ocr-uploads/load', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1177,7 +1203,13 @@ export default function Home() {
           if (selectedClientId) formData.append('clientId', selectedClientId);
           const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
           const data = await res.json();
-          if (!res.ok) throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
+          if (!res.ok) {
+            if (data.errorCode === 'DUPLICATE_FILE') {
+              alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
+              continue;
+            }
+            throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
+          }
           if (i === 0) { bankName = data.bankName; accountNumber = data.accountNumber; }
           allTransactions.push(...(data.transactions || []).map((t: Omit<BankTransactionRow, 'sourceFile'>) => ({ ...t, sourceFile: file.name })));
           totalPages += data.totalPages;
@@ -1218,6 +1250,10 @@ export default function Home() {
 
         const data = await res.json();
         if (!res.ok) {
+          if (data.errorCode === 'DUPLICATE_FILE') {
+            alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
+            continue;
+          }
           throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
         }
 
@@ -1335,7 +1371,13 @@ export default function Home() {
         if (selectedClientId) fd.append('clientId', selectedClientId);
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
         const data = await res.json();
-        if (!res.ok) throw new Error(`${file.name}: ${data.error}`);
+        if (!res.ok) {
+          if (data.errorCode === 'DUPLICATE_FILE') {
+            alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
+            continue;
+          }
+          throw new Error(`${file.name}: ${data.error}`);
+        }
         const bn: string = data.bankName || '不明';
         const an: string = data.accountNumber || '不明';
         const mapped = mapByKey.get(`${bn}||${an}`);
@@ -4443,21 +4485,21 @@ function LedgerView({
       </div>
 
       {/* 仕訳明細 */}
-      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-x-auto">
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
           <p className="text-sm font-semibold text-slate-700 tracking-tight">仕訳明細</p>
         </div>
-        <table className="w-full text-sm table-fixed">
+        <table className="w-full text-sm table-fixed" style={{ minWidth: '1100px' }}>
           <colgroup>
-            <col style={{ width: '40px' }} />   {/* チェック */}
-            <col style={{ width: '128px' }} />  {/* 日付 */}
-            <col style={{ width: '76px' }} />   {/* 種別 */}
+            <col style={{ width: '36px' }} />   {/* チェック */}
+            <col style={{ width: '110px' }} />  {/* 日付 */}
+            <col style={{ width: '68px' }} />   {/* 種別 */}
             <col style={{ width: '44px' }} />   {/* 証憑 */}
-            <col style={{ width: '160px' }} />  {/* 借方 */}
-            <col style={{ width: '160px' }} />  {/* 貸方 */}
-            <col style={{ width: '120px' }} />  {/* 金額 */}
-            <col style={{ width: '180px' }} />  {/* 取引先 */}
-            <col />                              {/* 摘要 */}
+            <col style={{ width: '150px' }} />  {/* 借方 */}
+            <col style={{ width: '150px' }} />  {/* 貸方 */}
+            <col style={{ width: '110px' }} />  {/* 金額 */}
+            <col style={{ width: '160px' }} />  {/* 取引先 */}
+            <col />                              {/* 摘要（残り ~272px+） */}
           </colgroup>
           <thead className="bg-white">
             <tr className="border-b border-slate-100">
@@ -4715,33 +4757,33 @@ function EditableRow({
         />
       </td>
       <td className="px-2 py-1.5">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 min-w-0">
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             onBlur={() => {
               if (description !== entry.description) saveIfChanged({ description });
             }}
-            className="flex-1 text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+            className="min-w-0 flex-1 text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
           />
           {/* ルール化: 相手先→科目 */}
           <button
             type="button"
-            title="この相手先は常にこの借方科目というルールを追加"
+            title={`相手先ルール追加: 「${vendorName}」→ ${debitAccount}`}
             disabled={!vendorName.trim() || !debitAccount.trim()}
             onClick={async () => {
               if (!vendorName.trim() || !debitAccount.trim()) return;
               if (!confirm(`相手先ルールを追加:\n「${vendorName}」→ ${debitAccount}`)) return;
               await onAddRule('vendor', vendorName, debitAccount);
             }}
-            className="text-[9px] shrink-0 text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded px-1 py-0.5 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="text-[10px] shrink-0 text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded w-6 h-6 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            🏷️相手先
+            🏷️
           </button>
           {/* ルール化: 摘要パターン */}
           <button
             type="button"
-            title="摘要にこのキーワードを含む取引は常にこの借方科目というルールを追加"
+            title={`摘要ルール追加: 「${description}」を含む → ${debitAccount}`}
             disabled={!description.trim() || !debitAccount.trim()}
             onClick={async () => {
               const pat = prompt('摘要キーワード（この文字列を含む取引にルールが適用されます）', description);
@@ -4749,9 +4791,9 @@ function EditableRow({
               if (!confirm(`摘要ルールを追加:\n「${pat}」を含む → ${debitAccount}`)) return;
               await onAddRule('description', pat, debitAccount);
             }}
-            className="text-[9px] shrink-0 text-lime-700 border border-lime-200 bg-lime-50 hover:bg-lime-100 rounded px-1 py-0.5 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="text-[10px] shrink-0 text-lime-700 border border-lime-200 bg-lime-50 hover:bg-lime-100 rounded w-6 h-6 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            🏷️摘要
+            📝
           </button>
         </div>
       </td>
@@ -7602,13 +7644,21 @@ function MatchResultTable({
                             className="flex-1 min-w-0 text-xs text-slate-600 border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:border-sky-400 disabled:bg-transparent disabled:border-transparent"
                             placeholder="摘要"
                           />
-                          {voucherFirst?.sourceFileIndex != null && (
+                          {voucherFirst?.ocrUploadId && (
                             <button
                               type="button"
                               onClick={() => showVoucherPdf(voucherFirst)}
                               className="text-[10px] text-sky-500 hover:text-sky-700 whitespace-nowrap"
-                              title="元PDFを別ウインドウで開く"
+                              title="請求書PDFを開く"
                             >📄</button>
+                          )}
+                          {r.paymentEntry?.transaction?.ocrUploadId && lineIdx === 0 && (
+                            <button
+                              type="button"
+                              onClick={() => showTransactionPdf(r.paymentEntry!.transaction)}
+                              className="text-[10px] text-lime-500 hover:text-lime-700 whitespace-nowrap"
+                              title="通帳PDFを開く"
+                            >🏦</button>
                           )}
                         </div>
                       </td>

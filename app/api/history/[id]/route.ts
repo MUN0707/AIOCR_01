@@ -100,6 +100,7 @@ export async function PATCH(
   const { id: uploadId } = await params;
   const body = await request.json();
   const newClientId: string | null = body.clientId ?? null;
+  const deleteEntries: boolean = body.deleteEntries === true;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -170,13 +171,29 @@ export async function PATCH(
   }
 
   if (allowed.length > 0) {
-    const { error: updErr } = await service
-      .from('journal_entries')
-      .update({ client_id: newClientId })
-      .in('id', allowed)
-      .eq('user_id', user.id);
-    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+    if (deleteEntries) {
+      // 仕訳を移動せず削除する
+      const { error: delErr } = await service
+        .from('journal_entries')
+        .delete()
+        .in('id', allowed)
+        .eq('user_id', user.id);
+      if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+    } else {
+      // 仕訳を新法人に移動する
+      const { error: updErr } = await service
+        .from('journal_entries')
+        .update({ client_id: newClientId })
+        .in('id', allowed)
+        .eq('user_id', user.id);
+      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+    }
   }
 
-  return NextResponse.json({ success: true, updated: allowed.length, skipped: skipped.length });
+  return NextResponse.json({
+    success: true,
+    updated: deleteEntries ? 0 : allowed.length,
+    deleted: deleteEntries ? allowed.length : 0,
+    skipped: skipped.length,
+  });
 }
