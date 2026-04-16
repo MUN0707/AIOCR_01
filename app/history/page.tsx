@@ -177,6 +177,12 @@ export default function HistoryPage() {
 
   const handleReassignClient = async (newClientId: string | null) => {
     if (!detail) return;
+
+    const oldName = clients.find((c) => c.id === detail.upload.client_id)?.name ?? '（未設定）';
+    const newName = newClientId ? (clients.find((c) => c.id === newClientId)?.name ?? '不明') : '（未設定）';
+    const msg = `法人を「${oldName}」→「${newName}」に変更します。\nこの OCR から作成された仕訳も新しい法人に移動されます（締め済みの仕訳はスキップ）。\n\nよろしいですか？`;
+    if (!window.confirm(msg)) return;
+
     setActionBusy(true);
     setActionMessage(null);
     try {
