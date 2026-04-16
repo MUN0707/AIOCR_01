@@ -1992,7 +1992,25 @@ export default function Home() {
               <span className="text-xs text-slate-500 tracking-wide whitespace-nowrap">クライアント</span>
               <select
                 value={selectedClientId || ''}
-                onChange={(e) => setSelectedClientId(e.target.value || null)}
+                onChange={(e) => {
+                  const newId = e.target.value || null;
+                  setSelectedClientId(newId);
+                  // クライアント変更時にOCRデータ・照合結果をリセット
+                  setBankOcr(null);
+                  setInvoiceOcr(null);
+                  setBankFiles([]);
+                  setInvoiceFiles([]);
+                  setJournalMatchResult(null);
+                  setRegisteredVoucherIdx(new Set());
+                  setSelectedVoucherIdx(new Set());
+                  setWithholdingTaxBuf({});
+                  setUnmatchedTxAccounts({});
+                  setUnmatchedTxDescriptions({});
+                  setUnmatchedSelected(new Set());
+                  setExistingUploads([]);
+                  setSelectedBankUploadIds(new Set());
+                  setSelectedInvoiceUploadIds(new Set());
+                }}
                 className="text-sm bg-white border border-slate-200 rounded-xl px-3 py-1.5
                   text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300
                   transition-all duration-200 min-w-[160px]"
