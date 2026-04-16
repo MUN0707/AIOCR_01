@@ -6,6 +6,7 @@ import { createClient } from '@/utils/supabase/client';
 import type { User } from '@supabase/supabase-js';
 import type { OcrMode } from '@/lib/ocr/types';
 import type { MatchResult, MatchSummary, VoucherInput, TransactionInput } from '@/lib/ocr/journal-matcher';
+import { CSV_PRESETS, parseCsvWithPreset, type NormalizedJournalRow } from '@/lib/csv-import-presets';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
@@ -2326,6 +2327,7 @@ export default function Home() {
                 accountFilter={ledgerAccountFilter}
                 setAccountFilter={setLedgerAccountFilter}
                 onRefresh={fetchLedger}
+                clientId={selectedClientId}
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
                 closedUntil={closedUntil}
                 onSaveField={handleSaveField}
@@ -4014,6 +4016,7 @@ function LedgerView({
   accountFilter,
   setAccountFilter,
   onRefresh,
+  clientId,
   clientName,
   closedUntil,
   onSaveField,
@@ -4032,6 +4035,7 @@ function LedgerView({
   accountFilter: string;
   setAccountFilter: (v: string) => void;
   onRefresh: () => void;
+  clientId: string | null;
   clientName: string | null;
   closedUntil: string | null;
   onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
@@ -4046,6 +4050,231 @@ function LedgerView({
 }) {
   const [closingInput, setClosingInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // ─── CSV インポートモーダル State ───────────────────────────
+  const [importOpen, setImportOpen] = useState(false);
+  const [importStep, setImportStep] = useState<'select' | 'preview' | 'done'>('select');
+  const [importPresetId, setImportPresetId] = useState(CSV_PRESETS[0].id);
+  const [importPreview, setImportPreview] = useState<NormalizedJournalRow[]>([]);
+  const [importSkipped, setImportSkipped] = useState(0);
+  const [importCsvText, setImportCsvText] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<{ inserted: number; skipped: number } | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  const resetImport = () => {
+    setImportStep('select');
+    setImportPreview([]);
+    setImportSkipped(0);
+    setImportCsvText('');
+    setImportError(null);
+    setImportLoading(false);
+    setImportResult(null);
+    if (importFileRef.current) importFileRef.current.value = '';
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportError(null);
+
+    const preset = CSV_PRESETS.find((p) => p.id === importPresetId);
+    if (!preset) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      setImportCsvText(text);
+
+      const result = parseCsvWithPreset(text, preset);
+      if (result.errors.length > 0) {
+        setImportError(result.errors.join(', '));
+        return;
+      }
+      if (result.rows.length === 0) {
+        setImportError('インポート可能なデータ行がありません');
+        return;
+      }
+      setImportPreview(result.rows);
+      setImportSkipped(result.skipped);
+      setImportStep('preview');
+    };
+    reader.onerror = () => setImportError('ファイルの読み込みに失敗しました');
+
+    // Shift_JIS の場合は encoding 指定
+    if (preset.encoding === 'shift_jis') {
+      reader.readAsText(file, 'Shift_JIS');
+    } else {
+      reader.readAsText(file, 'UTF-8');
+    }
+  };
+
+  const handleImportSubmit = async () => {
+    if (importPreview.length === 0) return;
+    setImportLoading(true);
+    setImportError(null);
+    try {
+      const res = await fetch('/api/journal-entries/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presetId: importPresetId,
+          csvText: importCsvText,
+          clientId: clientId || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'インポートに失敗しました');
+      setImportResult({ inserted: data.inserted, skipped: data.skipped });
+      setImportStep('done');
+      onRefresh();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'インポートに失敗しました');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  // モーダルレンダリング関数（空状態からも呼べるように抽出）
+  const renderImportModal = () => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setImportOpen(false)}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <p className="text-base font-semibold text-slate-900">仕訳CSVインポート</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">会計ソフトから出力したCSVを取り込みます</p>
+          </div>
+          <button onClick={() => setImportOpen(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {importStep === 'select' && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-2">会計ソフトを選択</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {CSV_PRESETS.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setImportPresetId(p.id)}
+                      className={`text-sm rounded-xl px-4 py-3 border-2 transition-all text-left ${
+                        importPresetId === p.id
+                          ? 'border-sky-400 bg-sky-50 text-sky-700'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="font-semibold block">{p.label}</span>
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">{p.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-2">CSVファイルを選択</label>
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".csv,.txt"
+                  onChange={handleImportFile}
+                  className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-600 hover:file:bg-sky-100 cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-400 mt-1.5">
+                  {CSV_PRESETS.find((p) => p.id === importPresetId)?.encoding === 'shift_jis'
+                    ? 'Shift_JIS / UTF-8 どちらにも対応しています'
+                    : 'UTF-8 形式のCSVに対応しています'}
+                </p>
+              </div>
+              {importError && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">{importError}</div>
+              )}
+            </>
+          )}
+          {importStep === 'preview' && (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">プレビュー: {importPreview.length} 件の仕訳</p>
+                  {importSkipped > 0 && <p className="text-[11px] text-slate-400">{importSkipped} 件の空行をスキップ</p>}
+                </div>
+                <button onClick={resetImport} className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-1.5 hover:bg-slate-50">やり直す</button>
+              </div>
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="max-h-[320px] overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400">#</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400">日付</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400">借方</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400">貸方</th>
+                        <th className="px-3 py-2 text-right text-[10px] font-semibold text-slate-400">金額</th>
+                        <th className="px-3 py-2 text-left text-[10px] font-semibold text-slate-400">摘要</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {importPreview.slice(0, 100).map((r, i) => (
+                        <tr key={i} className="hover:bg-slate-50/50">
+                          <td className="px-3 py-1.5 text-slate-300">{i + 1}</td>
+                          <td className="px-3 py-1.5 text-slate-700 whitespace-nowrap">
+                            {r.entry_date.length === 8
+                              ? `${r.entry_date.slice(0,4)}/${r.entry_date.slice(4,6)}/${r.entry_date.slice(6,8)}`
+                              : r.entry_date}
+                          </td>
+                          <td className="px-3 py-1.5 text-slate-700">{r.debit_account}</td>
+                          <td className="px-3 py-1.5 text-slate-700">{r.credit_account}</td>
+                          <td className="px-3 py-1.5 text-right text-slate-700 tabular-nums">
+                            {r.amount != null ? r.amount.toLocaleString() : '-'}
+                          </td>
+                          <td className="px-3 py-1.5 text-slate-500 truncate max-w-[200px]">{r.description || r.vendor_name || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {importPreview.length > 100 && (
+                  <div className="px-3 py-2 bg-slate-50 text-[10px] text-slate-400 text-center">他 {importPreview.length - 100} 件は省略表示</div>
+                )}
+              </div>
+              {importError && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">{importError}</div>
+              )}
+            </>
+          )}
+          {importStep === 'done' && importResult && (
+            <div className="text-center py-8">
+              <div className="w-14 h-14 bg-lime-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-lime-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p className="text-lg font-semibold text-slate-900">インポート完了</p>
+              <p className="text-sm text-slate-500 mt-1">
+                {importResult.inserted} 件の仕訳を取り込みました
+                {importResult.skipped > 0 && `（${importResult.skipped} 件スキップ）`}
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">
+          {importStep === 'preview' && (
+            <button
+              onClick={handleImportSubmit}
+              disabled={importLoading}
+              className="text-sm text-white bg-sky-500 rounded-xl px-5 py-2.5 font-semibold hover:bg-sky-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {importLoading ? 'インポート中...' : `${importPreview.length} 件をインポート`}
+            </button>
+          )}
+          <button
+            onClick={() => { setImportOpen(false); resetImport(); }}
+            className="text-sm text-slate-500 border border-slate-200 rounded-xl px-5 py-2.5 hover:bg-slate-50"
+          >
+            {importStep === 'done' ? '閉じる' : 'キャンセル'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -4062,11 +4291,21 @@ function LedgerView({
   }
   if (!entries || entries.length === 0) {
     return (
-      <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
-        <p className="text-sm text-slate-400">
-          {clientName ? `${clientName} の` : ''}仕訳データはまだありません
-        </p>
-        <p className="text-xs text-slate-300 mt-2">「仕訳実行」タブで照合するとここに記録されます</p>
+      <div className="space-y-5">
+        <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
+          <p className="text-sm text-slate-400">
+            {clientName ? `${clientName} の` : ''}仕訳データはまだありません
+          </p>
+          <p className="text-xs text-slate-300 mt-2">「仕訳実行」タブで照合するか、CSVインポートで取り込めます</p>
+          <button
+            onClick={() => { resetImport(); setImportOpen(true); }}
+            className="mt-4 text-sm text-white bg-sky-500 rounded-xl px-5 py-2.5 font-semibold hover:bg-sky-600 transition-all"
+          >
+            CSVインポート
+          </button>
+        </div>
+        {/* インポートモーダル（空状態でも表示可能） */}
+        {importOpen && renderImportModal()}
       </div>
     );
   }
@@ -4145,6 +4384,12 @@ function LedgerView({
             </button>
           )}
           <button
+            onClick={() => { resetImport(); setImportOpen(true); }}
+            className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600 transition-all"
+          >
+            CSVインポート
+          </button>
+          <button
             onClick={onRefresh}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
           >
@@ -4152,6 +4397,9 @@ function LedgerView({
           </button>
         </div>
       </div>
+
+      {/* ─── CSV インポートモーダル ─── */}
+      {importOpen && renderImportModal()}
 
       {/* 締め操作 */}
       <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
