@@ -24,14 +24,13 @@ const EXCLUDED_PATHS = ['/login', '/lp'];
 
 /**
  * 全ユーザー向けページに表示するフローティングエラー報告ボタン + モーダル。
- * メインページ (/) は page.tsx 内に独自のエラー報告UIがあるため除外。
+ * メインページ (/) を含む全ページに表示。
  */
 export default function ErrorReportFab() {
   const pathname = usePathname();
 
-  // 除外判定: login, LP, メインページ（独自実装あり）
+  // 除外判定: login, LP のみ（メインページも表示する）
   const hidden =
-    pathname === '/' ||
     EXCLUDED_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
   const [show, setShow] = useState(false);

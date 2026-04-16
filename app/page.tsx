@@ -3197,7 +3197,7 @@ export default function Home() {
         )}
 
         {/* ─── 使い方ガイド（請求書/通帳モードの初期表示のみ） ───────────── */}
-        {mode !== 'journal-entry' && files.length === 0 && !result && !loading && (
+        {(mode === 'invoice' || mode === 'tax-return') && files.length === 0 && !result && !loading && (
           <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
             {[
               {
