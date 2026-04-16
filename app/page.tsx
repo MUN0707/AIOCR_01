@@ -537,6 +537,131 @@ export default function Home() {
     lines: Array<{ debitAccount: string; amountInclTax: number; description: string }>;
   }>(null);
 
+  // ─── 既存OCRデータから再照合 State ──────────────────────────────────────
+  type OcrUploadItem = { id: string; fileName: string; mode: string; itemCount: number; journalEntryCount: number; createdAt: string };
+  const [journalInputMode, setJournalInputMode] = useState<'new' | 'existing'>('new');
+  const [existingUploads, setExistingUploads] = useState<OcrUploadItem[]>([]);
+  const [existingUploadsLoading, setExistingUploadsLoading] = useState(false);
+  const [selectedBankUploadIds, setSelectedBankUploadIds] = useState<Set<string>>(new Set());
+  const [selectedInvoiceUploadIds, setSelectedInvoiceUploadIds] = useState<Set<string>>(new Set());
+  const [loadingExistingData, setLoadingExistingData] = useState(false);
+
+  const fetchExistingUploads = useCallback(async (clientId: string) => {
+    setExistingUploadsLoading(true);
+    try {
+      const res = await fetch(`/api/ocr-uploads?clientId=${clientId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setExistingUploads(data.uploads ?? []);
+    } catch {
+      // silent
+    } finally {
+      setExistingUploadsLoading(false);
+    }
+  }, []);
+
+  const handleLoadExistingData = useCallback(async () => {
+    const bankIds = Array.from(selectedBankUploadIds);
+    const invoiceIds = Array.from(selectedInvoiceUploadIds);
+    if (bankIds.length === 0 && invoiceIds.length === 0) {
+      alert('通帳または請求書を1つ以上選択してください');
+      return;
+    }
+    setLoadingExistingData(true);
+    setJournalError(null);
+    try {
+      const res = await fetch('/api/ocr-uploads/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bankUploadIds: bankIds, invoiceUploadIds: invoiceIds }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'データ読み込み失敗');
+
+      // bankOcr を復元
+      if (data.bankData && data.bankData.length > 0) {
+        // 口座マスタを取得して預金科目を自動復元
+        const mapRes = await fetch(`/api/bank-accounts${selectedClientId ? `?clientId=${selectedClientId}` : ''}`);
+        const mapData = mapRes.ok ? await mapRes.json() : { accounts: [] };
+        const mapByKey = new Map<string, { id: string; depositAccount: string }>();
+        for (const a of (mapData.accounts ?? []) as Array<{ id: string; bank_name: string; account_number: string; deposit_account: string }>) {
+          mapByKey.set(`${a.bank_name}||${a.account_number}`, { id: a.id, depositAccount: a.deposit_account });
+        }
+
+        const allTransactions: TransactionInput[] = [];
+        const filesInfo: Array<{ bankName: string; accountNumber: string; depositAccount: string; mappingId: string | null }> = [];
+        for (const bd of data.bankData) {
+          const mapping = mapByKey.get(`${bd.bankName}||${bd.accountNumber}`);
+          const depositAccount = mapping?.depositAccount ?? '普通預金';
+          for (const t of bd.transactions) {
+            allTransactions.push({
+              transactionDate: t.transactionDate,
+              description: t.description,
+              debit: t.debit,
+              credit: t.credit,
+              ocrUploadId: bd.uploadId,
+              sourceFileName: bd.fileName,
+              bankAccountName: depositAccount,
+            });
+          }
+          filesInfo.push({
+            bankName: bd.bankName,
+            accountNumber: bd.accountNumber,
+            depositAccount,
+            mappingId: mapping?.id ?? null,
+          });
+        }
+        setBankOcr({
+          transactions: allTransactions,
+          bankName: data.bankData[0].bankName,
+          accountNumber: data.bankData[0].accountNumber,
+          files: filesInfo,
+        });
+      }
+
+      // invoiceOcr を復元
+      if (data.invoiceData && data.invoiceData.length > 0) {
+        const vouchers: VoucherInput[] = [];
+        for (const inv of data.invoiceData) {
+          for (const item of inv.invoices) {
+            vouchers.push({
+              vendorName: item.requesterName ?? '不明',
+              invoiceDate: item.date ?? '不明',
+              amountInclTax: item.taxIncludedAmount ?? null,
+              debitAccount: '未分類',
+              description: item.requesterName ?? '',
+              taxType: '課税仕入10%',
+              withholdingTax: item.withholdingTax ?? undefined,
+              lines: item.lines?.map((l: { description?: string; amount?: number; taxRate?: number }) => ({
+                debitAccount: '未分類',
+                amountInclTax: l.amount ?? 0,
+                description: l.description ?? '',
+                taxType: l.taxRate === 8 ? '課税仕入8%（軽減）' : '課税仕入10%',
+              })),
+              ocrUploadId: inv.uploadId,
+              sourceFileName: inv.fileName,
+            });
+          }
+        }
+        setInvoiceOcr({ vouchers, count: vouchers.length });
+      }
+
+      // マッチ結果をリセット
+      setJournalMatchResult(null);
+      setRegisteredVoucherIdx(new Set());
+      setSelectedVoucherIdx(new Set());
+      setWithholdingTaxBuf({});
+      setUnmatchedTxAccounts({});
+      setUnmatchedTxDescriptions({});
+      setUnmatchedSelected(new Set());
+    } catch (e) {
+      setJournalError(e instanceof Error ? e.message : 'データ読み込み失敗');
+    } finally {
+      setLoadingExistingData(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBankUploadIds, selectedInvoiceUploadIds, selectedClientId]);
+
   // ─── 未照合トランザクションの勘定科目選択 State ───────────────────────────
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
   const [unmatchedTxDescriptions, setUnmatchedTxDescriptions] = useState<Record<number, string>>({});
@@ -2337,7 +2462,119 @@ export default function Home() {
                 )}
               </div>
             ) : (
-              /* 2パネルアップロード */
+              <div className="space-y-4">
+              {/* 新規 / 既存データ 切替 */}
+              {selectedClientId && (
+                <div className="flex items-center gap-2 bg-white border border-slate-100 rounded-2xl p-1 shadow-sm max-w-xs">
+                  {([
+                    { key: 'new' as const, label: '新規アップロード' },
+                    { key: 'existing' as const, label: '既存データから再照合' },
+                  ]).map((item) => (
+                    <button
+                      key={item.key}
+                      onClick={() => {
+                        setJournalInputMode(item.key);
+                        if (item.key === 'existing' && selectedClientId) fetchExistingUploads(selectedClientId);
+                      }}
+                      className={`flex-1 text-xs font-semibold px-3 py-2 rounded-xl transition-all ${
+                        journalInputMode === item.key
+                          ? 'bg-sky-50 text-sky-600 shadow-sm border border-sky-200'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* ─── 既存データから再照合 ─── */}
+              {journalInputMode === 'existing' && selectedClientId ? (
+                <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800 tracking-tight">既存OCRデータを選択</p>
+                    <p className="text-xs text-slate-400 mt-0.5">通帳・請求書を選択して再照合を実行できます</p>
+                  </div>
+                  {existingUploadsLoading ? (
+                    <p className="text-xs text-slate-400">読み込み中...</p>
+                  ) : existingUploads.length === 0 ? (
+                    <p className="text-xs text-slate-400">この法人にはまだOCRデータがありません。「新規アップロード」で作成してください。</p>
+                  ) : (
+                    <>
+                      {/* 通帳 */}
+                      {existingUploads.filter((u) => u.mode === 'bank-statement').length > 0 && (
+                        <div className="space-y-1.5">
+                          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">通帳</p>
+                          {existingUploads.filter((u) => u.mode === 'bank-statement').map((u) => (
+                            <label key={u.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                              selectedBankUploadIds.has(u.id) ? 'border-sky-300 bg-sky-50/40' : 'border-slate-100 hover:border-slate-200'
+                            }`}>
+                              <input
+                                type="checkbox"
+                                checked={selectedBankUploadIds.has(u.id)}
+                                onChange={() => setSelectedBankUploadIds((prev) => {
+                                  const next = new Set(prev);
+                                  next.has(u.id) ? next.delete(u.id) : next.add(u.id);
+                                  return next;
+                                })}
+                                className="rounded border-slate-300 text-sky-500 focus:ring-sky-400"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-slate-700 truncate">{u.fileName}</p>
+                                <p className="text-[10px] text-slate-400">
+                                  {u.itemCount}件の取引 · 仕訳{u.journalEntryCount}件 · {new Date(u.createdAt).toLocaleDateString('ja-JP')}
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {/* 請求書 */}
+                      {existingUploads.filter((u) => u.mode === 'invoice-single').length > 0 && (
+                        <div className="space-y-1.5">
+                          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">請求書</p>
+                          {existingUploads.filter((u) => u.mode === 'invoice-single').map((u) => (
+                            <label key={u.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                              selectedInvoiceUploadIds.has(u.id) ? 'border-sky-300 bg-sky-50/40' : 'border-slate-100 hover:border-slate-200'
+                            }`}>
+                              <input
+                                type="checkbox"
+                                checked={selectedInvoiceUploadIds.has(u.id)}
+                                onChange={() => setSelectedInvoiceUploadIds((prev) => {
+                                  const next = new Set(prev);
+                                  next.has(u.id) ? next.delete(u.id) : next.add(u.id);
+                                  return next;
+                                })}
+                                className="rounded border-slate-300 text-sky-500 focus:ring-sky-400"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-slate-700 truncate">{u.fileName}</p>
+                                <p className="text-[10px] text-slate-400">
+                                  {u.itemCount}件の証票 · 仕訳{u.journalEntryCount}件 · {new Date(u.createdAt).toLocaleDateString('ja-JP')}
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        onClick={handleLoadExistingData}
+                        disabled={loadingExistingData || (selectedBankUploadIds.size === 0 && selectedInvoiceUploadIds.size === 0)}
+                        className="w-full bg-sky-400 text-white text-xs font-semibold rounded-xl py-2.5 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
+                      >
+                        {loadingExistingData ? 'データ読み込み中...' : `選択したデータを読み込む（通帳${selectedBankUploadIds.size} + 請求書${selectedInvoiceUploadIds.size}）`}
+                      </button>
+                      {(bankOcr || invoiceOcr) && (
+                        <div className="flex items-center gap-2 text-xs text-lime-600 bg-lime-50 rounded-xl px-3 py-2">
+                          <IconCheck className="w-4 h-4" />
+                          データ読み込み済み — 下の設定で照合を実行してください
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : (
+              /* 2パネルアップロード（新規） */
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
                 {/* 通帳パネル */}
@@ -2505,6 +2742,8 @@ export default function Home() {
                     </button>
                   )}
                 </div>
+              </div>
+              )}
               </div>
             )}
 
