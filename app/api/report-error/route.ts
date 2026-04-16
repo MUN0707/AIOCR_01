@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
     const mode: string | null = body.mode ?? null;
     const context = body.context ?? null;
     const screenshotBase64: string | null = body.screenshot ?? null;
+    const siteName: string | null = body.site_name ?? null;
 
     if (!comment) {
       return NextResponse.json({ error: 'コメントを入力してください' }, { status: 400 });
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
       comment,
       screenshot_path: screenshotPath,
       context,
+      site_name: siteName,
     });
 
     if (insertError) {

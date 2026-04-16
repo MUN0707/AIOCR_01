@@ -13,6 +13,7 @@ interface ErrorReport {
   screenshot_url: string | null;
   context: Record<string, unknown> | null;
   status: 'open' | 'in_progress' | 'resolved';
+  site_name: string | null;
   created_at: string;
 }
 
@@ -34,6 +35,10 @@ export default function ErrorReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [siteFilter, setSiteFilter] = useState<string>('all');
+
+  const siteNames = Array.from(new Set(reports.map((r) => r.site_name || '不明'))).sort();
+  const filteredReports = siteFilter === 'all' ? reports : reports.filter((r) => (r.site_name || '不明') === siteFilter);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,13 +101,39 @@ export default function ErrorReportsPage() {
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">{error}</div>
         )}
 
-        {reports.length === 0 ? (
+        {/* サイト名フィルタ */}
+        {siteNames.length > 1 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold text-slate-500">サイト:</span>
+            <button
+              onClick={() => setSiteFilter('all')}
+              className={`text-xs px-3 py-1.5 rounded-full font-bold transition-colors ${
+                siteFilter === 'all' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              すべて ({reports.length})
+            </button>
+            {siteNames.map((s) => (
+              <button
+                key={s}
+                onClick={() => setSiteFilter(s)}
+                className={`text-xs px-3 py-1.5 rounded-full font-bold transition-colors ${
+                  siteFilter === s ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {s} ({reports.filter((r) => (r.site_name || '不明') === s).length})
+              </button>
+            ))}
+          </div>
+        )}
+
+        {filteredReports.length === 0 ? (
           <div className="bg-white rounded-3xl border border-sky-100 p-10 text-center text-sky-300">
             エラー報告はありません
           </div>
         ) : (
           <div className="space-y-4">
-            {reports.map((r) => (
+            {filteredReports.map((r) => (
               <div key={r.id} className="bg-white rounded-2xl border border-sky-100 shadow-sm p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                   <div>
@@ -110,6 +141,11 @@ export default function ErrorReportsPage() {
                       <span className={`text-xs font-bold px-3 py-1 rounded-full ${STATUS_STYLE[r.status]}`}>
                         {STATUS_LABEL[r.status]}
                       </span>
+                      {r.site_name && (
+                        <span className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-full font-bold">
+                          {r.site_name}
+                        </span>
+                      )}
                       {r.mode && (
                         <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">{r.mode}</span>
                       )}

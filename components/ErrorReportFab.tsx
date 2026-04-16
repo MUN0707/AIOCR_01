@@ -109,6 +109,7 @@ export default function ErrorReportFab() {
           screenshot,
           mode: null,
           context: { page: pathname },
+          site_name: process.env.NEXT_PUBLIC_SITE_NAME || null,
         }),
       });
       const data = await res.json();
