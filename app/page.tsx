@@ -34,10 +34,12 @@ interface InvoiceResult {
   index: number;
   pageStart: number;
   pageEnd: number;
-  // 法人請求書フィールド
+  // 請求書・領収書フィールド
   date?: string;
   requesterName?: string;
   taxIncludedAmount?: number | null;
+  documentCategory?: 'invoice' | 'receipt';
+  invoiceNumber?: string | null;
   // 確定申告フィールド
   year?: string;
   taxpayerName?: string;
@@ -294,6 +296,8 @@ function InvoiceRow({
   const isUnknownDate = !invoice.date || invoice.date === '不明';
   const isUnknownName = !invoice.requesterName || invoice.requesterName === '不明';
 
+  const isReceipt = invoice.documentCategory === 'receipt';
+
   return (
     <tr className="group hover:bg-sky-50/40 transition-colors duration-150">
       <td className="px-5 py-4 text-slate-300 font-mono text-xs tabular-nums">
@@ -304,6 +308,15 @@ function InvoiceRow({
           {invoice.pageStart === invoice.pageEnd
             ? `p${invoice.pageStart}`
             : `p${invoice.pageStart}–${invoice.pageEnd}`}
+        </span>
+      </td>
+      <td className="px-5 py-4">
+        <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+          isReceipt
+            ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+            : 'bg-sky-50 text-sky-600 border border-sky-200'
+        }`}>
+          {isReceipt ? '領収書' : '請求書'}
         </span>
       </td>
       <td className="px-5 py-4">
@@ -324,6 +337,11 @@ function InvoiceRow({
         ) : (
           <span className="text-amber-400 text-sm">—</span>
         )}
+      </td>
+      <td className="px-5 py-4 hidden xl:table-cell">
+        <span className="text-[11px] text-slate-400 font-mono">
+          {invoice.invoiceNumber || '—'}
+        </span>
       </td>
       <td className="px-5 py-4 hidden lg:table-cell">
         <span className="text-[11px] text-slate-300 font-mono truncate block max-w-[180px]">
@@ -1962,7 +1980,7 @@ export default function Home() {
             <div className="inline-flex bg-slate-100 rounded-2xl p-1 gap-1 flex-wrap justify-center">
               {(
                 [
-                  { key: 'invoice', label: '法人請求書' },
+                  { key: 'invoice', label: '請求書・領収書' },
                   { key: 'tax-return', label: '確定申告' },
                   { key: 'bank-statement', label: '通帳OCR' },
                   { key: 'journal-entry', label: '自動仕訳' },
@@ -3339,7 +3357,7 @@ export default function Home() {
                   <p className="text-base font-semibold text-slate-900 tracking-tight">
                     {result.mode === 'bank-statement'
                       ? `${result.transactions.length} 件の取引を検出 · ${result.bankName} ${result.accountNumber}`
-                      : `${result.invoices.length} 件の${result.mode === 'tax-return' ? '書類' : '請求書'}を検出`}
+                      : `${result.invoices.length} 件の${result.mode === 'tax-return' ? '書類' : '請求書・領収書'}を検出`}
                   </p>
                   <p className="text-xs text-slate-400 mt-0.5 tracking-wide">
                     {result.processedFiles > 1
@@ -3438,9 +3456,11 @@ export default function Home() {
                           </>
                         ) : (
                           <>
+                            <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-14">Type</th>
                             <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Date</th>
                             <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Requester</th>
                             <th className="px-5 py-4 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">Amount</th>
+                            <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest hidden xl:table-cell">Invoice No.</th>
                           </>
                         )}
                         <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest hidden lg:table-cell">File</th>
@@ -3452,7 +3472,7 @@ export default function Home() {
                         ? Object.entries(invoicesByFile).map(([sourceFile, invoices]) => (
                             <Fragment key={sourceFile}>
                               <tr className="bg-slate-50/50">
-                                <td colSpan={result.mode === 'tax-return' ? 8 : 7}
+                                <td colSpan={result.mode === 'tax-return' ? 8 : 9}
                                   className="px-5 py-2.5 text-xs text-slate-400 font-medium tracking-wide">
                                   <span className="inline-flex items-center gap-1.5">
                                     <IconFile className="w-3.5 h-3.5" />
@@ -3488,7 +3508,7 @@ export default function Home() {
                     ? `Output: CSV · ${result.bankName} ${result.accountNumber}`
                     : <>File format :{' '}
                           <code className="bg-white border border-slate-100 px-1.5 py-0.5 rounded-md font-mono text-slate-400 normal-case tracking-normal">
-                            {result.mode === 'tax-return' ? '年度_氏名_書類種別.pdf' : '日付_請求者名_税込金額.pdf'}
+                            {result.mode === 'tax-return' ? '年度_氏名_書類種別.pdf' : '種別_日付_発行者名_税込金額.pdf'}
                           </code>
                         </>}
                 </p>
@@ -3504,21 +3524,21 @@ export default function Home() {
               {
                 num: '01',
                 title: 'PDFをアップロード',
-                desc: '複数の請求書がまとまったPDFをドロップ。複数ファイルを同時に指定することも可能です。',
+                desc: '複数の請求書・領収書がまとまったPDFをドロップ。複数ファイルを同時に指定することも可能です。',
                 accent: 'text-sky-400',
                 border: 'hover:border-sky-200',
               },
               {
                 num: '02',
                 title: 'AI OCRで自動解析',
-                desc: 'Claude AIが各請求書の境界・日付・請求者名・税込金額を自動で抽出します。',
+                desc: 'Claude AIが各書類の境界・種別（請求書/領収書）・日付・発行者名・金額・インボイス番号を自動で抽出します。',
                 accent: 'text-sky-400',
                 border: 'hover:border-sky-200',
               },
               {
                 num: '03',
                 title: '分割PDFをダウンロード',
-                desc: '日付_請求者名_金額で命名された1請求書1PDFを個別またはZIPで一括ダウンロード。',
+                desc: '種別_日付_発行者名_金額で命名された1書類1PDFを個別またはZIPで一括ダウンロード。',
                 accent: 'text-lime-500',
                 border: 'hover:border-lime-200',
               },

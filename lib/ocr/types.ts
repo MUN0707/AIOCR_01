@@ -8,12 +8,16 @@ export type OcrMode = 'invoice' | 'tax-return' | 'bank-statement';
 // 法人請求書
 // ──────────────────────────────────────────────────────────
 
+export type DocumentCategory = 'invoice' | 'receipt';
+
 export interface InvoiceInfo {
   pageStart: number;
   pageEnd: number;
   date: string;           // YYYYMMDD or "不明"
-  requesterName: string;  // 請求元（発行者）
+  requesterName: string;  // 請求元（発行者）/ 領収書の場合は店名
   taxIncludedAmount: number | null;
+  documentCategory: DocumentCategory;  // 請求書 or 領収書
+  invoiceNumber: string | null;        // インボイス番号（T+13桁）
 }
 
 export interface InvoiceResult extends InvoiceInfo {
