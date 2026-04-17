@@ -1813,10 +1813,11 @@ export default function Home() {
     setSelectedVoucherIdx(new Set());
   };
 
-  const handleDownloadJournal = () => {
-    if (!journalMatchResult) return;
+  /** 仕訳CSVの行データを組み立てる */
+  const buildJournalCsvRows = (): { header: string[]; rows: string[][] } => {
     const header = ['種別', '日付', '借方科目', '貸方科目', '金額', '摘要', '消費税区分', '照合ステータス', '照合スコア'];
     const rows: string[][] = [];
+    if (!journalMatchResult) return { header, rows };
     for (const r of journalMatchResult.results) {
       for (const e of r.accrualEntries) {
         rows.push([
@@ -1842,7 +1843,6 @@ export default function Home() {
         ]);
       }
     }
-    // 未照合トランザクションも CSV に追加（勘定科目が選択されているもののみ）
     const unmatched = journalMatchResult.summary.unmatchedTransactions ?? [];
     unmatched.forEach((tx, idx) => {
       const account = unmatchedTxAccounts[idx];
@@ -1854,7 +1854,45 @@ export default function Home() {
         desc, '課税仕入10%', 'manual', '',
       ]);
     });
+    return { header, rows };
+  };
+
+  const handleDownloadJournal = () => {
+    const { header, rows } = buildJournalCsvRows();
+    if (rows.length === 0) return;
     downloadCsv([header, ...rows], '自動仕訳.csv');
+  };
+
+  const [csvSaving, setCsvSaving] = useState(false);
+  const [csvSaveSuccess, setCsvSaveSuccess] = useState(false);
+
+  const handleSaveJournalCsv = async () => {
+    const { header, rows } = buildJournalCsvRows();
+    if (rows.length === 0) return;
+    setCsvSaving(true);
+    setCsvSaveSuccess(false);
+    try {
+      const bom = '\uFEFF';
+      const csv = bom + [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const now = new Date();
+      const ts = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const clientLabel = clients.find((c) => c.id === selectedClientId)?.name || 'all';
+      const fileName = `仕訳_${clientLabel}_${ts}.csv`;
+      const fd = new FormData();
+      fd.append('csv', blob, fileName);
+      fd.append('fileName', fileName);
+      if (selectedClientId) fd.append('clientId', selectedClientId);
+      const res = await fetch('/api/journal-csv', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'CSV保存に失敗しました');
+      setCsvSaveSuccess(true);
+      setTimeout(() => setCsvSaveSuccess(false), 3000);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'CSV保存に失敗しました');
+    } finally {
+      setCsvSaving(false);
+    }
   };
 
   // ─── クライアント管理ハンドラ ───────────────────────────────────────────────
@@ -2577,6 +2615,18 @@ export default function Home() {
                     >
                       <IconArchive className="w-3.5 h-3.5" />
                       CSV DL
+                    </button>
+                    <button
+                      onClick={handleSaveJournalCsv}
+                      disabled={csvSaving}
+                      className={`inline-flex items-center gap-1.5 text-xs rounded-xl px-4 py-2.5 font-semibold transition-all duration-200 tracking-wide ${
+                        csvSaveSuccess
+                          ? 'text-white bg-emerald-500'
+                          : 'text-slate-600 border border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                      } disabled:opacity-40`}
+                    >
+                      <IconArchive className="w-3.5 h-3.5" />
+                      {csvSaving ? '保存中...' : csvSaveSuccess ? '保存済み' : 'CSV保存'}
                     </button>
                   </div>
                 </div>

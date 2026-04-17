@@ -148,14 +148,14 @@ export async function processTaxReturnPdf(
         year !== '不明' ? year : '',
         name !== '不明' ? name : '',
       ].filter(Boolean);
-      const prefix = parts.length > 0 ? parts.join('_') : '(要対応)';
+      const prefix = parts.length > 0 ? parts.join('_') : '';
 
       return {
         ...doc,
         pageStart: pStart,
         pageEnd: pEnd,
         year: convertToSeireki(rawYear),
-        fileName: `${prefix}_${seq}_${pageLabel}_${type}.pdf`,
+        fileName: `${prefix ? prefix + '_' : ''}${seq}_${pageLabel}_${type}.pdf`,
         pdfBase64: splitBase64,
       };
     })
