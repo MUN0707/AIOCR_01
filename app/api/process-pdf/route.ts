@@ -26,6 +26,8 @@ export async function POST(request: NextRequest) {
     const mode = (formData.get('mode') as string) || 'invoice';
     const sessionId = (formData.get('sessionId') as string) || crypto.randomUUID();
     const clientId = (formData.get('clientId') as string) || null;
+    const skipPdf = formData.get('skipPdf') === 'true';
+    const pageOffset = parseInt(formData.get('pageOffset') as string) || 0;
 
     if (!file) {
       return NextResponse.json({ error: 'PDFファイルが見つかりません' }, { status: 400 });
@@ -103,8 +105,10 @@ export async function POST(request: NextRequest) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let responseBody: any;
+    const ocrOptions = { skipPdfExtraction: skipPdf, pageOffset };
+
     if (mode === 'tax-return') {
-      const { items, totalPages, usage } = await processTaxReturnPdf(pdfBuffer, anthropic);
+      const { items, totalPages, usage } = await processTaxReturnPdf(pdfBuffer, anthropic, ocrOptions);
       responseBody = {
         mode: 'tax-return',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
@@ -131,7 +135,7 @@ export async function POST(request: NextRequest) {
         usage,
       };
     } else {
-      const { items, totalPages, usage } = await processInvoicePdf(pdfBuffer, anthropic);
+      const { items, totalPages, usage } = await processInvoicePdf(pdfBuffer, anthropic, ocrOptions);
       responseBody = {
         mode: 'invoice',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),

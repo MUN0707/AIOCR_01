@@ -7,7 +7,7 @@ import type { User } from '@supabase/supabase-js';
 import type { OcrMode } from '@/lib/ocr/types';
 import type { MatchResult, MatchSummary, VoucherInput, TransactionInput } from '@/lib/ocr/journal-matcher';
 import { CSV_PRESETS, parseCsvWithPreset, type NormalizedJournalRow } from '@/lib/csv-import-presets';
-import { splitPdfIfNeeded } from '@/lib/pdf-split';
+import { splitPdfIfNeeded, type PdfChunk } from '@/lib/pdf-split';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
@@ -1216,11 +1216,12 @@ export default function Home() {
         for (let i = 0; i < files.length; i++) {
           setProcessingIndex(i + 1);
           const chunks = await splitPdfIfNeeded(files[i]);
-          for (const chunk of chunks) {
+          for (const { file: chunkFile, pageOffset } of chunks) {
             const formData = new FormData();
-            formData.append('pdf', chunk);
+            formData.append('pdf', chunkFile);
             formData.append('mode', mode);
             formData.append('sessionId', sessionId);
+            formData.append('pageOffset', String(pageOffset));
             if (selectedClientId) formData.append('clientId', selectedClientId);
             const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
             let data;
@@ -1259,12 +1260,15 @@ export default function Home() {
       for (let i = 0; i < files.length; i++) {
         setProcessingIndex(i + 1);
         const chunks = await splitPdfIfNeeded(files[i]);
+        const needsClientExtraction = chunks.length > 1;
         let fileSkipped = false;
-        for (const chunk of chunks) {
+        for (const { file: chunkFile, pageOffset } of chunks) {
           const formData = new FormData();
-          formData.append('pdf', chunk);
+          formData.append('pdf', chunkFile);
           formData.append('mode', mode);
           formData.append('sessionId', sessionId);
+          formData.append('pageOffset', String(pageOffset));
+          if (needsClientExtraction) formData.append('skipPdf', 'true');
           if (selectedClientId) formData.append('clientId', selectedClientId);
 
           const res = await fetch('/api/process-pdf', {
@@ -1299,6 +1303,32 @@ export default function Home() {
           }
         }
         if (fileSkipped) continue;
+
+        // クライアント側でPDF抽出（skipPdf使用時）
+        if (needsClientExtraction) {
+          const { PDFDocument } = await import('pdf-lib');
+          const srcBytes = await files[i].arrayBuffer();
+          const srcDoc = await PDFDocument.load(srcBytes);
+          for (const inv of allInvoices) {
+            if (inv.sourceFile === files[i].name && !inv.pdfBase64) {
+              const newPdf = await PDFDocument.create();
+              const startIdx = Math.max(0, inv.pageStart - 1);
+              const endIdx = Math.min(srcDoc.getPageCount() - 1, inv.pageEnd - 1);
+              const indices = Array.from({ length: endIdx - startIdx + 1 }, (_, j) => startIdx + j);
+              const copied = await newPdf.copyPages(srcDoc, indices);
+              copied.forEach((p) => newPdf.addPage(p));
+              const pdfBytes = await newPdf.save();
+              // チャンク単位でbase64変換（大きいPDFでもスタックオーバーフローしない）
+              const uint8 = new Uint8Array(pdfBytes);
+              let binary = '';
+              const CHUNK = 8192;
+              for (let k = 0; k < uint8.length; k += CHUNK) {
+                binary += String.fromCharCode(...uint8.subarray(k, k + CHUNK));
+              }
+              inv.pdfBase64 = btoa(binary);
+            }
+          }
+        }
       }
 
       if (isGuest) {
@@ -1356,6 +1386,37 @@ export default function Home() {
     downloadBlob(zipBlob, '請求書_分割済み.zip');
   };
 
+  const handleCsvExport = () => {
+    if (!result || result.mode === 'bank-statement') return;
+    if (result.mode === 'tax-return') {
+      const header = ['#', 'ページ', '年度', '氏名', '書類種別', '所得金額', '納税額', 'ファイル名'];
+      const rows = result.invoices.map((inv, i) => [
+        String(i + 1),
+        inv.pageStart === inv.pageEnd ? `p${inv.pageStart}` : `p${inv.pageStart}-${inv.pageEnd}`,
+        inv.year || '',
+        inv.taxpayerName || '',
+        inv.documentType || '',
+        inv.totalIncome != null ? String(inv.totalIncome) : '',
+        inv.taxPayable != null ? String(inv.taxPayable) : '',
+        inv.fileName,
+      ]);
+      downloadCsv([header, ...rows], 'OCR結果_確定申告.csv');
+    } else {
+      const header = ['#', 'ページ', '種別', '日付', '発行者名', '税込金額', 'インボイス番号', 'ファイル名'];
+      const rows = result.invoices.map((inv, i) => [
+        String(i + 1),
+        inv.pageStart === inv.pageEnd ? `p${inv.pageStart}` : `p${inv.pageStart}-${inv.pageEnd}`,
+        inv.documentCategory === 'receipt' ? '領収書' : '請求書',
+        inv.date || '',
+        inv.requesterName || '',
+        inv.taxIncludedAmount != null ? String(inv.taxIncludedAmount) : '',
+        inv.invoiceNumber || '',
+        inv.fileName,
+      ]);
+      downloadCsv([header, ...rows], 'OCR結果_請求書領収書.csv');
+    }
+  };
+
   const handleReset = () => {
     setFiles([]);
     setResult(null);
@@ -1396,11 +1457,12 @@ export default function Home() {
         let fileSkipped = false;
         let fileBankName = '不明';
         let fileAccountNumber = '不明';
-        for (const chunk of chunks) {
+        for (const { file: chunkFile, pageOffset } of chunks) {
           const fd = new FormData();
-          fd.append('pdf', chunk);
+          fd.append('pdf', chunkFile);
           fd.append('mode', 'bank-statement');
           fd.append('sessionId', bankSessionId);
+          fd.append('pageOffset', String(pageOffset));
           if (selectedClientId) fd.append('clientId', selectedClientId);
           const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
           let data;
@@ -1503,12 +1565,13 @@ export default function Home() {
       for (let fi = 0; fi < invoiceFiles.length; fi++) {
         const file = invoiceFiles[fi];
         const chunks = await splitPdfIfNeeded(file);
-        for (const chunk of chunks) {
+        for (const { file: chunkFile, pageOffset } of chunks) {
           const fd = new FormData();
-          fd.append('pdf', chunk);
+          fd.append('pdf', chunkFile);
           // 自動仕訳モードでは1PDF=1請求書として扱う（自動分割しない）
           fd.append('mode', 'invoice-single');
           fd.append('sessionId', invoiceSessionId);
+          fd.append('pageOffset', String(pageOffset));
           if (selectedClientId) fd.append('clientId', selectedClientId);
           const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
           let data;
@@ -3403,6 +3466,18 @@ export default function Home() {
                 >
                   別ファイルを処理
                 </button>
+                {result.mode !== 'bank-statement' && (
+                  <button
+                    onClick={handleCsvExport}
+                    className="inline-flex items-center gap-1.5 text-xs text-slate-600
+                      border border-slate-200 rounded-xl px-4 py-2.5 font-semibold
+                      hover:bg-slate-50 hover:border-slate-300
+                      transition-all duration-200 tracking-wide"
+                  >
+                    <IconDownload className="w-3.5 h-3.5" />
+                    CSV保存
+                  </button>
+                )}
                 <button
                   onClick={handleDownloadAll}
                   className="inline-flex items-center gap-1.5 text-xs text-white

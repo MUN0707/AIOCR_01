@@ -8,6 +8,27 @@ export function sanitizeFileName(name: string): string {
     .substring(0, 60);
 }
 
+/**
+ * 和暦（令和・平成・昭和）を西暦に変換する。
+ * 例: "令和7年" → "2025年", "令和5年分" → "2023年分", "平成30年" → "2018年"
+ * 変換できなければそのまま返す。
+ */
+export function convertToSeireki(yearStr: string): string {
+  const eraMap: Record<string, number> = {
+    '令和': 2018,
+    '平成': 1988,
+    '昭和': 1925,
+    '大正': 1911,
+  };
+  const match = yearStr.match(/^(令和|平成|昭和|大正)\s*(\d{1,2})\s*(年.*)/);
+  if (match) {
+    const base = eraMap[match[1]];
+    const num = parseInt(match[2], 10);
+    return `${base + num}${match[3]}`;
+  }
+  return yearStr;
+}
+
 export async function extractPages(
   pdfBuffer: Buffer,
   pageStart: number,

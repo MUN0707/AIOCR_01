@@ -256,9 +256,11 @@ export async function processInvoicePdfSingle(
 
 export async function processInvoicePdf(
   pdfBuffer: Buffer,
-  anthropic: Anthropic
+  anthropic: Anthropic,
+  options?: { skipPdfExtraction?: boolean; pageOffset?: number }
 ): Promise<{ items: Array<InvoiceInfo & { fileName: string; pdfBase64: string }>; totalPages: number; usage: UsageInfo }> {
   const pdfBase64 = pdfBuffer.toString('base64');
+  const pageOffset = options?.pageOffset ?? 0;
 
   const response = await anthropic.messages.create({
     model: 'claude-opus-4-6',
@@ -295,11 +297,14 @@ export async function processInvoicePdf(
 
   const items = await Promise.all(
     claudeData.invoices.map(async (invoice) => {
-      const splitBuffer = await extractPages(
-        pdfBuffer,
-        invoice.pageStart || 1,
-        invoice.pageEnd || invoice.pageStart || 1
-      );
+      const pStart = (invoice.pageStart || 1) + pageOffset;
+      const pEnd = (invoice.pageEnd || invoice.pageStart || 1) + pageOffset;
+
+      let splitBase64 = '';
+      if (!options?.skipPdfExtraction) {
+        const splitBuffer = await extractPages(pdfBuffer, pStart - pageOffset, pEnd - pageOffset);
+        splitBase64 = splitBuffer.toString('base64');
+      }
 
       const date = String(invoice.date || '不明');
       const requester = sanitizeFileName(String(invoice.requesterName || '不明'));
@@ -312,10 +317,12 @@ export async function processInvoicePdf(
 
       return {
         ...invoice,
+        pageStart: pStart,
+        pageEnd: pEnd,
         documentCategory: docCat,
         invoiceNumber: invoice.invoiceNumber || null,
         fileName: `${docLabel}_${date}_${requester}_${amount}.pdf`,
-        pdfBase64: splitBuffer.toString('base64'),
+        pdfBase64: splitBase64,
       };
     })
   );

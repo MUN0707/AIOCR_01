@@ -7,7 +7,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { TaxReturnInfo } from './types';
-import { sanitizeFileName, extractPages, parseJsonSafe } from './utils';
+import { sanitizeFileName, extractPages, parseJsonSafe, convertToSeireki } from './utils';
 import { calcCost, UsageInfo } from './cost';
 
 // ──────────────────────────────────────────────────────────
@@ -86,9 +86,11 @@ interface ClaudeTaxReturnResponse {
 
 export async function processTaxReturnPdf(
   pdfBuffer: Buffer,
-  anthropic: Anthropic
+  anthropic: Anthropic,
+  options?: { skipPdfExtraction?: boolean; pageOffset?: number }
 ): Promise<{ items: Array<TaxReturnInfo & { fileName: string; pdfBase64: string }>; totalPages: number; usage: UsageInfo }> {
   const pdfBase64 = pdfBuffer.toString('base64');
+  const pageOffset = options?.pageOffset ?? 0;
 
   const response = await anthropic.messages.create({
     model: 'claude-opus-4-6',
@@ -124,21 +126,37 @@ export async function processTaxReturnPdf(
 
   const items = await Promise.all(
     claudeData.documents.map(async (doc, idx) => {
-      const pStart = doc.pageStart || 1;
-      const pEnd = doc.pageEnd || pStart;
-      const splitBuffer = await extractPages(pdfBuffer, pStart, pEnd);
+      const pStart = (doc.pageStart || 1) + pageOffset;
+      const pEnd = (doc.pageEnd || doc.pageStart || 1) + pageOffset;
 
-      const year = sanitizeFileName(String(doc.year || '不明'));
+      let splitBase64 = '';
+      if (!options?.skipPdfExtraction) {
+        const splitBuffer = await extractPages(pdfBuffer, pStart - pageOffset, pEnd - pageOffset);
+        splitBase64 = splitBuffer.toString('base64');
+      }
+
+      const rawYear = String(doc.year || '不明');
+      const year = sanitizeFileName(convertToSeireki(rawYear));
       const name = sanitizeFileName(String(doc.taxpayerName || '不明'));
       const type = sanitizeFileName(String(doc.documentType || 'その他'));
       // ページ範囲 + 連番でユニーク化（同名衝突でZIP上書きを防ぐ）
       const pageLabel = pStart === pEnd ? `p${pStart}` : `p${pStart}-${pEnd}`;
       const seq = String(idx + 1).padStart(2, '0');
 
+      // 不明部分を省略してファイル名を簡潔に
+      const parts = [
+        year !== '不明' ? year : '',
+        name !== '不明' ? name : '',
+      ].filter(Boolean);
+      const prefix = parts.length > 0 ? parts.join('_') : '(要対応)';
+
       return {
         ...doc,
-        fileName: `${year}_${name}_${seq}_${pageLabel}_${type}.pdf`,
-        pdfBase64: splitBuffer.toString('base64'),
+        pageStart: pStart,
+        pageEnd: pEnd,
+        year: convertToSeireki(rawYear),
+        fileName: `${prefix}_${seq}_${pageLabel}_${type}.pdf`,
+        pdfBase64: splitBase64,
       };
     })
   );
