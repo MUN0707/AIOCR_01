@@ -4408,7 +4408,7 @@ function LedgerView({
             <>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-2">会計ソフトを選択</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {CSV_PRESETS.map((p) => (
                     <button
                       key={p.id}
@@ -4423,56 +4423,104 @@ function LedgerView({
                       <span className="text-[10px] text-slate-400 mt-0.5 block">{p.description}</span>
                     </button>
                   ))}
+                  <button
+                    onClick={() => setImportPresetId('__other__')}
+                    className={`text-sm rounded-xl px-4 py-3 border-2 transition-all text-left ${
+                      importPresetId === '__other__'
+                        ? 'border-amber-400 bg-amber-50 text-amber-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    <span className="font-semibold block">その他</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">未対応ソフトのCSVを送信</span>
+                  </button>
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-2">CSVファイルを選択</label>
-                <input
-                  ref={importFileRef}
-                  type="file"
-                  accept=".csv,.txt"
-                  onChange={handleImportFile}
-                  className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-600 hover:file:bg-sky-100 cursor-pointer"
-                />
-                <p className="text-[10px] text-slate-400 mt-1.5">
-                  {CSV_PRESETS.find((p) => p.id === importPresetId)?.encoding === 'shift_jis'
-                    ? 'Shift_JIS / UTF-8 どちらにも対応しています'
-                    : 'UTF-8 形式のCSVに対応しています'}
-                </p>
-              </div>
-              {importError && (
-                <div className="space-y-3">
-                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">{importError}</div>
-                  {importFile && !csvSubmitted && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-4 space-y-2">
-                      <p className="text-xs font-semibold text-amber-800">
-                        このCSVの対応を依頼しますか？
-                      </p>
-                      <p className="text-[11px] text-amber-600">
-                        CSVファイルを送信していただければ、列マッピングを分析してインポートに対応します。
-                      </p>
-                      <textarea
-                        value={csvSubmitComment}
-                        onChange={(e) => setCsvSubmitComment(e.target.value)}
-                        placeholder="補足コメント（任意）: 会計ソフト名やバージョンなど"
-                        className="w-full text-xs border border-amber-200 rounded-lg px-3 py-2 bg-white placeholder:text-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400"
-                        rows={2}
-                      />
-                      <button
-                        onClick={handleSubmitCsvForReview}
-                        disabled={csvSubmitting}
-                        className="text-xs text-white bg-amber-500 rounded-xl px-4 py-2 font-semibold hover:bg-amber-600 transition-all disabled:opacity-40"
-                      >
-                        {csvSubmitting ? '送信中...' : 'CSVを送信して対応依頼'}
-                      </button>
-                    </div>
-                  )}
-                  {csvSubmitted && (
+              {importPresetId === '__other__' ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-5 space-y-3">
+                  <p className="text-sm font-semibold text-amber-800">
+                    未対応の会計ソフトのCSVを送信
+                  </p>
+                  <p className="text-[11px] text-amber-600 leading-relaxed">
+                    CSVファイルを送信していただければ、列マッピングを分析してインポートに対応します。
+                  </p>
+                  <input
+                    ref={importFileRef}
+                    type="file"
+                    accept=".csv,.txt"
+                    onChange={(e) => { setImportFile(e.target.files?.[0] ?? null); setCsvSubmitted(false); }}
+                    className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200 cursor-pointer"
+                  />
+                  <textarea
+                    value={csvSubmitComment}
+                    onChange={(e) => setCsvSubmitComment(e.target.value)}
+                    placeholder="会計ソフト名・バージョン・補足など"
+                    className="w-full text-xs border border-amber-200 rounded-lg px-3 py-2 bg-white placeholder:text-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    rows={2}
+                  />
+                  {!csvSubmitted ? (
+                    <button
+                      onClick={handleSubmitCsvForReview}
+                      disabled={csvSubmitting || !importFile}
+                      className="text-xs text-white bg-amber-500 rounded-xl px-5 py-2.5 font-semibold hover:bg-amber-600 transition-all disabled:opacity-40"
+                    >
+                      {csvSubmitting ? '送信中...' : 'CSVを送信して対応依頼'}
+                    </button>
+                  ) : (
                     <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700 font-medium">
                       送信しました。対応完了後にお知らせします。
                     </div>
                   )}
                 </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-2">CSVファイルを選択</label>
+                    <input
+                      ref={importFileRef}
+                      type="file"
+                      accept=".csv,.txt"
+                      onChange={handleImportFile}
+                      className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-600 hover:file:bg-sky-100 cursor-pointer"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1.5">
+                      {CSV_PRESETS.find((p) => p.id === importPresetId)?.encoding === 'shift_jis'
+                        ? 'Shift_JIS / UTF-8 どちらにも対応しています'
+                        : 'UTF-8 形式のCSVに対応しています'}
+                    </p>
+                  </div>
+                  {importError && (
+                    <div className="space-y-3">
+                      <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">{importError}</div>
+                      {importFile && !csvSubmitted && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-4 space-y-2">
+                          <p className="text-xs font-semibold text-amber-800">
+                            このCSVの対応を依頼しますか？
+                          </p>
+                          <textarea
+                            value={csvSubmitComment}
+                            onChange={(e) => setCsvSubmitComment(e.target.value)}
+                            placeholder="補足コメント（任意）"
+                            className="w-full text-xs border border-amber-200 rounded-lg px-3 py-2 bg-white placeholder:text-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                            rows={2}
+                          />
+                          <button
+                            onClick={handleSubmitCsvForReview}
+                            disabled={csvSubmitting}
+                            className="text-xs text-white bg-amber-500 rounded-xl px-4 py-2 font-semibold hover:bg-amber-600 transition-all disabled:opacity-40"
+                          >
+                            {csvSubmitting ? '送信中...' : 'CSVを送信して対応依頼'}
+                          </button>
+                        </div>
+                      )}
+                      {csvSubmitted && (
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700 font-medium">
+                          送信しました。対応完了後にお知らせします。
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
