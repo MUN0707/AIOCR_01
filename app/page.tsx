@@ -7,6 +7,7 @@ import type { User } from '@supabase/supabase-js';
 import type { OcrMode } from '@/lib/ocr/types';
 import type { MatchResult, MatchSummary, VoucherInput, TransactionInput } from '@/lib/ocr/journal-matcher';
 import { CSV_PRESETS, parseCsvWithPreset, type NormalizedJournalRow } from '@/lib/csv-import-presets';
+import { splitPdfIfNeeded } from '@/lib/pdf-split';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
@@ -1211,31 +1212,34 @@ export default function Home() {
         let bankCostJpy = 0;
         let bankInTok = 0;
         let bankOutTok = 0;
+        let isFirstChunk = true;
         for (let i = 0; i < files.length; i++) {
           setProcessingIndex(i + 1);
-          const file = files[i];
-          const formData = new FormData();
-          formData.append('pdf', file);
-          formData.append('mode', mode);
-          formData.append('sessionId', sessionId);
-          if (selectedClientId) formData.append('clientId', selectedClientId);
-          const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
-          let data;
-          try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります。4MB以下のPDFをお試しください）`); }
-          if (!res.ok) {
-            if (data.errorCode === 'DUPLICATE_FILE') {
-              alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
-              continue;
+          const chunks = await splitPdfIfNeeded(files[i]);
+          for (const chunk of chunks) {
+            const formData = new FormData();
+            formData.append('pdf', chunk);
+            formData.append('mode', mode);
+            formData.append('sessionId', sessionId);
+            if (selectedClientId) formData.append('clientId', selectedClientId);
+            const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
+            let data;
+            try { data = await res.json(); } catch { throw new Error(`${files[i].name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります）`); }
+            if (!res.ok) {
+              if (data.errorCode === 'DUPLICATE_FILE') {
+                alert(`⚠️ ${files[i].name}\n${data.error}\nこのファイルをスキップして続行します。`);
+                break;
+              }
+              throw new Error(`${files[i].name}: ${data.error || 'エラーが発生しました'}`);
             }
-            throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
-          }
-          if (i === 0) { bankName = data.bankName; accountNumber = data.accountNumber; }
-          allTransactions.push(...(data.transactions || []).map((t: Omit<BankTransactionRow, 'sourceFile'>) => ({ ...t, sourceFile: file.name })));
-          totalPages += data.totalPages;
-          if (data.usage) {
-            bankCostJpy += data.usage.costJpy || 0;
-            bankInTok += data.usage.inputTokens || 0;
-            bankOutTok += data.usage.outputTokens || 0;
+            if (isFirstChunk) { bankName = data.bankName; accountNumber = data.accountNumber; isFirstChunk = false; }
+            allTransactions.push(...(data.transactions || []).map((t: Omit<BankTransactionRow, 'sourceFile'>) => ({ ...t, sourceFile: files[i].name })));
+            totalPages += data.totalPages;
+            if (data.usage) {
+              bankCostJpy += data.usage.costJpy || 0;
+              bankInTok += data.usage.inputTokens || 0;
+              bankOutTok += data.usage.outputTokens || 0;
+            }
           }
         }
         if (isGuest) {
@@ -1254,43 +1258,47 @@ export default function Home() {
       let invOutTok = 0;
       for (let i = 0; i < files.length; i++) {
         setProcessingIndex(i + 1);
-        const file = files[i];
+        const chunks = await splitPdfIfNeeded(files[i]);
+        let fileSkipped = false;
+        for (const chunk of chunks) {
+          const formData = new FormData();
+          formData.append('pdf', chunk);
+          formData.append('mode', mode);
+          formData.append('sessionId', sessionId);
+          if (selectedClientId) formData.append('clientId', selectedClientId);
 
-        const formData = new FormData();
-        formData.append('pdf', file);
-        formData.append('mode', mode);
-        formData.append('sessionId', sessionId);
-        if (selectedClientId) formData.append('clientId', selectedClientId);
+          const res = await fetch('/api/process-pdf', {
+            method: 'POST',
+            body: formData,
+          });
 
-        const res = await fetch('/api/process-pdf', {
-          method: 'POST',
-          body: formData,
-        });
-
-        let data;
-        try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります。4MB以下のPDFをお試しください）`); }
-        if (!res.ok) {
-          if (data.errorCode === 'DUPLICATE_FILE') {
-            alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
-            continue;
+          let data;
+          try { data = await res.json(); } catch { throw new Error(`${files[i].name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります）`); }
+          if (!res.ok) {
+            if (data.errorCode === 'DUPLICATE_FILE') {
+              alert(`⚠️ ${files[i].name}\n${data.error}\nこのファイルをスキップして続行します。`);
+              fileSkipped = true;
+              break;
+            }
+            throw new Error(`${files[i].name}: ${data.error || 'エラーが発生しました'}`);
           }
-          throw new Error(`${file.name}: ${data.error || 'エラーが発生しました'}`);
-        }
 
-        const invoicesWithSource = data.invoices.map(
-          (inv: Omit<InvoiceResult, 'sourceFile'>) => ({
-            ...inv,
-            index: allInvoices.length + inv.index,
-            sourceFile: file.name,
-          })
-        );
-        allInvoices.push(...invoicesWithSource);
-        totalPages += data.totalPages;
-        if (data.usage) {
-          invCostJpy += data.usage.costJpy || 0;
-          invInTok += data.usage.inputTokens || 0;
-          invOutTok += data.usage.outputTokens || 0;
+          const invoicesWithSource = data.invoices.map(
+            (inv: Omit<InvoiceResult, 'sourceFile'>) => ({
+              ...inv,
+              index: allInvoices.length + inv.index,
+              sourceFile: files[i].name,
+            })
+          );
+          allInvoices.push(...invoicesWithSource);
+          totalPages += data.totalPages;
+          if (data.usage) {
+            invCostJpy += data.usage.costJpy || 0;
+            invInTok += data.usage.inputTokens || 0;
+            invOutTok += data.usage.outputTokens || 0;
+          }
         }
+        if (fileSkipped) continue;
       }
 
       if (isGuest) {
@@ -1384,43 +1392,47 @@ export default function Home() {
       const bankSessionId = crypto.randomUUID();
       for (let fi = 0; fi < bankFiles.length; fi++) {
         const file = bankFiles[fi];
-        const fd = new FormData();
-        fd.append('pdf', file);
-        fd.append('mode', 'bank-statement');
-        fd.append('sessionId', bankSessionId);
-        if (selectedClientId) fd.append('clientId', selectedClientId);
-        const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
-        let data;
-        try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります。4MB以下のPDFをお試しください）`); }
-        if (!res.ok) {
-          if (data.errorCode === 'DUPLICATE_FILE') {
-            alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
-            continue;
+        const chunks = await splitPdfIfNeeded(file);
+        let fileSkipped = false;
+        let fileBankName = '不明';
+        let fileAccountNumber = '不明';
+        for (const chunk of chunks) {
+          const fd = new FormData();
+          fd.append('pdf', chunk);
+          fd.append('mode', 'bank-statement');
+          fd.append('sessionId', bankSessionId);
+          if (selectedClientId) fd.append('clientId', selectedClientId);
+          const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
+          let data;
+          try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります）`); }
+          if (!res.ok) {
+            if (data.errorCode === 'DUPLICATE_FILE') {
+              alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
+              fileSkipped = true;
+              break;
+            }
+            throw new Error(`${file.name}: ${data.error}`);
           }
-          throw new Error(`${file.name}: ${data.error}`);
+          if (fileBankName === '不明') { fileBankName = data.bankName || '不明'; fileAccountNumber = data.accountNumber || '不明'; }
+          const mapped = mapByKey.get(`${fileBankName}||${fileAccountNumber}`);
+          const deposit = mapped?.depositAccount || '普通預金';
+          const uploadId: string | null = data.uploadId ?? null;
+          allTx.push(...(data.transactions || []).map((t: { date: string; description: string; debit: number | null; credit: number | null }) => ({
+            transactionDate: t.date,
+            description: t.description,
+            debit: t.debit,
+            credit: t.credit,
+            sourceFileIndex: fi,
+            sourceFileName: file.name,
+            ocrUploadId: uploadId,
+            bankAccountName: deposit,
+          })));
         }
-        const bn: string = data.bankName || '不明';
-        const an: string = data.accountNumber || '不明';
-        const mapped = mapByKey.get(`${bn}||${an}`);
+        if (fileSkipped) continue;
+        const mapped = mapByKey.get(`${fileBankName}||${fileAccountNumber}`);
         const deposit = mapped?.depositAccount || '普通預金';
-        fileInfos.push({
-          bankName: bn,
-          accountNumber: an,
-          depositAccount: deposit,
-          mappingId: mapped?.id ?? null,
-        });
-        if (topBankName === '不明') { topBankName = bn; topAccountNumber = an; }
-        const uploadId: string | null = data.uploadId ?? null;
-        allTx.push(...(data.transactions || []).map((t: { date: string; description: string; debit: number | null; credit: number | null }) => ({
-          transactionDate: t.date,
-          description: t.description,
-          debit: t.debit,
-          credit: t.credit,
-          sourceFileIndex: fi,
-          sourceFileName: file.name,
-          ocrUploadId: uploadId,
-          bankAccountName: deposit,
-        })));
+        fileInfos.push({ bankName: fileBankName, accountNumber: fileAccountNumber, depositAccount: deposit, mappingId: mapped?.id ?? null });
+        if (topBankName === '不明') { topBankName = fileBankName; topAccountNumber = fileAccountNumber; }
       }
       setBankOcr({ transactions: allTx, bankName: topBankName, accountNumber: topAccountNumber, files: fileInfos });
     } catch (e) {
@@ -1490,52 +1502,52 @@ export default function Home() {
       const invoiceSessionId = crypto.randomUUID();
       for (let fi = 0; fi < invoiceFiles.length; fi++) {
         const file = invoiceFiles[fi];
-        const fd = new FormData();
-        fd.append('pdf', file);
-        // 自動仕訳モードでは1PDF=1請求書として扱う（自動分割しない）
-        fd.append('mode', 'invoice-single');
-        fd.append('sessionId', invoiceSessionId);
-        if (selectedClientId) fd.append('clientId', selectedClientId);
-        const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
-        let data;
-        try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります。4MB以下のPDFをお試しください）`); }
-        if (!res.ok) {
-          // 明細合計不整合の場合は専用モーダルで通知（スクショ提出依頼）
-          if (data.errorCode === 'LINE_SUM_MISMATCH' && data.detail) {
-            setLineSumMismatch({
-              fileName: file.name,
-              taxIncludedAmount: data.detail.taxIncludedAmount,
-              linesSum: data.detail.linesSum,
-              lines: data.detail.lines ?? [],
+        const chunks = await splitPdfIfNeeded(file);
+        for (const chunk of chunks) {
+          const fd = new FormData();
+          fd.append('pdf', chunk);
+          // 自動仕訳モードでは1PDF=1請求書として扱う（自動分割しない）
+          fd.append('mode', 'invoice-single');
+          fd.append('sessionId', invoiceSessionId);
+          if (selectedClientId) fd.append('clientId', selectedClientId);
+          const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
+          let data;
+          try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります）`); }
+          if (!res.ok) {
+            // 明細合計不整合の場合は専用モーダルで通知（スクショ提出依頼）
+            if (data.errorCode === 'LINE_SUM_MISMATCH' && data.detail) {
+              setLineSumMismatch({
+                fileName: file.name,
+                taxIncludedAmount: data.detail.taxIncludedAmount,
+                linesSum: data.detail.linesSum,
+                lines: data.detail.lines ?? [],
+              });
+              return; // OCR全体を中断
+            }
+            throw new Error(`${file.name}: ${data.error}`);
+          }
+          const uploadId: string | null = data.uploadId ?? null;
+          for (const inv of (data.invoices || [])) {
+            const ocrLines: { debitAccount: string; amountInclTax: number; taxType: string; description: string }[] =
+              Array.isArray(inv.lines) ? inv.lines : [];
+            const hasMultipleLines = ocrLines.length > 1;
+            const voucherIdx = allVouchers.length;
+            if (typeof inv.withholdingTax === 'number' && inv.withholdingTax > 0) {
+              autoWhBuf[voucherIdx] = inv.withholdingTax;
+            }
+            allVouchers.push({
+              vendorName: inv.requesterName || '',
+              invoiceDate: inv.date || '不明',
+              amountInclTax: inv.taxIncludedAmount,
+              debitAccount: hasMultipleLines ? '' : (ocrLines[0]?.debitAccount || '仕入高'),
+              description: inv.requesterName || '',
+              taxType: hasMultipleLines ? '課税仕入10%' : (ocrLines[0]?.taxType || '課税仕入10%'),
+              lines: hasMultipleLines ? ocrLines : undefined,
+              sourceFileIndex: fi,
+              sourceFileName: file.name,
+              ocrUploadId: uploadId,
             });
-            return; // OCR全体を中断
           }
-          throw new Error(`${file.name}: ${data.error}`);
-        }
-        const uploadId: string | null = data.uploadId ?? null;
-        for (const inv of (data.invoices || [])) {
-          // OCRが返した明細行を VoucherLine[] として引き継ぐ。
-          // lines が無い場合は matcher 側で単一行にフォールバックする。
-          const ocrLines: { debitAccount: string; amountInclTax: number; taxType: string; description: string }[] =
-            Array.isArray(inv.lines) ? inv.lines : [];
-          const hasMultipleLines = ocrLines.length > 1;
-          const voucherIdx = allVouchers.length;
-          if (typeof inv.withholdingTax === 'number' && inv.withholdingTax > 0) {
-            autoWhBuf[voucherIdx] = inv.withholdingTax;
-          }
-          allVouchers.push({
-            vendorName: inv.requesterName || '',
-            invoiceDate: inv.date || '不明',
-            amountInclTax: inv.taxIncludedAmount,
-            // 単一行の場合は従来どおりヘッダに代表値を入れる
-            debitAccount: hasMultipleLines ? '' : (ocrLines[0]?.debitAccount || '仕入高'),
-            description: inv.requesterName || '',
-            taxType: hasMultipleLines ? '課税仕入10%' : (ocrLines[0]?.taxType || '課税仕入10%'),
-            lines: hasMultipleLines ? ocrLines : undefined,
-            sourceFileIndex: fi,
-            sourceFileName: file.name,
-            ocrUploadId: uploadId,
-          });
         }
       }
       setInvoiceOcr({ vouchers: allVouchers, count: allVouchers.length });
