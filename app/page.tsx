@@ -2616,18 +2616,6 @@ export default function Home() {
                       <IconArchive className="w-3.5 h-3.5" />
                       CSV DL
                     </button>
-                    <button
-                      onClick={handleSaveJournalCsv}
-                      disabled={csvSaving}
-                      className={`inline-flex items-center gap-1.5 text-xs rounded-xl px-4 py-2.5 font-semibold transition-all duration-200 tracking-wide ${
-                        csvSaveSuccess
-                          ? 'text-white bg-emerald-500'
-                          : 'text-slate-600 border border-slate-200 hover:bg-slate-50 hover:border-slate-300'
-                      } disabled:opacity-40`}
-                    >
-                      <IconArchive className="w-3.5 h-3.5" />
-                      {csvSaving ? '保存中...' : csvSaveSuccess ? '保存済み' : 'CSV保存'}
-                    </button>
                   </div>
                 </div>
 
@@ -4723,6 +4711,20 @@ function LedgerView({
             className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600 transition-all"
           >
             CSVインポート
+          </button>
+          <button
+            onClick={() => {
+              const header = ['日付', '借方科目', '貸方科目', '金額', '摘要', '消費税区分', '取引先'];
+              const rows = filtered.map((e) => [
+                e.entry_date, e.debit_account, e.credit_account,
+                e.amount != null ? String(e.amount) : '',
+                e.description, e.tax_type, e.vendor_name,
+              ]);
+              downloadCsv([header, ...rows], `仕訳日記帳${clientName ? '_' + clientName : ''}.csv`);
+            }}
+            className="text-xs text-lime-700 bg-lime-50 border border-lime-200 rounded-xl px-4 py-2 font-semibold hover:bg-lime-100 transition-all"
+          >
+            CSVエクスポート
           </button>
           <button
             onClick={onRefresh}
