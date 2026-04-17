@@ -1,24 +1,31 @@
 import { PDFDocument } from 'pdf-lib';
 
 const MAX_CHUNK_BYTES = 3.5 * 1024 * 1024; // 3.5MB（4.5MB上限に余裕を持たせる）
+const MAX_PAGES_PER_CHUNK = 10; // Claude APIの処理時間・出力トークン上限を考慮
 
 /**
- * PDFファイルが大きすぎる場合、ページ単位で分割して複数のFileに分ける。
- * 各チャンクは MAX_CHUNK_BYTES 以下になるよう調整する。
- * 小さいファイルはそのまま [file] を返す。
+ * PDFファイルが大きすぎる場合やページ数が多い場合、
+ * ページ単位で分割して複数のFileに分ける。
+ * - ファイルサイズ: MAX_CHUNK_BYTES 以下
+ * - ページ数: MAX_PAGES_PER_CHUNK 以下
+ * の両方を満たすよう分割する。
  */
 export async function splitPdfIfNeeded(file: File): Promise<File[]> {
-  if (file.size <= MAX_CHUNK_BYTES) return [file];
-
   const arrayBuffer = await file.arrayBuffer();
   const srcDoc = await PDFDocument.load(arrayBuffer);
   const totalPages = srcDoc.getPageCount();
 
   if (totalPages <= 1) return [file]; // 1ページなら分割不可
 
-  // 平均ページサイズから1チャンクあたりのページ数を推定
+  // サイズ基準のページ数
   const avgPageBytes = file.size / totalPages;
-  const pagesPerChunk = Math.max(1, Math.floor(MAX_CHUNK_BYTES / avgPageBytes));
+  const pagesBySize = Math.max(1, Math.floor(MAX_CHUNK_BYTES / avgPageBytes));
+
+  // サイズとページ数の両方の上限を満たす方を採用
+  const pagesPerChunk = Math.min(pagesBySize, MAX_PAGES_PER_CHUNK);
+
+  // 分割不要ならそのまま返す
+  if (pagesPerChunk >= totalPages) return [file];
 
   const chunks: File[] = [];
   for (let start = 0; start < totalPages; start += pagesPerChunk) {
