@@ -4287,6 +4287,10 @@ function LedgerView({
   const [importError, setImportError] = useState<string | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<{ inserted: number; skipped: number } | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [csvSubmitting, setCsvSubmitting] = useState(false);
+  const [csvSubmitted, setCsvSubmitted] = useState(false);
+  const [csvSubmitComment, setCsvSubmitComment] = useState('');
   const importFileRef = useRef<HTMLInputElement>(null);
 
   const resetImport = () => {
@@ -4297,13 +4301,39 @@ function LedgerView({
     setImportError(null);
     setImportLoading(false);
     setImportResult(null);
+    setImportFile(null);
+    setCsvSubmitted(false);
+    setCsvSubmitComment('');
     if (importFileRef.current) importFileRef.current.value = '';
+  };
+
+  const handleSubmitCsvForReview = async () => {
+    if (!importFile || csvSubmitting) return;
+    setCsvSubmitting(true);
+    try {
+      const fd = new FormData();
+      fd.append('csv', importFile);
+      fd.append('presetId', importPresetId);
+      fd.append('errorMessage', importError || '');
+      fd.append('comment', csvSubmitComment);
+      fd.append('siteName', 'aiocr');
+      const res = await fetch('/api/csv-submissions', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '送信に失敗しました');
+      setCsvSubmitted(true);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'CSV送信に失敗しました');
+    } finally {
+      setCsvSubmitting(false);
+    }
   };
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImportError(null);
+    setImportFile(file);
+    setCsvSubmitted(false);
 
     const preset = CSV_PRESETS.find((p) => p.id === importPresetId);
     if (!preset) return;
@@ -4411,7 +4441,38 @@ function LedgerView({
                 </p>
               </div>
               {importError && (
-                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">{importError}</div>
+                <div className="space-y-3">
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">{importError}</div>
+                  {importFile && !csvSubmitted && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-4 space-y-2">
+                      <p className="text-xs font-semibold text-amber-800">
+                        このCSVの対応を依頼しますか？
+                      </p>
+                      <p className="text-[11px] text-amber-600">
+                        CSVファイルを送信していただければ、列マッピングを分析してインポートに対応します。
+                      </p>
+                      <textarea
+                        value={csvSubmitComment}
+                        onChange={(e) => setCsvSubmitComment(e.target.value)}
+                        placeholder="補足コメント（任意）: 会計ソフト名やバージョンなど"
+                        className="w-full text-xs border border-amber-200 rounded-lg px-3 py-2 bg-white placeholder:text-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                        rows={2}
+                      />
+                      <button
+                        onClick={handleSubmitCsvForReview}
+                        disabled={csvSubmitting}
+                        className="text-xs text-white bg-amber-500 rounded-xl px-4 py-2 font-semibold hover:bg-amber-600 transition-all disabled:opacity-40"
+                      >
+                        {csvSubmitting ? '送信中...' : 'CSVを送信して対応依頼'}
+                      </button>
+                    </div>
+                  )}
+                  {csvSubmitted && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700 font-medium">
+                      送信しました。対応完了後にお知らせします。
+                    </div>
+                  )}
+                </div>
               )}
             </>
           )}

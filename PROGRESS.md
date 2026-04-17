@@ -434,3 +434,4 @@ public/sales-deck.pdf   — 営業資料PDF
 - 背景/理由: エラーレポート3件への対応（CSV保存要望＋4MB超データ欠け＋ファイル名表記問題）
   - **仕訳CSVのSupabase保存機能追加**: 自動仕訳で生成したCSVを`ocr-uploads`バケットに保存するAPI(`/api/journal-csv`)を新設。`saved_csvs`テーブルでメタデータ管理。DLは`/api/journal-csv/download?path=...`。会計ソフトインポート前にPC上で分析・修正するワークフローに対応
   - **ファイル名の(要対応)も削除**: year/name不明時は連番+ページ+書類名のみ
+  - **CSVインポートエラー時のCSV送信機能**: インポート失敗時に「CSVを送信して対応依頼」ボタンを表示。CSVファイル+会計ソフト名+エラー内容を`error_reports`に記録（category=csv-import）。管理者がDL・分析して新プリセット追加可能
