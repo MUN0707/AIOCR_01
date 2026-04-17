@@ -1220,7 +1220,8 @@ export default function Home() {
           formData.append('sessionId', sessionId);
           if (selectedClientId) formData.append('clientId', selectedClientId);
           const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
-          const data = await res.json();
+          let data;
+          try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります。4MB以下のPDFをお試しください）`); }
           if (!res.ok) {
             if (data.errorCode === 'DUPLICATE_FILE') {
               alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
@@ -1266,7 +1267,8 @@ export default function Home() {
           body: formData,
         });
 
-        const data = await res.json();
+        let data;
+        try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります。4MB以下のPDFをお試しください）`); }
         if (!res.ok) {
           if (data.errorCode === 'DUPLICATE_FILE') {
             alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
@@ -1388,7 +1390,8 @@ export default function Home() {
         fd.append('sessionId', bankSessionId);
         if (selectedClientId) fd.append('clientId', selectedClientId);
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
-        const data = await res.json();
+        let data;
+        try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります。4MB以下のPDFをお試しください）`); }
         if (!res.ok) {
           if (data.errorCode === 'DUPLICATE_FILE') {
             alert(`⚠️ ${file.name}\n${data.error}\nこのファイルをスキップして続行します。`);
@@ -1494,7 +1497,8 @@ export default function Home() {
         fd.append('sessionId', invoiceSessionId);
         if (selectedClientId) fd.append('clientId', selectedClientId);
         const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
-        const data = await res.json();
+        let data;
+        try { data = await res.json(); } catch { throw new Error(`${file.name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります。4MB以下のPDFをお試しください）`); }
         if (!res.ok) {
           // 明細合計不整合の場合は専用モーダルで通知（スクショ提出依頼）
           if (data.errorCode === 'LINE_SUM_MISMATCH' && data.detail) {
@@ -1989,7 +1993,7 @@ export default function Home() {
               ).map(({ key, label }) => (
                 <button
                   key={key}
-                  onClick={() => { setMode(key); setFiles([]); setError(null); }}
+                  onClick={() => { setMode(key); setFiles([]); setError(null); if (key === 'tax-return') setSelectedClientId(null); }}
                   className={`px-5 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                     mode === key
                       ? 'bg-white text-sky-500 shadow-sm'
@@ -2003,8 +2007,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* ─── クライアント選択バー（ログインユーザーのみ） ────────────────── */}
-        {!isGuest && user && !result && !loading && (
+        {/* ─── クライアント選択バー（ログインユーザーのみ、確定申告モードでは非表示） */}
+        {!isGuest && user && !result && !loading && mode !== 'tax-return' && (
           <div className="flex justify-center">
             <div className="flex items-center gap-3 bg-white/70 border border-slate-100 rounded-2xl px-5 py-3 shadow-sm">
               <span className="text-xs text-slate-500 tracking-wide whitespace-nowrap">クライアント</span>
