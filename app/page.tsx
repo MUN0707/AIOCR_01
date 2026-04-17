@@ -4400,15 +4400,21 @@ function LedgerView({
                   {CSV_PRESETS.map((p) => (
                     <button
                       key={p.id}
-                      onClick={() => setImportPresetId(p.id)}
-                      className={`text-sm rounded-xl px-4 py-3 border-2 transition-all text-left ${
-                        importPresetId === p.id
-                          ? 'border-sky-400 bg-sky-50 text-sky-700'
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                      onClick={() => setImportPresetId(p.unsupported ? '__other__' : p.id)}
+                      className={`text-sm rounded-xl px-4 py-3 border-2 transition-all text-left relative ${
+                        p.unsupported
+                          ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-default'
+                          : importPresetId === p.id
+                            ? 'border-sky-400 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                       }`}
                     >
                       <span className="font-semibold block">{p.label}</span>
-                      <span className="text-[10px] text-slate-400 mt-0.5 block">{p.description}</span>
+                      {p.unsupported ? (
+                        <span className="text-[10px] text-amber-500 mt-0.5 block">現在未対応 — 「その他」からCSVを送信してください</span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 mt-0.5 block">{p.description}</span>
+                      )}
                     </button>
                   ))}
                   <button

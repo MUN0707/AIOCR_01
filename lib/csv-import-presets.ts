@@ -35,6 +35,22 @@ export interface CsvPreset {
     vendor_name: string[];
   };
   /**
+   * ヘッダ行がないCSVの場合、列インデックスを直接指定する。
+   * 設定されている場合はヘッダ解決より優先される。
+   */
+  fixedColumns?: {
+    entry_date: number;
+    debit_account: number;
+    credit_account: number;
+    amount: number;
+    tax_type: number;
+    description: number;
+    vendor_name: number;
+    credit_amount?: number;     // 貸方金額（別列にある場合）
+  };
+  /** 未対応フラグ（UIで「その他」から送信を案内する） */
+  unsupported?: boolean;
+  /**
    * 日付文字列を YYYYMMDD に正規化する関数。
    * 未指定時はデフォルトパーサーを使用。
    */
@@ -95,6 +111,20 @@ export const CSV_PRESETS: CsvPreset[] = [
       description:    ['摘要', '適用', '摘要文'],
       vendor_name:    ['取引先', '相手先', '取引先名'],
     },
+    // 弥生の仕訳日記帳エクスポートはヘッダなし25列固定フォーマット
+    // [0]仕訳番号 [1]行番号 [2]空 [3]日付 [4]借方科目 [5]借方補助 [6]借方部門
+    // [7]借方税区分 [8]借方金額 [9]借方消費税額 [10]貸方科目 [11]貸方補助 [12]貸方部門
+    // [13]貸方税区分 [14]貸方金額 [15]貸方消費税額 [16]摘要 ...
+    fixedColumns: {
+      entry_date: 3,
+      debit_account: 4,
+      credit_account: 10,
+      amount: 8,
+      tax_type: 7,
+      description: 16,
+      vendor_name: 5,       // 借方補助科目を取引先代用
+      credit_amount: 14,
+    },
     dateParser: yayoiDateParser,
   },
   {
@@ -102,6 +132,7 @@ export const CSV_PRESETS: CsvPreset[] = [
     label: 'freee会計',
     description: 'freee の仕訳帳CSVダウンロード',
     encoding: 'utf-8',
+    unsupported: true,
     skipRows: 0,
     columns: {
       entry_date:     ['発生日', '取引日', '日付'],
@@ -119,6 +150,7 @@ export const CSV_PRESETS: CsvPreset[] = [
     label: 'マネーフォワード',
     description: 'マネーフォワード クラウド会計の仕訳帳CSVエクスポート',
     encoding: 'utf-8',
+    unsupported: true,
     skipRows: 0,
     columns: {
       entry_date:     ['取引日', '日付', '発生日'],
@@ -198,7 +230,50 @@ export function parseCsvWithPreset(csvText: string, preset: CsvPreset): ParseRes
     return { rows: [], skipped: 0, errors: ['データ行がありません'], headers: [] };
   }
 
-  // ヘッダ行
+  const dateParser = preset.dateParser ?? defaultDateParser;
+  const rows: NormalizedJournalRow[] = [];
+  let skipped = 0;
+
+  // ── fixedColumns モード（ヘッダなし固定列CSV）──
+  if (preset.fixedColumns) {
+    const fc = preset.fixedColumns;
+    // 1行目もデータ行として扱う（ヘッダがないため）
+    // ただしヘッダ行が含まれている場合を検出して自動スキップ
+    const firstCells = parseCsvLine(lines[preset.skipRows]);
+    const firstDateCandidate = firstCells[fc.entry_date] ?? '';
+    const looksLikeHeader = !firstDateCandidate.match(/\d{4}[/\-.]?\d{1,2}[/\-.]?\d{1,2}/)
+      && !firstDateCandidate.match(/^\d{8}$/);
+    const dataStart = preset.skipRows + (looksLikeHeader ? 1 : 0);
+
+    for (let i = dataStart; i < lines.length; i++) {
+      const cells = parseCsvLine(lines[i]);
+      const dateRaw = cells[fc.entry_date] ?? '';
+      const entryDate = dateParser(dateRaw);
+      const debit = cells[fc.debit_account] ?? '';
+      const credit = cells[fc.credit_account] ?? '';
+      const amountRaw = (cells[fc.amount] ?? '').replace(/[,，\s¥\\]/g, '');
+      const amount = amountRaw ? parseInt(amountRaw, 10) : null;
+
+      if (!debit && !credit) {
+        skipped++;
+        continue;
+      }
+
+      rows.push({
+        entry_date: entryDate || '不明',
+        debit_account: debit || '不明',
+        credit_account: credit || '不明',
+        amount: amount !== null && !isNaN(amount) ? amount : null,
+        tax_type: cells[fc.tax_type] ?? '',
+        description: cells[fc.description] ?? '',
+        vendor_name: cells[fc.vendor_name] ?? '',
+      });
+    }
+
+    return { rows, skipped, errors, headers: [] };
+  }
+
+  // ── ヘッダ行ベースモード ──
   const headerLine = lines[preset.skipRows];
   const headers = parseCsvLine(headerLine);
 
@@ -222,10 +297,6 @@ export function parseCsvWithPreset(csvText: string, preset: CsvPreset): ParseRes
   if (errors.length > 0) {
     return { rows: [], skipped: 0, errors, headers };
   }
-
-  const dateParser = preset.dateParser ?? defaultDateParser;
-  const rows: NormalizedJournalRow[] = [];
-  let skipped = 0;
 
   for (let i = preset.skipRows + 1; i < lines.length; i++) {
     const cells = parseCsvLine(lines[i]);
