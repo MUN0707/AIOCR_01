@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
         .select('id, file_name, created_at')
         .eq('user_id', userId)
         .eq('file_hash', fileHash)
+        .eq('mode', mode)
         .limit(1)
         .maybeSingle();
 

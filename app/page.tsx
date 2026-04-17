@@ -2255,7 +2255,7 @@ export default function Home() {
                   確定申告書類を<span className="text-sky-400 font-semibold"> AI </span>で自動整理
                 </h2>
                 <p className="text-sm text-slate-400 mt-2 tracking-wider">
-                  申告書・決算書・明細書をまとめてアップロード → 1書類1ファイルに分割
+                  申告書・決算書・明細書・寄付金受領証明書・医療費明細書をまとめてアップロード → 1書類1ファイルに分割
                 </p>
               </>
             )}
@@ -3373,8 +3373,13 @@ export default function Home() {
                   <p className="text-base font-semibold text-slate-900 tracking-tight">
                     {result.mode === 'bank-statement'
                       ? `${result.transactions.length} 件の取引を検出 · ${result.bankName} ${result.accountNumber}`
-                      : `${result.invoices.length} 件の${result.mode === 'tax-return' ? '書類' : '請求書・領収書'}を検出`}
+                      : `${result.invoices.length} 件の${result.mode === 'tax-return' ? '確定申告書類' : '請求書・領収書'}を検出`}
                   </p>
+                  {result.mode !== 'bank-statement' && (
+                    <p className="text-[10px] text-white bg-sky-400 rounded-full px-2 py-0.5 inline-block mt-1 tracking-wide font-medium">
+                      {result.mode === 'tax-return' ? '確定申告モード' : '請求書・領収書モード'}
+                    </p>
+                  )}
                   <p className="text-xs text-slate-400 mt-0.5 tracking-wide">
                     {result.processedFiles > 1
                       ? `${result.processedFiles}件のPDF · 計${result.totalPages}ページを処理`
