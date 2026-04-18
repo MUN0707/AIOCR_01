@@ -12,7 +12,7 @@ export default function PricingPage() {
         'AIによる請求書・通帳自動解析',
         'PDF分割・ファイル命名',
         'ZIPダウンロード対応',
-        'メールサポート',
+        'メールサポート（5営業日以内）',
       ],
       cta: '申し込む',
       highlight: false,
@@ -29,7 +29,7 @@ export default function PricingPage() {
         'PDF分割・ファイル命名',
         'ZIPダウンロード対応',
         '顧問先管理',
-        'メールサポート',
+        'メールサポート（5営業日以内）',
       ],
       cta: '申し込む',
       highlight: true,
@@ -38,15 +38,15 @@ export default function PricingPage() {
       name: 'プロ',
       planId: 'pro',
       price: 9800,
-      description: '税理士事務所・20社規模向け',
+      description: '税理士事務所・15社規模向け',
       features: [
-        '月500件まで処理',
+        '月300件まで処理',
         'AIによる請求書・通帳自動解析',
         'PDF分割・ファイル命名',
         'ZIPダウンロード対応',
         '顧問先管理',
         '仕訳突合',
-        '優先サポート',
+        'メールサポート（3営業日以内）',
       ],
       cta: '申し込む',
       highlight: false,
@@ -63,7 +63,7 @@ export default function PricingPage() {
         'ZIPダウンロード対応',
         '顧問先管理',
         '仕訳突合',
-        '優先サポート（翌営業日以内）',
+        'メールサポート（翌営業日以内）',
       ],
       cta: 'お問い合わせ',
       highlight: false,
@@ -72,13 +72,13 @@ export default function PricingPage() {
 
   const comparisonRows = [
     ['月額料金', '¥1,500', '¥3,980', '¥9,800', '¥19,800'],
-    ['月次処理件数', '30件', '100件', '500件', '1,000件'],
+    ['月次処理件数', '30件', '100件', '300件', '1,000件'],
     ['請求書・通帳OCR', '✓', '✓', '✓', '✓'],
     ['確定申告モード', '✓', '✓', '✓', '✓'],
     ['PDF分割・ZIP一括DL', '✓', '✓', '✓', '✓'],
     ['顧問先管理', '—', '✓', '✓', '✓'],
     ['仕訳突合', '—', '—', '✓', '✓'],
-    ['サポート', 'メール', 'メール', '優先', '優先（翌営業日）'],
+    ['サポート', 'メール（5営業日）', 'メール（5営業日）', 'メール（3営業日）', 'メール（翌営業日）'],
   ];
 
   return (
@@ -192,6 +192,15 @@ export default function PricingPage() {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* 超過料金 */}
+        <div className="bg-sky-50/50 rounded-2xl border border-sky-100 p-8 text-center space-y-2">
+          <h2 className="text-lg font-bold text-sky-900">月間処理件数を超えた場合</h2>
+          <p className="text-sky-700 text-base">
+            プラン上限を超えた分は <span className="font-bold text-sky-900">1件あたり20円</span> で追加処理できます。
+          </p>
+          <p className="text-sky-500 text-sm">翌月の請求に自動で合算されます。</p>
         </div>
 
         {/* お支払い */}

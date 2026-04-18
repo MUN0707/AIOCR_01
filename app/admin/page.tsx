@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
-const PLAN_LIMITS: Record<string, number> = { lite: 30, standard: 100, pro: 500, enterprise: 1000, trial: 10 };
+const PLAN_LIMITS: Record<string, number> = { lite: 30, standard: 100, pro: 300, enterprise: 1000, trial: 10 };
 
 interface Subscription {
   id: string;

@@ -7,7 +7,7 @@ import { Suspense } from 'react';
 const PLANS = [
   { id: 'lite', name: 'ライト', price: 1500, limit: '30件/月' },
   { id: 'standard', name: 'スタンダード', price: 3980, limit: '100件/月' },
-  { id: 'pro', name: 'プロ', price: 9800, limit: '500件/月' },
+  { id: 'pro', name: 'プロ', price: 9800, limit: '300件/月' },
   { id: 'enterprise', name: 'エンタープライズ', price: 19800, limit: '1,000件/月' },
 ] as const;
 

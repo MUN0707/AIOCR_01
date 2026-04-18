@@ -4,7 +4,7 @@ import { createClient } from '@/utils/supabase/server';
 const PLAN_LIMITS: Record<string, number> = {
   lite: 30,
   standard: 100,
-  pro: 500,
+  pro: 300,
   enterprise: 1000,
   trial: 10,
 };
