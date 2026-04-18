@@ -25,17 +25,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { companyName, contactName } = await request.json();
+  const { companyName, contactName, plan } = await request.json();
   if (!companyName || !contactName) {
     return NextResponse.json({ error: '会社名と担当者名は必須です' }, { status: 400 });
   }
 
+  const validPlans = ['lite', 'standard', 'pro', 'enterprise'];
+  const selectedPlan = validPlans.includes(plan) ? plan : 'standard';
+
   const serviceClient = createServiceClient();
-  const notes = `会社名: ${companyName} / 担当者: ${contactName}`;
+  const notes = `会社名: ${companyName} / 担当者: ${contactName} / プラン: ${selectedPlan}`;
 
   const { error } = await serviceClient
     .from('subscriptions')
     .update({
+      plan: selectedPlan,
       status: 'pending',
       payment_method: 'bank_transfer',
       notes,

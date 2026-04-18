@@ -1,10 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default function SubscribePage() {
+const PLANS = [
+  { id: 'lite', name: 'ライト', price: 1500, limit: '30件/月' },
+  { id: 'standard', name: 'スタンダード', price: 3980, limit: '100件/月' },
+  { id: 'pro', name: 'プロ', price: 9800, limit: '500件/月' },
+  { id: 'enterprise', name: 'エンタープライズ', price: 19800, limit: '1,000件/月' },
+] as const;
+
+function SubscribeForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialPlan = PLANS.find(p => p.id === searchParams.get('plan'))?.id ?? 'standard';
+  const [selectedPlan, setSelectedPlan] = useState(initialPlan);
   const [companyName, setCompanyName] = useState('');
   const [contactName, setContactName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,7 +29,7 @@ export default function SubscribePage() {
       const res = await fetch('/api/subscription/bank-transfer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyName, contactName }),
+        body: JSON.stringify({ companyName, contactName, plan: selectedPlan }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'エラーが発生しました');
@@ -61,6 +72,41 @@ export default function SubscribePage() {
           </div>
 
           <form onSubmit={handleBankTransfer} className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-sky-800">
+                プラン選択 <span className="text-red-400">*</span>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {PLANS.map((plan) => (
+                  <label
+                    key={plan.id}
+                    className={`relative flex flex-col items-center p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                      selectedPlan === plan.id
+                        ? 'border-sky-500 bg-sky-50 shadow-sm'
+                        : 'border-sky-100 bg-white hover:border-sky-200'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="plan"
+                      value={plan.id}
+                      checked={selectedPlan === plan.id}
+                      onChange={() => setSelectedPlan(plan.id)}
+                      className="sr-only"
+                    />
+                    {selectedPlan === plan.id && (
+                      <div className="absolute top-2 right-2 w-5 h-5 bg-sky-500 rounded-full flex items-center justify-center">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      </div>
+                    )}
+                    <p className="font-bold text-sky-900 text-sm">{plan.name}</p>
+                    <p className="text-sky-700 font-extrabold text-lg">¥{plan.price.toLocaleString()}<span className="text-xs font-normal text-sky-400">/月</span></p>
+                    <p className="text-sky-500 text-xs">{plan.limit}</p>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-sky-800">
                 会社名・屋号 <span className="text-red-400">*</span>
@@ -106,5 +152,13 @@ export default function SubscribePage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function SubscribePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-sky-50" />}>
+      <SubscribeForm />
+    </Suspense>
   );
 }

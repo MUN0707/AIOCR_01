@@ -4,6 +4,7 @@ export default function PricingPage() {
   const plans = [
     {
       name: 'ライト',
+      planId: 'lite',
       price: 1500,
       description: '個人事業主・少量処理向け',
       features: [
@@ -18,6 +19,7 @@ export default function PricingPage() {
     },
     {
       name: 'スタンダード',
+      planId: 'standard',
       price: 3980,
       description: '1人税理士・少数顧問先向け',
       badge: '人気',
@@ -34,6 +36,7 @@ export default function PricingPage() {
     },
     {
       name: 'プロ',
+      planId: 'pro',
       price: 9800,
       description: '税理士事務所・20社規模向け',
       features: [
@@ -50,6 +53,7 @@ export default function PricingPage() {
     },
     {
       name: 'エンタープライズ',
+      planId: 'enterprise',
       price: 19800,
       description: '大規模事務所・法人向け',
       features: [
@@ -147,7 +151,7 @@ export default function PricingPage() {
                 ))}
               </ul>
               <Link
-                href="/subscribe"
+                href={`/subscribe?plan=${plan.planId}`}
                 className={`block text-center font-bold py-3 rounded-full transition-colors text-sm ${
                   plan.highlight
                     ? 'bg-white hover:bg-sky-50 text-sky-600'

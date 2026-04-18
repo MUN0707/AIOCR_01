@@ -1,11 +1,27 @@
 import { PDFDocument } from 'pdf-lib';
 
 export function sanitizeFileName(name: string): string {
-  return name
+  return stripTitleAndPersonName(name)
     .replace(/[\\/:*?"<>|]/g, '_')
     .replace(/\s+/g, '_')
     .replace(/_{2,}/g, '_')
+    .replace(/_$/, '')
     .substring(0, 60);
+}
+
+/**
+ * 役職名＋個人名を除去する。
+ * 例: 「南アルプス市長 金丸一元」→「南アルプス市」
+ *     「代表取締役 山田太郎」→ そのまま（組織名がない場合は除去しない）
+ */
+function stripTitleAndPersonName(name: string): string {
+  // 「組織名 + 役職 + 個人名」パターン（役職以降を除去）
+  const titlePattern = /^(.+?)\s*(?:市長|町長|村長|区長|知事|理事長|代表理事|会長|代表取締役|取締役|社長|副社長|院長|学長|校長|園長|局長|部長|課長|所長|センター長|事務局長|理事|監事|幹事)\s*.+$/;
+  const match = name.match(titlePattern);
+  if (match) {
+    return match[1].trim();
+  }
+  return name;
 }
 
 /**
