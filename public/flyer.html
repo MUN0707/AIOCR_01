@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invoice OCR - 請求書PDFの分割・命名を自動化</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  body {
+    font-family: 'Noto Sans JP', sans-serif;
+    color: #1a1a1a;
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 14mm 16mm 12mm;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ── ヘッダー帯 ── */
+  .header {
+    background: linear-gradient(135deg, #0284c7, #0ea5e9);
+    color: #fff;
+    margin: -14mm -16mm 0;
+    padding: 10mm 16mm 9mm;
+  }
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 4mm;
+  }
+  .logo {
+    font-size: 13pt;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    opacity: 0.95;
+  }
+  .badge {
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 4px;
+    padding: 2px 10px;
+    font-size: 8pt;
+    font-weight: 500;
+  }
+  .headline {
+    font-size: 22pt;
+    font-weight: 900;
+    line-height: 1.35;
+    margin-bottom: 3mm;
+  }
+  .headline em {
+    font-style: normal;
+    background: linear-gradient(transparent 60%, rgba(132,204,22,0.4) 60%);
+  }
+  .sub-headline {
+    font-size: 10.5pt;
+    font-weight: 400;
+    opacity: 0.92;
+    line-height: 1.5;
+  }
+
+  /* ── Before / After ── */
+  .ba-section {
+    display: flex;
+    gap: 4mm;
+    margin: 7mm 0 5mm;
+  }
+  .ba-box {
+    flex: 1;
+    border-radius: 8px;
+    padding: 5mm 5mm 4mm;
+  }
+  .ba-before {
+    background: #fef2f2;
+    border: 1.5px solid #fca5a5;
+  }
+  .ba-after {
+    background: #f0fdf4;
+    border: 1.5px solid #86efac;
+  }
+  .ba-label {
+    font-size: 9pt;
+    font-weight: 700;
+    margin-bottom: 2.5mm;
+    display: flex;
+    align-items: center;
+    gap: 2mm;
+  }
+  .ba-before .ba-label { color: #dc2626; }
+  .ba-after .ba-label { color: #16a34a; }
+  .ba-box ul {
+    list-style: none;
+    font-size: 9pt;
+    line-height: 1.65;
+  }
+  .ba-box li {
+    padding-left: 4.5mm;
+    position: relative;
+  }
+  .ba-before li::before {
+    content: "✕";
+    position: absolute;
+    left: 0;
+    color: #ef4444;
+    font-weight: 700;
+    font-size: 8pt;
+  }
+  .ba-after li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: #22c55e;
+    font-weight: 700;
+    font-size: 9pt;
+  }
+  .arrow-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20pt;
+    color: #0ea5e9;
+    flex-shrink: 0;
+    width: 8mm;
+  }
+
+  /* ── 3ステップ ── */
+  .steps {
+    display: flex;
+    gap: 3mm;
+    margin: 5mm 0;
+  }
+  .step {
+    flex: 1;
+    text-align: center;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 4mm 3mm;
+  }
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: #0ea5e9;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 9pt;
+    font-weight: 700;
+    margin-bottom: 2mm;
+  }
+  .step-title {
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: #0284c7;
+    margin-bottom: 1.5mm;
+  }
+  .step-desc {
+    font-size: 8pt;
+    color: #475569;
+    line-height: 1.5;
+  }
+
+  /* ── 機能一覧 ── */
+  .features-title {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 5mm 0 3mm;
+    padding-bottom: 1.5mm;
+    border-bottom: 2px solid #0ea5e9;
+    display: inline-block;
+  }
+  .features {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2.5mm 6mm;
+    margin-bottom: 4mm;
+  }
+  .feat {
+    display: flex;
+    align-items: flex-start;
+    gap: 2mm;
+    font-size: 8.5pt;
+    line-height: 1.5;
+  }
+  .feat-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    background: #e0f2fe;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10pt;
+    margin-top: 1px;
+  }
+  .feat-text strong {
+    color: #0f172a;
+  }
+  .feat-text span {
+    color: #64748b;
+  }
+
+  /* ── 料金 ── */
+  .pricing-section {
+    background: #f0f9ff;
+    border: 1.5px solid #bae6fd;
+    border-radius: 8px;
+    padding: 4mm 5mm;
+    margin: 3mm 0;
+  }
+  .pricing-title {
+    font-size: 10pt;
+    font-weight: 700;
+    color: #0284c7;
+    margin-bottom: 2.5mm;
+  }
+  .pricing-grid {
+    display: flex;
+    gap: 3mm;
+  }
+  .plan {
+    flex: 1;
+    background: #fff;
+    border-radius: 6px;
+    padding: 3mm;
+    text-align: center;
+    border: 1px solid #e0f2fe;
+  }
+  .plan.highlight {
+    border: 2px solid #0ea5e9;
+    position: relative;
+  }
+  .plan.highlight::after {
+    content: "人気";
+    position: absolute;
+    top: -2.5mm;
+    right: 3mm;
+    background: #0ea5e9;
+    color: #fff;
+    font-size: 6.5pt;
+    font-weight: 700;
+    padding: 0.5mm 2.5mm;
+    border-radius: 3px;
+  }
+  .plan-name {
+    font-size: 8pt;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 1mm;
+  }
+  .plan-price {
+    font-size: 14pt;
+    font-weight: 900;
+    color: #0f172a;
+  }
+  .plan-price small {
+    font-size: 7.5pt;
+    font-weight: 400;
+    color: #94a3b8;
+  }
+  .plan-count {
+    font-size: 7.5pt;
+    color: #64748b;
+    margin-top: 0.5mm;
+  }
+
+  /* ── CTA ── */
+  .cta {
+    background: linear-gradient(135deg, #0284c7, #0ea5e9);
+    color: #fff;
+    border-radius: 8px;
+    padding: 5mm 5mm;
+    margin: 4mm 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 5mm;
+  }
+  .cta-left {
+    flex: 1;
+  }
+  .cta-main {
+    font-size: 13pt;
+    font-weight: 900;
+    margin-bottom: 1.5mm;
+  }
+  .cta-sub {
+    font-size: 8.5pt;
+    opacity: 0.9;
+    line-height: 1.5;
+  }
+  .cta-right {
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .cta-url-box {
+    background: #fff;
+    color: #0284c7;
+    border-radius: 6px;
+    padding: 3mm 4mm;
+    font-size: 8pt;
+    font-weight: 700;
+    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    gap: 3mm;
+  }
+  .cta-url-box .qr-code {
+    flex-shrink: 0;
+  }
+  .cta-url-box .qr-code svg {
+    width: 22mm;
+    height: 22mm;
+  }
+  .cta-url-text {
+    text-align: left;
+  }
+  .cta-url-box .url-label {
+    font-size: 7pt;
+    color: #64748b;
+    font-weight: 400;
+    display: block;
+    margin-bottom: 0.5mm;
+  }
+  .cta-url-box .url {
+    font-size: 8pt;
+    word-break: break-all;
+  }
+
+  /* ── フッター ── */
+  .footer {
+    margin-top: 3mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    font-size: 7pt;
+    color: #94a3b8;
+  }
+  .footer-contact {
+    font-size: 7.5pt;
+    color: #64748b;
+  }
+
+  /* ── 印刷最適化 ── */
+  @media print {
+    body { background: #fff; }
+    .page {
+      width: 100%;
+      min-height: auto;
+      padding: 14mm 16mm 12mm;
+    }
+  }
+
+  /* ── 画面表示時の見やすさ ── */
+  @media screen {
+    body {
+      background: #e2e8f0;
+      padding: 20px 0;
+    }
+    .page {
+      box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+      background: #fff;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ヘッダー -->
+  <div class="header">
+    <div class="header-top">
+      <div class="logo">Invoice OCR</div>
+      <div class="badge">税理士事務所向け</div>
+    </div>
+    <div class="headline">
+      請求書PDFの<em>分割・命名</em>、<br>まだ手作業でやっていませんか？
+    </div>
+    <div class="sub-headline">
+      顧問先から届いたPDFをアップロードするだけ。<br>
+      AIが1枚ずつ自動分割し、日付・取引先・金額でファイル名を生成します。
+    </div>
+  </div>
+
+  <!-- Before / After -->
+  <div class="ba-section">
+    <div class="ba-box ba-before">
+      <div class="ba-label">Before ─ いままで</div>
+      <ul>
+        <li>顧問先から届いた数十ページのPDFを開く</li>
+        <li>1枚ずつ内容を目視で確認</li>
+        <li>「日付_取引先_金額.pdf」と手入力で命名</li>
+        <li>フォルダに1つずつ保存</li>
+      </ul>
+    </div>
+    <div class="arrow-center">→</div>
+    <div class="ba-box ba-after">
+      <div class="ba-label">After ─ Invoice OCR</div>
+      <ul>
+        <li>PDFをドラッグ＆ドロップ</li>
+        <li>AIが請求書を1枚ずつ自動分割</li>
+        <li>日付・取引先・金額でファイル名を自動生成</li>
+        <li>ZIPでまとめてダウンロード</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 3ステップ -->
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-title">アップロード</div>
+      <div class="step-desc">PDFをブラウザに<br>ドラッグ＆ドロップ</div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-title">AI自動処理</div>
+      <div class="step-desc">分割・命名・<br>金額抽出を自動実行</div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-title">ダウンロード</div>
+      <div class="step-desc">命名済みPDFを<br>ZIP一括ダウンロード</div>
+    </div>
+  </div>
+
+  <!-- 機能一覧 -->
+  <div class="features-title">そのほかの機能</div>
+  <div class="features">
+    <div class="feat">
+      <div class="feat-icon">📄</div>
+      <div class="feat-text">
+        <strong>確定申告書類の自動仕分け</strong><br>
+        <span>申告書・源泉徴収票・控除証明書など約35種を自動分類</span>
+      </div>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">🔄</div>
+      <div class="feat-text">
+        <strong>通帳×請求書の自動照合</strong><br>
+        <span>金額・日付・取引先名で自動マッチング</span>
+      </div>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">📝</div>
+      <div class="feat-text">
+        <strong>仕訳の自動生成</strong><br>
+        <span>照合結果から仕訳を生成、弥生CSV出力対応</span>
+      </div>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">🔒</div>
+      <div class="feat-text">
+        <strong>セキュリティ</strong><br>
+        <span>データはサーバーに保存されず処理後即削除</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 料金 -->
+  <div class="pricing-section">
+    <div class="pricing-title">料金プラン（税込）</div>
+    <div class="pricing-grid">
+      <div class="plan">
+        <div class="plan-name">ライト</div>
+        <div class="plan-price">¥1,500<small>/月</small></div>
+        <div class="plan-count">月30件</div>
+      </div>
+      <div class="plan highlight">
+        <div class="plan-name">スタンダード</div>
+        <div class="plan-price">¥3,980<small>/月</small></div>
+        <div class="plan-count">月100件 + 顧問先管理</div>
+      </div>
+      <div class="plan">
+        <div class="plan-name">プロ</div>
+        <div class="plan-price">¥9,800<small>/月</small></div>
+        <div class="plan-count">月300件 + 仕訳突合</div>
+      </div>
+      <div class="plan">
+        <div class="plan-name">エンタープライズ</div>
+        <div class="plan-price">¥19,800<small>/月</small></div>
+        <div class="plan-count">月1,000件 + 全機能</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta">
+    <div class="cta-left">
+      <div class="cta-main">3日間 無料トライアル</div>
+      <div class="cta-sub">
+        カード登録不要・ブラウザだけで完結<br>
+        インストール不要ですぐにお試しいただけます
+      </div>
+    </div>
+    <div class="cta-right">
+      <div class="cta-url-box">
+        <div class="qr-code"><svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 31 31" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h31v31H0z"/><path stroke="#0284c7" d="M1 1.5h7m2 0h4m1 0h1m4 0h1m2 0h7M1 2.5h1m5 0h1m3 0h1m1 0h1m3 0h1m3 0h1m1 0h1m5 0h1M1 3.5h1m1 0h3m1 0h1m4 0h1m2 0h2m1 0h2m3 0h1m1 0h3m1 0h1M1 4.5h1m1 0h3m1 0h1m2 0h5m2 0h1m1 0h2m2 0h1m1 0h3m1 0h1M1 5.5h1m1 0h3m1 0h1m3 0h2m6 0h1m3 0h1m1 0h3m1 0h1M1 6.5h1m5 0h1m1 0h1m2 0h1m3 0h3m1 0h1m2 0h1m5 0h1M1 7.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 8.5h3m1 0h1m1 0h4m1 0h1M1 9.5h1m2 0h1m1 0h2m1 0h2m4 0h1m1 0h1m4 0h1m1 0h1M2 10.5h3m1 0h1m3 0h1m3 0h1m1 0h2m3 0h1m1 0h1m2 0h1m2 0h1M1 11.5h1m3 0h1m1 0h10m2 0h2m1 0h1m3 0h3M1 12.5h2m2 0h2m1 0h1m3 0h3m2 0h1m3 0h2m1 0h2m1 0h2M3 13.5h2m1 0h2m1 0h1m1 0h2m2 0h2m1 0h2m2 0h2m2 0h1m1 0h2M2 14.5h4m5 0h1m1 0h5m2 0h3m1 0h1M2 15.5h1m3 0h3m1 0h1m2 0h3m7 0h2m1 0h4M1 16.5h3m1 0h1m5 0h3m2 0h1m1 0h1m1 0h2m2 0h1m1 0h1m1 0h1M1 17.5h2m3 0h4m3 0h2m3 0h1m1 0h1m1 0h1m1 0h1m3 0h1M2 18.5h3m1 0h1m1 0h1m2 0h7m5 0h2m1 0h1m2 0h1M1 19.5h1m1 0h1m3 0h1m1 0h1m2 0h2m1 0h5m4 0h1m3 0h2M4 20.5h2m2 0h1m2 0h1m3 0h1m2 0h3m1 0h3m3 0h2M1 21.5h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h1m3 0h1m4 0h5m1 0h1M9 22.5h1m3 0h1m1 0h2m4 0h1m3 0h1m1 0h3M1 23.5h7m3 0h2m4 0h2m2 0h1m1 0h1m1 0h1m2 0h1M1 24.5h1m5 0h1m1 0h3m3 0h2m2 0h1m1 0h1m3 0h3M1 25.5h1m1 0h3m1 0h1m3 0h2m4 0h2m2 0h5m2 0h1M1 26.5h1m1 0h3m1 0h1m1 0h3m2 0h1m1 0h1m3 0h1m2 0h5m1 0h1M1 27.5h1m1 0h3m1 0h1m2 0h1m2 0h1m1 0h4m1 0h1m4 0h3m1 0h1M1 28.5h1m5 0h1m2 0h3m2 0h1m1 0h6m2 0h1m2 0h1M1 29.5h7m1 0h4m1 0h1m1 0h1m2 0h1m1 0h1m1 0h2m1 0h1m1 0h1"/></svg></div>
+        <div class="cta-url-text">
+          <span class="url-label">▼ スマホで読み取り or 下記URLへ</span>
+          <span class="url">https://ocr.taxbestsearch.com</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- フッター -->
+  <div class="footer">
+    <div class="footer-contact">
+      お問い合わせ: invoice-ocr@taxbestsearch.com
+    </div>
+    <div>Invoice OCR by AI Lab</div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -461,3 +461,16 @@ public/sales-deck.pdf   — 営業資料PDF
 - 次にやること / 未解決:
   - Sonnet命名ルール改善の実データ検証（市区町村からの請求書等でrequesterNameが正しく組織名のみになるか）
   - 確定申告OCRのdocumentType精度改善（全書類「その他」になる問題、プロンプト見直し必要）
+
+## 2026-04-18 16:00（営業準備）
+- やったこと:
+  - **A4営業チラシ作成**: `public/flyer.html`（HTML→PDF印刷対応、QRコード付き、FAX送信可）
+  - **営業文テンプレート作成**: `public/sales-templates.txt`（A:フォーム用200字 / B:メール添付用 / C:FAX用）
+  - **添付用PDF生成**: `【営業】メール添付用PDF/InvoiceOCR_サービス案内.pdf`（Playwright経由でA4 PDF化）
+  - **営業用メールアドレス設定**: `invoice-ocr@taxbestsearch.com` をGoogle Workspaceにエイリアス追加、Gmail送信元にも追加。送受信確認済み
+  - **料金チラシ反映**: プロプラン月300件（/pricingと整合）
+- 背景/理由: 税理士事務所への営業開始準備。問い合わせフォーム・メール直送・FAX DMの3チャネルで展開予定
+- 次にやること / 未解決:
+  - `ocr.taxbestsearch.com` のVercelドメイン紐付け（サブドメイン設定）
+  - 税理士リストからHP→問い合わせフォーム送信の営業開始
+  - FAX営業のFAX番号収集方法の検討
