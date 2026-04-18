@@ -10,9 +10,11 @@ import { createServiceClient } from '@/utils/supabase/service';
 export const maxDuration = 60;
 
 const PLAN_LIMITS: Record<string, number> = {
-  light: 50,
-  heavy: 200,
-  trial: 50,
+  lite: 30,
+  standard: 100,
+  pro: 500,
+  enterprise: 1000,
+  trial: 10,
 };
 
 const anthropic = new Anthropic({
@@ -51,7 +53,7 @@ export async function POST(request: NextRequest) {
         .eq('user_id', user.id)
         .single();
 
-      const plan = subscription?.plan ?? 'light';
+      const plan = subscription?.plan ?? 'lite';
       const status = subscription?.status ?? 'trial';
       const limit = PLAN_LIMITS[status === 'active' ? plan : 'trial'] ?? 50;
 

@@ -151,7 +151,7 @@ export async function processInvoicePdfSingle(
   const pdfBase64 = pdfBuffer.toString('base64');
 
   const response = await anthropic.messages.create({
-    model: 'claude-opus-4-6',
+    model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     messages: [
       {
@@ -263,7 +263,7 @@ export async function processInvoicePdf(
   const pageOffset = options?.pageOffset ?? 0;
 
   const response = await anthropic.messages.create({
-    model: 'claude-opus-4-6',
+    model: 'claude-sonnet-4-6',
     max_tokens: 8192,
     messages: [
       {

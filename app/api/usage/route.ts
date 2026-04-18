@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 
 const PLAN_LIMITS: Record<string, number> = {
-  light: 50,
-  heavy: 200,
-  trial: 50,
+  lite: 30,
+  standard: 100,
+  pro: 500,
+  enterprise: 1000,
+  trial: 10,
 };
 
 export async function GET() {
@@ -31,7 +33,7 @@ export async function GET() {
       .single(),
   ]);
 
-  const plan = subscription?.plan ?? 'light';
+  const plan = subscription?.plan ?? 'lite';
   const status = subscription?.status ?? 'trial';
   const limit = PLAN_LIMITS[status === 'active' ? plan : 'trial'] ?? 50;
   const count = usage?.count ?? 0;

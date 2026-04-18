@@ -3,13 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
-const PLAN_LIMITS: Record<string, number> = { light: 50, heavy: 200, trial: 50 };
+const PLAN_LIMITS: Record<string, number> = { lite: 30, standard: 100, pro: 500, enterprise: 1000, trial: 10 };
 
 interface Subscription {
   id: string;
   email: string;
   status: 'trial' | 'active' | 'inactive' | 'pending';
-  plan: 'light' | 'heavy';
+  plan: 'lite' | 'standard' | 'pro' | 'enterprise';
   payment_method: 'credit_card' | 'bank_transfer' | null;
   trial_start_at: string | null;
   trial_end_at: string | null;

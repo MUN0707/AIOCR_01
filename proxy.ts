@@ -83,7 +83,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/subscribe') ||
     pathname.startsWith('/tokusho') ||
     pathname.startsWith('/denied') ||
-    pathname.startsWith('/lp')
+    pathname.startsWith('/lp') ||
+    pathname.startsWith('/pricing')
   ) {
     return supabaseResponse;
   }
