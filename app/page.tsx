@@ -5171,6 +5171,13 @@ function BalanceView({
     depreciation_method_deferred: 'direct' as 'indirect' | 'direct',
     depreciation_timing: 'annual' as 'monthly' | 'annual',
   });
+  // ルール保存後の再計算ダイアログ
+  const [showRecalcDialog, setShowRecalcDialog] = useState(false);
+  const [recalcDialogFrom, setRecalcDialogFrom] = useState<string>('');
+  const [recalcDialogTo, setRecalcDialogTo] = useState<string>('');
+  const [recalcDialogMode, setRecalcDialogMode] = useState<'rewrite' | 'adjust'>('rewrite');
+  const [recalcDialogBusy, setRecalcDialogBusy] = useState(false);
+  const [recalcDialogResult, setRecalcDialogResult] = useState<string | null>(null);
 
   const fetchFixedAssets = async () => {
     const params = new URLSearchParams();
@@ -5244,6 +5251,42 @@ function BalanceView({
     if (!res.ok) { alert(json.error); return; }
     setShowRuleForm(false);
     await fetchRules();
+    // ルール保存成功 → 再計算ダイアログを自動表示
+    // デフォルト期間: ルールの有効開始日 〜 当期末（3月決算）
+    const now = new Date();
+    const m = now.getMonth();
+    const fyEnd = m >= 3 ? `${now.getFullYear() + 1}-03-31` : `${now.getFullYear()}-03-31`;
+    setRecalcDialogFrom(newRule.effective_from_date);
+    setRecalcDialogTo(fyEnd);
+    setRecalcDialogMode('rewrite');
+    setRecalcDialogResult(null);
+    setRecalcDialogBusy(false);
+    setShowRecalcDialog(true);
+  };
+
+  const executeRecalcFromDialog = async () => {
+    if (!recalcDialogFrom || !recalcDialogTo) return;
+    setRecalcDialogBusy(true);
+    setRecalcDialogResult(null);
+    const res = await fetch('/api/depreciation/recalc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId,
+        from_date: recalcDialogFrom,
+        to_date: recalcDialogTo,
+        mode: recalcDialogMode,
+        timing: depTiming,
+      }),
+    });
+    const json = await res.json();
+    setRecalcDialogBusy(false);
+    if (!res.ok) {
+      setRecalcDialogResult(`エラー: ${json.error}`);
+      return;
+    }
+    setRecalcDialogResult(`完了: 削除 ${json.deleted ?? 0} 件 / 計上 ${json.inserted} 件 / 調整額合計 ¥${(json.adjustment_total ?? 0).toLocaleString()}`);
+    onRefresh();
   };
 
   const deleteRule = async (id: string) => {
@@ -5584,6 +5627,61 @@ function BalanceView({
                 className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600">
                 ルールを保存
               </button>
+            </div>
+          </div>
+        )}
+        {/* ルール保存後の再計算ダイアログ（モーダル） */}
+        {showRecalcDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
+                <p className="text-sm font-semibold text-slate-700">ルールを保存しました</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">該当期間の償却仕訳を再計算しますか？</p>
+              </div>
+              <div className="px-5 py-4 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">再計算開始日</p>
+                    <input type="date" value={recalcDialogFrom} onChange={(e) => setRecalcDialogFrom(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">終了日</p>
+                    <input type="date" value={recalcDialogTo} onChange={(e) => setRecalcDialogTo(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400" />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">再計算モード</p>
+                  <select value={recalcDialogMode} onChange={(e) => setRecalcDialogMode(e.target.value as 'rewrite' | 'adjust')}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-sky-400">
+                    <option value="rewrite">既存を削除して再生成（rewrite）</option>
+                    <option value="adjust">差額を修正仕訳で計上（adjust）</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    {recalcDialogMode === 'rewrite'
+                      ? '期間内の償却仕訳をすべて削除し、新ルールで再生成します'
+                      : '既存仕訳はそのまま保持し、差額のみ修正仕訳として計上します'}
+                  </p>
+                </div>
+                {recalcDialogResult && (
+                  <div className={`text-[11px] font-mono px-3 py-2 rounded-lg ${recalcDialogResult.startsWith('エラー') ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                    {recalcDialogResult}
+                  </div>
+                )}
+              </div>
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/40 flex justify-end gap-2">
+                <button onClick={() => setShowRecalcDialog(false)}
+                  className="text-xs text-slate-500 border border-slate-200 rounded-xl px-4 py-2 hover:bg-slate-100">
+                  {recalcDialogResult && !recalcDialogResult.startsWith('エラー') ? '閉じる' : '後で再計算'}
+                </button>
+                {!(recalcDialogResult && !recalcDialogResult.startsWith('エラー')) && (
+                  <button onClick={executeRecalcFromDialog} disabled={recalcDialogBusy || !recalcDialogFrom || !recalcDialogTo}
+                    className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                    {recalcDialogBusy ? '再計算中...' : '再計算を実行'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
