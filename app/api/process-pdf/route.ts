@@ -107,10 +107,12 @@ export async function POST(request: NextRequest) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let responseBody: any;
+    let usageCount = 1; // 分割後の件数でカウント
     const ocrOptions = { skipPdfExtraction: skipPdf, pageOffset };
 
     if (mode === 'tax-return') {
       const { items, totalPages, usage } = await processTaxReturnPdf(pdfBuffer, anthropic, ocrOptions);
+      usageCount = items.length;
       responseBody = {
         mode: 'tax-return',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
@@ -120,6 +122,7 @@ export async function POST(request: NextRequest) {
     } else if (mode === 'bank-statement') {
       const { bankName, accountNumber, transactions, totalPages, usage } =
         await processBankStatementPdf(pdfBuffer, anthropic);
+      usageCount = 1; // 通帳はファイル単位
       responseBody = {
         mode: 'bank-statement',
         bankName,
@@ -130,6 +133,7 @@ export async function POST(request: NextRequest) {
       };
     } else if (mode === 'invoice-single') {
       const { items, totalPages, usage } = await processInvoicePdfSingle(pdfBuffer, anthropic, file.name);
+      usageCount = items.length;
       responseBody = {
         mode: 'invoice-single',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
@@ -138,6 +142,7 @@ export async function POST(request: NextRequest) {
       };
     } else {
       const { items, totalPages, usage } = await processInvoicePdf(pdfBuffer, anthropic, ocrOptions);
+      usageCount = items.length;
       responseBody = {
         mode: 'invoice',
         invoices: items.map((item, i) => ({ index: i + 1, ...item })),
@@ -146,9 +151,9 @@ export async function POST(request: NextRequest) {
       };
     }
 
-    // OCR成功後に使用量をインクリメント（サービスクライアントでRLSをバイパス）
+    // OCR成功後に使用量をインクリメント（分割後の件数分）
     if (trackUsage && userId) {
-      await service.rpc('increment_usage', { p_user_id: userId, p_year_month: yearMonth });
+      await service.rpc('increment_usage', { p_user_id: userId, p_year_month: yearMonth, p_amount: usageCount });
     }
 
     // PDFをSupabase Storageに保存（バックグラウンド、失敗してもOCR結果は返す）
