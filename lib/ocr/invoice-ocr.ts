@@ -7,55 +7,126 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import sharp from 'sharp';
-import path from 'path';
-import { createWorker } from 'tesseract.js';
 import { InvoiceInfo, DocumentCategory } from './types';
 import { sanitizeFileName, extractPages, parseJsonSafe } from './utils';
 import { calcCost, UsageInfo } from './cost';
 
 /**
- * Tesseract.js OSD（Orientation and Script Detection）で画像の向きを検出し、
- * 回転が必要な角度（0/90/180/270）を返す。
- * osd.traineddata はローカルにバンドル済み（CDNダウンロード不要）。
+ * sharp だけで画像の向きを検出し、補正角度（0/90/180/270）を返す。
+ *
+ * 請求書は横書きが前提:
+ *   Step 1 — 90°/270° 検出: 水平 vs 垂直の投影プロファイル分散を比較
+ *   Step 2 — 180° 検出: 画像上半分 vs 下半分のテキスト密度を比較
  */
-async function detectOrientation(buffer: Buffer): Promise<number> {
-  let worker;
+async function detectOrientationSharp(buffer: Buffer): Promise<number> {
+  const start = Date.now();
   try {
-    const langPath = path.join(process.cwd(), 'lib', 'ocr', 'traineddata');
-    worker = await createWorker('osd', 0, {
-      legacyCore: true,
-      legacyLang: true,
-      langPath,
-    });
-    const { data } = await worker.detect(buffer);
-    const degrees = data?.orientation_degrees ?? 0;
-    const confidence = data?.orientation_confidence ?? 0;
-    console.log(`[OSD] orientation: ${degrees}°, confidence: ${confidence}`);
-    if (confidence < 0.5) {
-      console.log(`[OSD] confidence too low (${confidence}), skipping rotation`);
-      return 0;
+    // グレースケール → 二値化（暗い部分 = テキスト = 0, 背景 = 255）
+    const meta = await sharp(buffer).metadata();
+    const w = meta.width || 1;
+    const h = meta.height || 1;
+
+    const binary = sharp(buffer)
+      .greyscale()
+      .threshold(180); // 180以下を黒（テキスト）とみなす
+
+    // --- Step 1: 90°/270° 検出 ---
+    // 水平投影: 各行の平均明度 → 1列 x H行 にリサイズ
+    // 垂直投影: 各列の平均明度 → W列 x 1行 にリサイズ
+    const [hProj, vProj] = await Promise.all([
+      binary.clone().resize(1, h, { fit: 'fill' }).raw().toBuffer(),
+      binary.clone().resize(w, 1, { fit: 'fill' }).raw().toBuffer(),
+    ]);
+
+    const variance = (buf: Buffer): number => {
+      let sum = 0;
+      let sumSq = 0;
+      for (let i = 0; i < buf.length; i++) {
+        sum += buf[i];
+        sumSq += buf[i] * buf[i];
+      }
+      const mean = sum / buf.length;
+      return sumSq / buf.length - mean * mean;
+    };
+
+    const hVar = variance(hProj); // 横書きテキストなら分散が大きい
+    const vVar = variance(vProj);
+
+    let rotation = 0;
+    const isRotated90or270 = vVar > hVar * 1.3; // 垂直分散が明確に大きい → 90° or 270°
+
+    if (isRotated90or270) {
+      // 90° と 270° の判別: 回転して上部密度が高い方を採用
+      const [buf90, buf270] = await Promise.all([
+        sharp(buffer).rotate(90).greyscale().threshold(180).toBuffer(),
+        sharp(buffer).rotate(270).greyscale().threshold(180).toBuffer(),
+      ]);
+
+      const topDensity = async (img: Buffer): Promise<number> => {
+        const m = await sharp(img).metadata();
+        const topH = Math.floor((m.height || 1) / 3); // 上部1/3
+        const top = await sharp(img)
+          .extract({ left: 0, top: 0, width: m.width || 1, height: topH })
+          .raw()
+          .toBuffer();
+        let darkPixels = 0;
+        for (let i = 0; i < top.length; i++) {
+          if (top[i] < 128) darkPixels++;
+        }
+        return darkPixels / top.length;
+      };
+
+      const [d90, d270] = await Promise.all([topDensity(buf90), topDensity(buf270)]);
+      rotation = d90 >= d270 ? 90 : 270;
+      console.log(`[orient] 90°/270° detected (hVar=${hVar.toFixed(0)}, vVar=${vVar.toFixed(0)}), top density: 90°=${d90.toFixed(3)}, 270°=${d270.toFixed(3)} → rotate ${rotation}°`);
+    } else {
+      // --- Step 2: 180° 検出 ---
+      const topH = Math.floor(h / 3);
+      const bottomTop = h - topH;
+      const binaryBuf = await binary.clone().raw().toBuffer();
+      const rowBytes = w; // greyscale = 1 byte per pixel
+
+      let topDark = 0;
+      let bottomDark = 0;
+      for (let y = 0; y < topH; y++) {
+        for (let x = 0; x < w; x++) {
+          if (binaryBuf[y * rowBytes + x] < 128) topDark++;
+        }
+      }
+      for (let y = bottomTop; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (binaryBuf[y * rowBytes + x] < 128) bottomDark++;
+        }
+      }
+
+      if (bottomDark > topDark * 1.3) {
+        rotation = 180;
+        console.log(`[orient] 180° detected (topDark=${topDark}, bottomDark=${bottomDark}) → rotate 180°`);
+      } else {
+        console.log(`[orient] orientation OK (topDark=${topDark}, bottomDark=${bottomDark}, hVar=${hVar.toFixed(0)}, vVar=${vVar.toFixed(0)})`);
+      }
     }
-    return degrees;
+
+    console.log(`[orient] detection took ${Date.now() - start}ms`);
+    return rotation;
   } catch (e) {
-    console.error('[OSD] orientation detection failed:', e);
+    console.error('[orient] detection failed:', e);
     return 0;
-  } finally {
-    if (worker) await worker.terminate();
   }
 }
 
 /**
  * 画像を正位置に補正する。
  * 1. EXIF Orientation があれば自動回転
- * 2. Tesseract.js OSD でテキストの向きを検出し、必要なら追加回転
+ * 2. sharp 投影プロファイルで向き検出し、必要なら追加回転
  */
 async function autoRotateImage(buffer: Buffer): Promise<{ data: Buffer; mime: string }> {
   // Step 1: EXIF 自動回転
   const exifRotated = sharp(buffer).rotate();
   const step1 = await exifRotated.toBuffer({ resolveWithObject: true });
 
-  // Step 2: Tesseract OSD で向き検出
-  const degrees = await detectOrientation(step1.data);
+  // Step 2: sharp ベースの向き検出
+  const degrees = await detectOrientationSharp(step1.data);
 
   let finalData = step1.data;
   let finalFormat = step1.info.format;
@@ -64,7 +135,7 @@ async function autoRotateImage(buffer: Buffer): Promise<{ data: Buffer; mime: st
     const corrected = await sharp(step1.data).rotate(degrees).toBuffer({ resolveWithObject: true });
     finalData = corrected.data;
     finalFormat = corrected.info.format;
-    console.log(`[OSD] rotated image by ${degrees}°`);
+    console.log(`[orient] rotated image by ${degrees}°`);
   }
 
   const formatMap: Record<string, string> = {
