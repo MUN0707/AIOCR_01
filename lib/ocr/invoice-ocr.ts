@@ -116,26 +116,107 @@ async function detectOrientationSharp(buffer: Buffer): Promise<number> {
 }
 
 /**
+ * スキュー（数度の傾き）を検出し、補正角度を返す。
+ * 投影プロファイル法: 候補角度で回転して水平投影の分散が最大になる角度を探す。
+ * 速度のため画像を縮小してから処理する。
+ */
+async function detectSkewAngle(buffer: Buffer): Promise<number> {
+  const start = Date.now();
+  try {
+    // 処理速度のため幅500pxに縮小
+    const small = await sharp(buffer)
+      .resize(500, null, { withoutEnlargement: true })
+      .greyscale()
+      .threshold(180)
+      .toBuffer();
+
+    const meta = await sharp(small).metadata();
+    const h = meta.height || 1;
+
+    const getHVariance = async (angle: number): Promise<number> => {
+      const rotated = angle === 0
+        ? small
+        : await sharp(small).rotate(angle, { background: '#ffffff' }).toBuffer();
+      const rMeta = await sharp(rotated).metadata();
+      const rH = rMeta.height || 1;
+      const proj = await sharp(rotated).resize(1, rH, { fit: 'fill' }).raw().toBuffer();
+      let sum = 0;
+      let sumSq = 0;
+      for (let i = 0; i < proj.length; i++) {
+        sum += proj[i];
+        sumSq += proj[i] * proj[i];
+      }
+      const mean = sum / proj.length;
+      return sumSq / proj.length - mean * mean;
+    };
+
+    // 粗探索: -10° 〜 +10° を 2° 刻み
+    let bestAngle = 0;
+    let bestVar = await getHVariance(0);
+    for (let angle = -10; angle <= 10; angle += 2) {
+      if (angle === 0) continue;
+      const v = await getHVariance(angle);
+      if (v > bestVar) {
+        bestVar = v;
+        bestAngle = angle;
+      }
+    }
+
+    // 精密探索: ベスト ±2° を 0.5° 刻み
+    const fineStart = bestAngle - 2;
+    const fineEnd = bestAngle + 2;
+    for (let angle = fineStart; angle <= fineEnd; angle += 0.5) {
+      const v = await getHVariance(angle);
+      if (v > bestVar) {
+        bestVar = v;
+        bestAngle = angle;
+      }
+    }
+
+    console.log(`[deskew] detected skew: ${bestAngle}°, took ${Date.now() - start}ms`);
+
+    // 0.5° 未満の傾きは補正不要
+    if (Math.abs(bestAngle) < 0.5) return 0;
+    return bestAngle;
+  } catch (e) {
+    console.error('[deskew] detection failed:', e);
+    return 0;
+  }
+}
+
+/**
  * 画像を正位置に補正する。
  * 1. EXIF Orientation があれば自動回転
- * 2. sharp 投影プロファイルで向き検出し、必要なら追加回転
+ * 2. sharp 投影プロファイルで向き検出（90°/180°/270°）
+ * 3. スキュー補正（数度の傾きを水平に戻す）
  */
 async function autoRotateImage(buffer: Buffer): Promise<{ data: Buffer; mime: string }> {
   // Step 1: EXIF 自動回転
   const exifRotated = sharp(buffer).rotate();
   const step1 = await exifRotated.toBuffer({ resolveWithObject: true });
 
-  // Step 2: sharp ベースの向き検出
+  // Step 2: 90°/180°/270° 向き検出
   const degrees = await detectOrientationSharp(step1.data);
 
-  let finalData = step1.data;
-  let finalFormat = step1.info.format;
+  let currentData = step1.data;
+  let currentFormat = step1.info.format;
 
   if (degrees !== 0) {
-    const corrected = await sharp(step1.data).rotate(degrees).toBuffer({ resolveWithObject: true });
-    finalData = corrected.data;
-    finalFormat = corrected.info.format;
+    const corrected = await sharp(currentData).rotate(degrees).toBuffer({ resolveWithObject: true });
+    currentData = corrected.data;
+    currentFormat = corrected.info.format;
     console.log(`[orient] rotated image by ${degrees}°`);
+  }
+
+  // Step 3: スキュー補正（数度の傾き）
+  const skew = await detectSkewAngle(currentData);
+  if (skew !== 0) {
+    const deskewed = await sharp(currentData)
+      .rotate(skew, { background: '#ffffff' })
+      .toBuffer({ resolveWithObject: true });
+    currentData = deskewed.data;
+    currentFormat = deskewed.info.format;
+    console.log(`[deskew] corrected by ${skew}°`);
   }
 
   const formatMap: Record<string, string> = {
@@ -144,8 +225,8 @@ async function autoRotateImage(buffer: Buffer): Promise<{ data: Buffer; mime: st
     webp: 'image/webp',
     gif: 'image/gif',
   };
-  const mime = formatMap[finalFormat] || 'image/jpeg';
-  return { data: finalData, mime };
+  const mime = formatMap[currentFormat] || 'image/jpeg';
+  return { data: currentData, mime };
 }
 
 // ──────────────────────────────────────────────────────────
