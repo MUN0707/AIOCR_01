@@ -105,6 +105,16 @@ async function openJournalPdf(entryId: string, source: 'invoice' | 'bank' = 'inv
 
 // ─── ユーティリティ ────────────────────────────────────────────────────────
 
+function mimeFromFileName(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase();
+  if (ext === 'png') return 'image/png';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'heic') return 'image/heic';
+  if (ext === 'heif') return 'image/heif';
+  return 'application/pdf';
+}
+
 function base64ToBlob(base64: string, mimeType: string): Blob {
   const bytes = atob(base64);
   const array = new Uint8Array(bytes.length);
@@ -1094,11 +1104,14 @@ export default function Home() {
     }
   };
 
+  const ACCEPT_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'];
+  const isAcceptedFile = (f: File) => ACCEPT_TYPES.includes(f.type) || /\.(heic|heif)$/i.test(f.name);
+
   const addPdfFiles = (
     incoming: FileList | File[] | null,
     setter: React.Dispatch<React.SetStateAction<File[]>>
   ) => {
-    const sel = Array.from(incoming || []).filter((f) => f.type === 'application/pdf');
+    const sel = Array.from(incoming || []).filter(isAcceptedFile);
     if (sel.length === 0) return false;
     setter((prev) => {
       const ex = new Set(prev.map((f) => f.name + f.size));
@@ -1151,7 +1164,7 @@ export default function Home() {
     e.preventDefault();
     setIsDragging(false);
     const dropped = Array.from(e.dataTransfer.files).filter(
-      (f) => f.type === 'application/pdf'
+      (f) => ACCEPT_TYPES.includes(f.type) || /\.(heic|heif)$/i.test(f.name)
     );
     if (dropped.length > 0) {
       setFiles((prev) => {
@@ -1161,14 +1174,12 @@ export default function Home() {
       setResult(null);
       setError(null);
     } else {
-      setError('PDFファイルのみ対応しています');
+      setError('PDF・画像ファイル（PNG, JPEG, HEIC）のみ対応しています');
     }
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(e.target.files || []).filter(
-      (f) => f.type === 'application/pdf'
-    );
+    const selected = Array.from(e.target.files || []).filter(isAcceptedFile);
     if (selected.length > 0) {
       setFiles((prev) => {
         const existing = new Set(prev.map((f) => f.name + f.size));
@@ -1215,7 +1226,8 @@ export default function Home() {
         let isFirstChunk = true;
         for (let i = 0; i < files.length; i++) {
           setProcessingIndex(i + 1);
-          const chunks = await splitPdfIfNeeded(files[i]);
+          const bkIsImage = files[i].type.startsWith('image/') || /\.(heic|heif)$/i.test(files[i].name);
+          const chunks = bkIsImage ? [{ file: files[i], pageOffset: 0 }] : await splitPdfIfNeeded(files[i]);
           for (const { file: chunkFile, pageOffset } of chunks) {
             const formData = new FormData();
             formData.append('pdf', chunkFile);
@@ -1259,8 +1271,11 @@ export default function Home() {
       let invOutTok = 0;
       for (let i = 0; i < files.length; i++) {
         setProcessingIndex(i + 1);
-        const chunks = await splitPdfIfNeeded(files[i]);
-        const needsClientExtraction = chunks.length > 1;
+        const fileIsImage = files[i].type.startsWith('image/') || /\.(heic|heif)$/i.test(files[i].name);
+        const chunks = fileIsImage
+          ? [{ file: files[i], pageOffset: 0 }]
+          : await splitPdfIfNeeded(files[i]);
+        const needsClientExtraction = !fileIsImage && chunks.length > 1;
         let fileSkipped = false;
         for (const { file: chunkFile, pageOffset } of chunks) {
           const formData = new FormData();
@@ -1304,7 +1319,7 @@ export default function Home() {
         }
         if (fileSkipped) continue;
 
-        // クライアント側でPDF抽出（skipPdf使用時）
+        // クライアント側でPDF抽出（skipPdf使用時・画像はスキップ）
         if (needsClientExtraction) {
           const { PDFDocument } = await import('pdf-lib');
           const srcBytes = await files[i].arrayBuffer();
@@ -1359,7 +1374,7 @@ export default function Home() {
   // ─── ダウンロードハンドラ（既存ロジックと同じ） ────────────────────────────
 
   const handleDownloadOne = (invoice: InvoiceResult) => {
-    const blob = base64ToBlob(invoice.pdfBase64, 'application/pdf');
+    const blob = base64ToBlob(invoice.pdfBase64, mimeFromFileName(invoice.fileName));
     downloadBlob(blob, invoice.fileName);
   };
 
@@ -1380,7 +1395,7 @@ export default function Home() {
     const JSZip = (await import('jszip')).default;
     const zip = new JSZip();
     result.invoices.forEach((invoice) => {
-      zip.file(invoice.fileName, base64ToBlob(invoice.pdfBase64, 'application/pdf'));
+      zip.file(invoice.fileName, base64ToBlob(invoice.pdfBase64, mimeFromFileName(invoice.fileName)));
     });
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     downloadBlob(zipBlob, '請求書_分割済み.zip');
@@ -1453,7 +1468,8 @@ export default function Home() {
       const bankSessionId = crypto.randomUUID();
       for (let fi = 0; fi < bankFiles.length; fi++) {
         const file = bankFiles[fi];
-        const chunks = await splitPdfIfNeeded(file);
+        const bfIsImage = file.type.startsWith('image/') || /\.(heic|heif)$/i.test(file.name);
+        const chunks = bfIsImage ? [{ file, pageOffset: 0 }] : await splitPdfIfNeeded(file);
         let fileSkipped = false;
         let fileBankName = '不明';
         let fileAccountNumber = '不明';
@@ -1564,7 +1580,8 @@ export default function Home() {
       const invoiceSessionId = crypto.randomUUID();
       for (let fi = 0; fi < invoiceFiles.length; fi++) {
         const file = invoiceFiles[fi];
-        const chunks = await splitPdfIfNeeded(file);
+        const ifIsImage = file.type.startsWith('image/') || /\.(heic|heif)$/i.test(file.name);
+        const chunks = ifIsImage ? [{ file, pageOffset: 0 }] : await splitPdfIfNeeded(file);
         for (const { file: chunkFile, pageOffset } of chunks) {
           const fd = new FormData();
           fd.append('pdf', chunkFile);
@@ -2783,7 +2800,7 @@ export default function Home() {
                   <input
                     ref={bankFileInputRef}
                     type="file"
-                    accept="application/pdf"
+                    accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif"
                     multiple
                     className="hidden"
                     onChange={(e) => {
@@ -2885,7 +2902,7 @@ export default function Home() {
                   <input
                     ref={invoiceFileInputRef}
                     type="file"
-                    accept="application/pdf"
+                    accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif"
                     multiple
                     className="hidden"
                     onChange={(e) => {
@@ -2910,7 +2927,7 @@ export default function Home() {
                     }`}
                   >
                     <IconUpload className="w-6 h-6 mx-auto mb-2" />
-                    PDFをドラッグ＆ドロップ または クリックで選択
+                    PDF・画像をドラッグ＆ドロップ または クリックで選択
                   </button>
                   {invoiceFiles.length > 0 && (
                     <div className="space-y-1">
@@ -3212,7 +3229,7 @@ export default function Home() {
                 <div
                   role="button"
                   tabIndex={0}
-                  aria-label="PDFファイルをドラッグ＆ドロップ、またはクリックして選択"
+                  aria-label="PDF・画像ファイルをドラッグ＆ドロップ、またはクリックして選択"
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
@@ -3235,7 +3252,7 @@ export default function Home() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,application/pdf"
+                    accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif"
                     multiple
                     className="sr-only"
                     onChange={handleFileChange}
@@ -3309,7 +3326,7 @@ export default function Home() {
                       </div>
                       <div className="text-center space-y-1.5">
                         <p className="text-base font-medium text-slate-700 tracking-tight">
-                          PDFをドラッグ＆ドロップ
+                          PDF・画像をドラッグ＆ドロップ
                         </p>
                         <p className="text-sm text-slate-400">
                           またはクリックしてファイルを選択

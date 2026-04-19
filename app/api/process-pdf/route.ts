@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
-import { processInvoicePdf, processInvoicePdfSingle, InvoiceLineSumMismatchError } from '@/lib/ocr/invoice-ocr';
+import { processInvoicePdf, processInvoicePdfSingle, processInvoiceImage, InvoiceLineSumMismatchError } from '@/lib/ocr/invoice-ocr';
 import { processTaxReturnPdf } from '@/lib/ocr/tax-return-ocr';
 import { processBankStatementPdf } from '@/lib/ocr/bank-statement-ocr';
 import { createClient } from '@/utils/supabase/server';
@@ -32,11 +32,20 @@ export async function POST(request: NextRequest) {
     const pageOffset = parseInt(formData.get('pageOffset') as string) || 0;
 
     if (!file) {
-      return NextResponse.json({ error: 'PDFファイルが見つかりません' }, { status: 400 });
+      return NextResponse.json({ error: 'ファイルが見つかりません' }, { status: 400 });
     }
-    if (file.type !== 'application/pdf') {
-      return NextResponse.json({ error: 'PDFファイルのみ対応しています' }, { status: 400 });
+    const SUPPORTED_TYPES = [
+      'application/pdf',
+      'image/png',
+      'image/jpeg',
+      'image/webp',
+      'image/heic',
+      'image/heif',
+    ];
+    if (!SUPPORTED_TYPES.includes(file.type)) {
+      return NextResponse.json({ error: 'PDF・画像ファイル（PNG, JPEG, HEIC）のみ対応しています' }, { status: 400 });
     }
+    const isImage = file.type.startsWith('image/');
 
     // 認証ユーザーの場合は使用量チェック
     const supabase = await createClient();
@@ -76,7 +85,9 @@ export async function POST(request: NextRequest) {
       userId = user.id;
     }
 
-    const pdfBuffer = Buffer.from(await file.arrayBuffer());
+    const fileBuffer = Buffer.from(await file.arrayBuffer());
+    // HEIC/HEIF → JPEG変換はクライアント側で行う前提。サーバーではそのまま扱う。
+    const pdfBuffer = fileBuffer; // 後方互換のため変数名維持
 
     // 重複チェック: SHA-256 ハッシュで同一ファイルを検出
     const fileHash = createHash('sha256').update(pdfBuffer).digest('hex');
@@ -110,7 +121,17 @@ export async function POST(request: NextRequest) {
     let usageCount = 1; // 分割後の件数でカウント
     const ocrOptions = { skipPdfExtraction: skipPdf, pageOffset };
 
-    if (mode === 'tax-return') {
+    if (isImage) {
+      // 画像ファイルは1枚＝1請求書として処理
+      const { items, usage } = await processInvoiceImage(pdfBuffer, file.type, anthropic, file.name);
+      usageCount = items.length;
+      responseBody = {
+        mode: 'invoice-single',
+        invoices: items.map((item, i) => ({ index: i + 1, ...item })),
+        totalPages: 1,
+        usage,
+      };
+    } else if (mode === 'tax-return') {
       const { items, totalPages, usage } = await processTaxReturnPdf(pdfBuffer, anthropic, ocrOptions);
       usageCount = items.length;
       responseBody = {
@@ -166,7 +187,7 @@ export async function POST(request: NextRequest) {
       await service.storage
         .from('ocr-uploads')
         .upload(storagePath, pdfBuffer, {
-          contentType: 'application/pdf',
+          contentType: file.type,
           upsert: false,
         });
 

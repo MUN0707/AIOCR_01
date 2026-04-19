@@ -254,6 +254,121 @@ export async function processInvoicePdfSingle(
   return { items: [item], totalPages, usage };
 }
 
+// ──────────────────────────────────────────────────────────
+// 画像ファイル対応（PNG / JPEG / WebP / HEIC）
+// ──────────────────────────────────────────────────────────
+
+export async function processInvoiceImage(
+  imageBuffer: Buffer,
+  mimeType: string,
+  anthropic: Anthropic,
+  originalFileName?: string
+): Promise<{ items: InvoiceSingleItem[]; usage: UsageInfo }> {
+  const imageBase64 = imageBuffer.toString('base64');
+
+  // Claude API の image type で対応する media_type
+  const mediaType = mimeType as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 2048,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType, data: imageBase64 },
+          },
+          { type: 'text', text: PROMPT_INVOICE_SINGLE },
+        ],
+      },
+    ],
+  });
+
+  const textContent = response.content.find((c) => c.type === 'text');
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('Claudeからの応答が不正です');
+  }
+
+  const claudeData = parseJsonSafe<ClaudeInvoiceSingleResponse>(textContent.text);
+
+  const date = String(claudeData.date || '不明');
+  const requester = sanitizeFileName(String(claudeData.requesterName || '不明'));
+  const amount =
+    claudeData.taxIncludedAmount != null
+      ? `${Number(claudeData.taxIncludedAmount).toLocaleString()}円`
+      : '金額不明';
+
+  // 明細の整形
+  const rawLines = Array.isArray(claudeData.lines) ? claudeData.lines : [];
+  const normalizedLines = rawLines
+    .map((l) => ({
+      debitAccount: String(l.debitAccount ?? '仕入高').trim() || '仕入高',
+      amountInclTax: typeof l.amountInclTax === 'number' ? Math.round(l.amountInclTax) : NaN,
+      taxType: String(l.taxType ?? '課税仕入10%').trim() || '課税仕入10%',
+      description: String(l.description ?? '').trim(),
+    }))
+    .filter((l) => Number.isFinite(l.amountInclTax));
+
+  const headerAmount = claudeData.taxIncludedAmount;
+  if (normalizedLines.length > 1 && typeof headerAmount === 'number') {
+    const linesSum = normalizedLines.reduce((acc, l) => acc + l.amountInclTax, 0);
+    if (linesSum !== headerAmount) {
+      throw new InvoiceLineSumMismatchError(
+        headerAmount,
+        linesSum,
+        originalFileName,
+        normalizedLines.map((l) => ({
+          debitAccount: l.debitAccount,
+          amountInclTax: l.amountInclTax,
+          description: l.description,
+        }))
+      );
+    }
+  }
+
+  const finalLines: InvoiceSingleItem['lines'] =
+    normalizedLines.length > 0
+      ? normalizedLines
+      : [
+          {
+            debitAccount: '仕入高',
+            amountInclTax: typeof headerAmount === 'number' ? headerAmount : 0,
+            taxType: '課税仕入10%',
+            description: claudeData.requesterName || '',
+          },
+        ];
+
+  const withholdingTax =
+    typeof claudeData.withholdingTax === 'number' && claudeData.withholdingTax > 0
+      ? Math.round(claudeData.withholdingTax)
+      : null;
+
+  const docCat: DocumentCategory = claudeData.documentCategory === 'receipt' ? 'receipt' : 'invoice';
+  const docLabel = docCat === 'receipt' ? '領収' : '請求';
+
+  // 元の拡張子を保持
+  const ext = (originalFileName?.split('.').pop() || 'jpg').toLowerCase();
+
+  const item: InvoiceSingleItem = {
+    pageStart: 1,
+    pageEnd: 1,
+    date: claudeData.date || '不明',
+    requesterName: claudeData.requesterName || '不明',
+    taxIncludedAmount: claudeData.taxIncludedAmount ?? null,
+    documentCategory: docCat,
+    invoiceNumber: claudeData.invoiceNumber || null,
+    fileName: `${docLabel}_${date}_${requester}_${amount}.${ext}`,
+    pdfBase64: imageBase64, // 画像データをそのまま返す
+    withholdingTax,
+    lines: finalLines,
+  };
+
+  const usage = calcCost(response.usage.input_tokens, response.usage.output_tokens);
+  return { items: [item], usage };
+}
+
 export async function processInvoicePdf(
   pdfBuffer: Buffer,
   anthropic: Anthropic,
