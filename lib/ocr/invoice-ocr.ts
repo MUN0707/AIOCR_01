@@ -7,29 +7,72 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import sharp from 'sharp';
+import { createWorker } from 'tesseract.js';
 import { InvoiceInfo, DocumentCategory } from './types';
 import { sanitizeFileName, extractPages, parseJsonSafe } from './utils';
 import { calcCost, UsageInfo } from './cost';
 
 /**
+ * Tesseract.js OSD（Orientation and Script Detection）で画像の向きを検出し、
+ * 回転が必要な角度（0/90/180/270）を返す。
+ * 検出に失敗した場合は 0（回転なし）を返す。
+ */
+async function detectOrientation(buffer: Buffer): Promise<number> {
+  let worker;
+  try {
+    worker = await createWorker('osd', 0, { legacyCore: true, legacyLang: true });
+    const { data } = await worker.detect(buffer);
+    const degrees = data?.orientation_degrees ?? 0;
+    const confidence = data?.orientation_confidence ?? 0;
+    console.log(`[OSD] orientation: ${degrees}°, confidence: ${confidence}`);
+    // 信頼度が低い場合は回転しない
+    if (confidence < 0.5) {
+      console.log(`[OSD] confidence too low (${confidence}), skipping rotation`);
+      return 0;
+    }
+    return degrees;
+  } catch (e) {
+    console.error('[OSD] orientation detection failed:', e);
+    return 0;
+  } finally {
+    if (worker) await worker.terminate();
+  }
+}
+
+/**
  * 画像を正位置に補正する。
- * EXIF Orientation があれば（JPEG等）それに従って自動回転する。
- * EXIF がない横長画像は回転しない — 横長フォーマットの請求書を誤回転させる
- * リスクがあるため、Claude Vision の画像認識に向き判定を委ねる。
+ * 1. EXIF Orientation があれば（JPEG等）それに従って自動回転
+ * 2. Tesseract.js OSD でテキストの向きを検出し、必要なら追加回転
  */
 async function autoRotateImage(buffer: Buffer): Promise<{ data: Buffer; mime: string }> {
-  // EXIF 自動回転のみ適用（引数なし rotate() = EXIF に従う）
-  const img = sharp(buffer).rotate();
+  // Step 1: EXIF 自動回転（引数なし rotate() = EXIF に従う）
+  const exifRotated = sharp(buffer).rotate();
+  const step1 = await exifRotated.toBuffer({ resolveWithObject: true });
 
-  const result = await img.toBuffer({ resolveWithObject: true });
+  // Step 2: Tesseract OSD で向き検出
+  const degrees = await detectOrientation(step1.data);
+
+  let finalData = step1.data;
+  let finalFormat = step1.info.format;
+
+  if (degrees !== 0) {
+    // OSD が検出した角度だけ回転して正位置に補正
+    // sharp.rotate(angle) は時計回り。OSD の orientation_degrees は
+    // 「画像を正位置にするために時計回りに何度回転すべきか」なのでそのまま使う
+    const corrected = await sharp(step1.data).rotate(degrees).toBuffer({ resolveWithObject: true });
+    finalData = corrected.data;
+    finalFormat = corrected.info.format;
+    console.log(`[OSD] rotated image by ${degrees}°`);
+  }
+
   const formatMap: Record<string, string> = {
     jpeg: 'image/jpeg',
     png: 'image/png',
     webp: 'image/webp',
     gif: 'image/gif',
   };
-  const mime = formatMap[result.info.format] || 'image/jpeg';
-  return { data: result.data, mime };
+  const mime = formatMap[finalFormat] || 'image/jpeg';
+  return { data: finalData, mime };
 }
 
 // ──────────────────────────────────────────────────────────
