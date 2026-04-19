@@ -17,6 +17,8 @@ const PLAN_LIMITS: Record<string, number> = {
   trial: 10,
 };
 
+const GUEST_MAX_USES = 5;
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
@@ -30,6 +32,7 @@ export async function POST(request: NextRequest) {
     const clientId = (formData.get('clientId') as string) || null;
     const skipPdf = formData.get('skipPdf') === 'true';
     const pageOffset = parseInt(formData.get('pageOffset') as string) || 0;
+    const fingerprintId = (formData.get('fingerprintId') as string) || null;
 
     if (!file) {
       return NextResponse.json({ error: 'ファイルが見つかりません' }, { status: 400 });
@@ -52,8 +55,33 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
 
     let trackUsage = false;
+    let trackGuestUsage = false;
     let userId: string | null = user?.id ?? null;
     const yearMonth = new Date().toISOString().slice(0, 7); // '2026-03'
+
+    const service = createServiceClient();
+
+    // ゲストユーザーの場合：fingerprintIdでサーバーサイド制限
+    if (!user) {
+      if (!fingerprintId) {
+        return NextResponse.json({ error: 'ゲスト利用にはブラウザ識別が必要です。ページを再読み込みしてください。' }, { status: 400 });
+      }
+      const { data: guestUsage } = await service
+        .from('guest_usage')
+        .select('count')
+        .eq('fingerprint_id', fingerprintId)
+        .eq('year_month', yearMonth)
+        .maybeSingle();
+
+      const guestCount = guestUsage?.count ?? 0;
+      if (guestCount >= GUEST_MAX_USES) {
+        return NextResponse.json(
+          { error: `ゲストの無料お試し上限（${GUEST_MAX_USES}回）に達しました。ログインしてご利用ください。`, errorCode: 'GUEST_LIMIT_REACHED' },
+          { status: 429 }
+        );
+      }
+      trackGuestUsage = true;
+    }
 
     if (user && user.email !== process.env.ADMIN_EMAIL) {
       const { data: subscription } = await supabase
@@ -91,7 +119,6 @@ export async function POST(request: NextRequest) {
 
     // 重複チェック: SHA-256 ハッシュで同一ファイルを検出
     const fileHash = createHash('sha256').update(pdfBuffer).digest('hex');
-    const service = createServiceClient();
 
     if (userId) {
       const { data: existing } = await service
@@ -175,6 +202,11 @@ export async function POST(request: NextRequest) {
     // OCR成功後に使用量をインクリメント（分割後の件数分）
     if (trackUsage && userId) {
       await service.rpc('increment_usage', { p_user_id: userId, p_year_month: yearMonth, p_amount: usageCount });
+    }
+
+    // ゲスト使用量をインクリメント
+    if (trackGuestUsage && fingerprintId) {
+      await service.rpc('increment_guest_usage', { p_fingerprint_id: fingerprintId, p_year_month: yearMonth, p_amount: usageCount });
     }
 
     // PDFをSupabase Storageに保存（バックグラウンド、失敗してもOCR結果は返す）

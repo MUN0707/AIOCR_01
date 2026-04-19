@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import { createClient } from '@/utils/supabase/client';
 import type { User } from '@supabase/supabase-js';
 import type { OcrMode } from '@/lib/ocr/types';
@@ -510,6 +511,7 @@ export default function Home() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [usageInfo, setUsageInfo] = useState<{ count: number; limit: number } | null>(null);
+  const [fingerprintId, setFingerprintId] = useState<string | null>(null);
 
   // ─── クライアント管理 State ─────────────────────────────────────────────────
   const [clients, setClients] = useState<ClientItem[]>([]);
@@ -1123,11 +1125,21 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       setUser(data.user);
       if (!data.user) {
-        const count = parseInt(localStorage.getItem('guestUseCount') || '0');
-        if (count >= GUEST_MAX_USES) setGuestLimitReached(true);
+        // ゲスト：FingerprintJSでブラウザ識別→サーバーサイドで使用回数チェック
+        try {
+          const fp = await FingerprintJS.load();
+          const result = await fp.get();
+          const fpId = result.visitorId;
+          setFingerprintId(fpId);
+          const res = await fetch(`/api/guest-usage?fingerprintId=${fpId}`);
+          const d = await res.json();
+          if (d.count != null && d.count >= GUEST_MAX_USES) setGuestLimitReached(true);
+        } catch {
+          // fingerprint取得失敗時はゲスト利用不可にはしない（APIで弾く）
+        }
       } else {
         fetch('/api/usage')
           .then((r) => r.json())
@@ -1200,13 +1212,7 @@ export default function Home() {
   const handleProcess = async () => {
     if (mode === 'journal-entry' || mode === 'financial-statement' || files.length === 0) return;
 
-    if (isGuest) {
-      const count = parseInt(localStorage.getItem('guestUseCount') || '0');
-      if (count >= GUEST_MAX_USES) {
-        setGuestLimitReached(true);
-        return;
-      }
-    }
+    if (isGuest && guestLimitReached) return;
 
     setLoading(true);
     setError(null);
@@ -1235,6 +1241,7 @@ export default function Home() {
             formData.append('sessionId', sessionId);
             formData.append('pageOffset', String(pageOffset));
             if (selectedClientId) formData.append('clientId', selectedClientId);
+            if (isGuest && fingerprintId) formData.append('fingerprintId', fingerprintId);
             const res = await fetch('/api/process-pdf', { method: 'POST', body: formData });
             let data;
             try { data = await res.json(); } catch { throw new Error(`${files[i].name}: サーバーエラーが発生しました（ファイルサイズが大きすぎる可能性があります）`); }
@@ -1255,10 +1262,11 @@ export default function Home() {
             }
           }
         }
-        if (isGuest) {
-          const count = parseInt(localStorage.getItem('guestUseCount') || '0');
-          localStorage.setItem('guestUseCount', String(count + 1));
-          if (count + 1 >= GUEST_MAX_USES) setGuestLimitReached(true);
+        if (isGuest && fingerprintId) {
+          fetch(`/api/guest-usage?fingerprintId=${fingerprintId}`)
+            .then((r) => r.json())
+            .then((d) => { if (d.count != null && d.count >= GUEST_MAX_USES) setGuestLimitReached(true); })
+            .catch(() => {});
         }
         setResult({ mode: 'bank-statement', bankName, accountNumber, transactions: allTransactions, totalPages, processedFiles: files.length, totalCostJpy: bankCostJpy, totalInputTokens: bankInTok, totalOutputTokens: bankOutTok });
         return;
@@ -1285,6 +1293,7 @@ export default function Home() {
           formData.append('pageOffset', String(pageOffset));
           if (needsClientExtraction) formData.append('skipPdf', 'true');
           if (selectedClientId) formData.append('clientId', selectedClientId);
+          if (isGuest && fingerprintId) formData.append('fingerprintId', fingerprintId);
 
           const res = await fetch('/api/process-pdf', {
             method: 'POST',
@@ -1346,10 +1355,11 @@ export default function Home() {
         }
       }
 
-      if (isGuest) {
-        const count = parseInt(localStorage.getItem('guestUseCount') || '0');
-        localStorage.setItem('guestUseCount', String(count + 1));
-        if (count + 1 >= GUEST_MAX_USES) setGuestLimitReached(true);
+      if (isGuest && fingerprintId) {
+        fetch(`/api/guest-usage?fingerprintId=${fingerprintId}`)
+          .then((r) => r.json())
+          .then((d) => { if (d.count != null && d.count >= GUEST_MAX_USES) setGuestLimitReached(true); })
+          .catch(() => {});
       }
 
       if (mode === 'invoice' || mode === 'tax-return') {
