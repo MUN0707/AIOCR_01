@@ -345,33 +345,37 @@ export async function processInvoiceImage(
     .filter((l) => Number.isFinite(l.amountInclTax));
 
   const headerAmount = claudeData.taxIncludedAmount;
+  // 画像OCRは精度が落ちるため、明細合計の不一致ではエラーにせず
+  // ヘッダー金額を信頼して単一行にフォールバックする
+  let finalLines: InvoiceSingleItem['lines'];
   if (normalizedLines.length > 1 && typeof headerAmount === 'number') {
     const linesSum = normalizedLines.reduce((acc, l) => acc + l.amountInclTax, 0);
     if (linesSum !== headerAmount) {
-      throw new InvoiceLineSumMismatchError(
-        headerAmount,
-        linesSum,
-        originalFileName,
-        normalizedLines.map((l) => ({
-          debitAccount: l.debitAccount,
-          amountInclTax: l.amountInclTax,
-          description: l.description,
-        }))
-      );
+      // 不一致 → 単一行にフォールバック（画像OCRでは厳密な明細分割より全体の結果を優先）
+      console.warn(`画像OCR明細合計不一致: header=${headerAmount}, lines=${linesSum}, file=${originalFileName}`);
+      finalLines = [
+        {
+          debitAccount: normalizedLines[0]?.debitAccount || '仕入高',
+          amountInclTax: headerAmount,
+          taxType: normalizedLines[0]?.taxType || '課税仕入10%',
+          description: claudeData.requesterName || '',
+        },
+      ];
+    } else {
+      finalLines = normalizedLines;
     }
+  } else if (normalizedLines.length > 0) {
+    finalLines = normalizedLines;
+  } else {
+    finalLines = [
+      {
+        debitAccount: '仕入高',
+        amountInclTax: typeof headerAmount === 'number' ? headerAmount : 0,
+        taxType: '課税仕入10%',
+        description: claudeData.requesterName || '',
+      },
+    ];
   }
-
-  const finalLines: InvoiceSingleItem['lines'] =
-    normalizedLines.length > 0
-      ? normalizedLines
-      : [
-          {
-            debitAccount: '仕入高',
-            amountInclTax: typeof headerAmount === 'number' ? headerAmount : 0,
-            taxType: '課税仕入10%',
-            description: claudeData.requesterName || '',
-          },
-        ];
 
   const withholdingTax =
     typeof claudeData.withholdingTax === 'number' && claudeData.withholdingTax > 0
