@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '50mb',
     },
   },
+  outputFileTracingIncludes: {
+    '/api/process-pdf': ['./lib/ocr/traineddata/**/*'],
+  },
 };
 
 export default nextConfig;
