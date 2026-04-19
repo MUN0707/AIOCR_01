@@ -91,8 +91,8 @@ export async function proxy(request: NextRequest) {
 
   // 未認証の場合
   if (!user) {
-    // ゲスト初回お試し：トップページとPDF処理API・照合APIは認証不要
-    if (pathname === '/' || pathname.startsWith('/api/process-pdf') || pathname.startsWith('/api/match-journal')) {
+    // ゲスト初回お試し：トップページとPDF処理API・照合API・エラー報告APIは認証不要
+    if (pathname === '/' || pathname.startsWith('/api/process-pdf') || pathname.startsWith('/api/match-journal') || pathname.startsWith('/api/report-error')) {
       return supabaseResponse;
     }
     if (pathname.startsWith('/api/')) {
