@@ -7,72 +7,31 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import sharp from 'sharp';
-import { createWorker } from 'tesseract.js';
 import { InvoiceInfo, DocumentCategory } from './types';
 import { sanitizeFileName, extractPages, parseJsonSafe } from './utils';
 import { calcCost, UsageInfo } from './cost';
 
 /**
- * Tesseract.js OSD（Orientation and Script Detection）で画像の向きを検出し、
- * 回転が必要な角度（0/90/180/270）を返す。
- * 検出に失敗した場合は 0（回転なし）を返す。
- */
-async function detectOrientation(buffer: Buffer): Promise<number> {
-  let worker;
-  try {
-    worker = await createWorker('osd', 0, { legacyCore: true, legacyLang: true });
-    const { data } = await worker.detect(buffer);
-    const degrees = data?.orientation_degrees ?? 0;
-    const confidence = data?.orientation_confidence ?? 0;
-    console.log(`[OSD] orientation: ${degrees}°, confidence: ${confidence}`);
-    // 信頼度が低い場合は回転しない
-    if (confidence < 0.5) {
-      console.log(`[OSD] confidence too low (${confidence}), skipping rotation`);
-      return 0;
-    }
-    return degrees;
-  } catch (e) {
-    console.error('[OSD] orientation detection failed:', e);
-    return 0;
-  } finally {
-    if (worker) await worker.terminate();
-  }
-}
-
-/**
- * 画像を正位置に補正する。
- * 1. EXIF Orientation があれば（JPEG等）それに従って自動回転
- * 2. Tesseract.js OSD でテキストの向きを検出し、必要なら追加回転
+ * 画像を正位置に補正する（EXIF Orientation のみ）。
  */
 async function autoRotateImage(buffer: Buffer): Promise<{ data: Buffer; mime: string }> {
-  // Step 1: EXIF 自動回転（引数なし rotate() = EXIF に従う）
-  const exifRotated = sharp(buffer).rotate();
-  const step1 = await exifRotated.toBuffer({ resolveWithObject: true });
-
-  // Step 2: Tesseract OSD で向き検出
-  const degrees = await detectOrientation(step1.data);
-
-  let finalData = step1.data;
-  let finalFormat = step1.info.format;
-
-  if (degrees !== 0) {
-    // OSD が検出した角度だけ回転して正位置に補正
-    // sharp.rotate(angle) は時計回り。OSD の orientation_degrees は
-    // 「画像を正位置にするために時計回りに何度回転すべきか」なのでそのまま使う
-    const corrected = await sharp(step1.data).rotate(degrees).toBuffer({ resolveWithObject: true });
-    finalData = corrected.data;
-    finalFormat = corrected.info.format;
-    console.log(`[OSD] rotated image by ${degrees}°`);
-  }
-
+  const img = sharp(buffer).rotate(); // EXIF に従う
+  const result = await img.toBuffer({ resolveWithObject: true });
   const formatMap: Record<string, string> = {
     jpeg: 'image/jpeg',
     png: 'image/png',
     webp: 'image/webp',
     gif: 'image/gif',
   };
-  const mime = formatMap[finalFormat] || 'image/jpeg';
-  return { data: finalData, mime };
+  const mime = formatMap[result.info.format] || 'image/jpeg';
+  return { data: result.data, mime };
+}
+
+/**
+ * 画像を指定角度で回転させた base64 を返す。
+ */
+async function rotateImage(buffer: Buffer, degrees: number): Promise<Buffer> {
+  return sharp(buffer).rotate(degrees).toBuffer();
 }
 
 // ──────────────────────────────────────────────────────────
@@ -333,10 +292,23 @@ export async function processInvoiceImage(
 ): Promise<{ items: InvoiceSingleItem[]; usage: UsageInfo }> {
   // EXIF Orientation に従って自動回転（スマホ横撮り・上下逆を補正）
   const rotated = await autoRotateImage(imageBuffer);
-  const imageBase64 = rotated.data.toString('base64');
-
-  // 回転後の MIME タイプを使用
   const mediaType = rotated.mime as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+
+  // 原画 + 90°CW + 90°CCW の3枚を生成して Claude に送信
+  // どの向きが正位置かを Claude 自身に判断させる
+  const [img0, img90, img270] = await Promise.all([
+    Promise.resolve(rotated.data),
+    rotateImage(rotated.data, 90),
+    rotateImage(rotated.data, 270),
+  ]);
+
+  const imageContents: Anthropic.ImageBlockParam[] = [
+    { type: 'image', source: { type: 'base64', media_type: mediaType, data: img0.toString('base64') } },
+    { type: 'image', source: { type: 'base64', media_type: mediaType, data: img90.toString('base64') } },
+    { type: 'image', source: { type: 'base64', media_type: mediaType, data: img270.toString('base64') } },
+  ];
+
+  const orientationHint = `上記3枚は同じ書類を「そのまま」「90°右回転」「90°左回転」で送っています。文字が正しく読める向きの画像を使って抽出してください。\n\n`;
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
@@ -345,11 +317,8 @@ export async function processInvoiceImage(
       {
         role: 'user',
         content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: mediaType, data: imageBase64 },
-          },
-          { type: 'text', text: PROMPT_INVOICE_SINGLE },
+          ...imageContents,
+          { type: 'text', text: orientationHint + PROMPT_INVOICE_SINGLE },
         ],
       },
     ],
@@ -433,7 +402,7 @@ export async function processInvoiceImage(
     documentCategory: docCat,
     invoiceNumber: claudeData.invoiceNumber || null,
     fileName: `${docLabel}_${date}_${requester}_${amount}.${ext}`,
-    pdfBase64: imageBase64, // 画像データをそのまま返す
+    pdfBase64: img0.toString('base64'), // 原画データをそのまま返す
     withholdingTax,
     lines: finalLines,
   };
