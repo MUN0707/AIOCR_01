@@ -6,9 +6,27 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import sharp from 'sharp';
 import { InvoiceInfo, DocumentCategory } from './types';
 import { sanitizeFileName, extractPages, parseJsonSafe } from './utils';
 import { calcCost, UsageInfo } from './cost';
+
+/**
+ * EXIF Orientation に従って画像を自動回転し、正位置に補正する。
+ * スマホ横撮り（90°/180°/270°）を Claude に渡す前に修正する。
+ */
+async function autoRotateImage(buffer: Buffer): Promise<{ data: Buffer; mime: string }> {
+  const result = await sharp(buffer).rotate().toBuffer({ resolveWithObject: true });
+  // sharp は EXIF 回転後も元フォーマットを維持する
+  const formatMap: Record<string, string> = {
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    gif: 'image/gif',
+  };
+  const mime = formatMap[result.info.format] || 'image/jpeg';
+  return { data: result.data, mime };
+}
 
 // ──────────────────────────────────────────────────────────
 // プロンプト（IKANのプロンプトをここに差し替える）
@@ -94,6 +112,7 @@ const PROMPT_INVOICE_SINGLE = `このPDFを1件の請求書または領収書と
 - lines[].amountInclTax：その行の税込金額（整数・円）。**全ての行の合計が taxIncludedAmount と完全一致する必要がある**
 - lines[].taxType：課税仕入10% / 課税仕入8%(軽減) / 非課税 / 対象外 のいずれか
 - lines[].description：その行の品目・内容を簡潔に（10文字程度）
+- 画像が横向き・斜め・上下逆に撮影されている場合でも、文字の向きを正しく判断して全項目を抽出すること。回転や傾きを理由に「不明」を返さず、画像全体を注意深く確認して社名・屋号を特定すること
 - 純粋なJSONのみ返すこと。マークダウンのコードブロックも不要`;
 
 interface ClaudeLine {
@@ -264,10 +283,12 @@ export async function processInvoiceImage(
   anthropic: Anthropic,
   originalFileName?: string
 ): Promise<{ items: InvoiceSingleItem[]; usage: UsageInfo }> {
-  const imageBase64 = imageBuffer.toString('base64');
+  // EXIF Orientation に従って自動回転（スマホ横撮り・上下逆を補正）
+  const rotated = await autoRotateImage(imageBuffer);
+  const imageBase64 = rotated.data.toString('base64');
 
-  // Claude API の image type で対応する media_type
-  const mediaType = mimeType as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+  // 回転後の MIME タイプを使用
+  const mediaType = rotated.mime as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
