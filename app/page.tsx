@@ -3513,12 +3513,14 @@ export default function Home() {
                       ? `${result.processedFiles}件のPDF · 計${result.totalPages}ページを処理`
                       : `${result.totalPages}ページ · ${files[0]?.name}`}
                   </p>
+                  {/* API実コスト表示: 動画撮影のため一時非表示
                   <p className="text-[11px] text-amber-600 mt-1 tracking-wide font-mono">
                     API実コスト: ¥{result.totalCostJpy.toFixed(2)}
                     <span className="text-slate-400 ml-2">
                       (in {result.totalInputTokens.toLocaleString()} / out {result.totalOutputTokens.toLocaleString()} tok)
                     </span>
                   </p>
+                  */}
                 </div>
               </div>
 
