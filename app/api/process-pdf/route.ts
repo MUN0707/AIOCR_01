@@ -117,31 +117,8 @@ export async function POST(request: NextRequest) {
     // HEIC/HEIF → JPEG変換はクライアント側で行う前提。サーバーではそのまま扱う。
     const pdfBuffer = fileBuffer; // 後方互換のため変数名維持
 
-    // 重複チェック: SHA-256 ハッシュで同一ファイルを検出
+    // 重複チェック: 一時的に無効化（運用動画撮影のため同一ファイルの再アップロードを許可）
     const fileHash = createHash('sha256').update(pdfBuffer).digest('hex');
-
-    if (userId) {
-      const { data: existing } = await service
-        .from('ocr_uploads')
-        .select('id, file_name, created_at')
-        .eq('user_id', userId)
-        .eq('file_hash', fileHash)
-        .eq('mode', mode)
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) {
-        const uploadedAt = new Date(existing.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
-        return NextResponse.json(
-          {
-            error: `同一ファイルが既にアップロードされています。\n（${existing.file_name}／${uploadedAt}）`,
-            errorCode: 'DUPLICATE_FILE',
-            existingUploadId: existing.id,
-          },
-          { status: 409 }
-        );
-      }
-    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let responseBody: any;
