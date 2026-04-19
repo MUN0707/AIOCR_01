@@ -12,12 +12,24 @@ import { sanitizeFileName, extractPages, parseJsonSafe } from './utils';
 import { calcCost, UsageInfo } from './cost';
 
 /**
- * EXIF Orientation に従って画像を自動回転し、正位置に補正する。
- * スマホ横撮り（90°/180°/270°）を Claude に渡す前に修正する。
+ * 画像を正位置に補正する。
+ * 1. EXIF Orientation があれば（JPEG等）それに従って自動回転
+ * 2. EXIF がない場合（PNG等）、横長画像は請求書の横撮りと判断し90°回転
+ *    （請求書・領収書は基本的に縦長の書類であるため）
  */
 async function autoRotateImage(buffer: Buffer): Promise<{ data: Buffer; mime: string }> {
-  const result = await sharp(buffer).rotate().toBuffer({ resolveWithObject: true });
-  // sharp は EXIF 回転後も元フォーマットを維持する
+  // まず EXIF 自動回転を適用
+  let img = sharp(buffer).rotate();
+  const metadata = await sharp(buffer).metadata();
+
+  // EXIF Orientation がない（PNG等）場合、縦横比で横撮りを検出
+  const orientation = metadata.orientation ?? 1; // 1 = 回転なし
+  if (orientation === 1 && metadata.width && metadata.height && metadata.width > metadata.height) {
+    // 横長 → 90°時計回りに回転して縦長にする
+    img = sharp(buffer).rotate(90);
+  }
+
+  const result = await img.toBuffer({ resolveWithObject: true });
   const formatMap: Record<string, string> = {
     jpeg: 'image/jpeg',
     png: 'image/png',
