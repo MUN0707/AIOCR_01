@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
-import { createServiceClient } from '@/utils/supabase/service';
 
 export const maxDuration = 30;
 
@@ -23,8 +22,6 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    const service = createServiceClient();
-
     let screenshotPath: string | null = null;
     if (screenshotBase64) {
       const match = /^data:(image\/(png|jpeg|webp));base64,(.+)$/.exec(screenshotBase64);
@@ -39,7 +36,7 @@ export async function POST(request: NextRequest) {
       }
       const prefix = user?.id ?? 'guest';
       const path = `${prefix}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-      const { error: uploadError } = await service.storage
+      const { error: uploadError } = await supabase.storage
         .from('error-screenshots')
         .upload(path, buffer, { contentType: mime, upsert: false });
       if (uploadError) {
@@ -48,7 +45,7 @@ export async function POST(request: NextRequest) {
       screenshotPath = path;
     }
 
-    const { error: insertError } = await service.from('error_reports').insert({
+    const { error: insertError } = await supabase.from('error_reports').insert({
       user_id: user?.id ?? null,
       user_email: user?.email ?? null,
       mode,
