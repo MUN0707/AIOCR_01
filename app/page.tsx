@@ -356,11 +356,11 @@ function InvoiceRow({
         </span>
       </td>
       <td className="px-5 py-4 hidden lg:table-cell">
-        <span className="text-[11px] text-slate-300 font-mono truncate block max-w-[180px]">
+        <span className="text-[11px] text-slate-300 font-mono truncate block max-w-[120px]" title={invoice.fileName}>
           {invoice.fileName}
         </span>
       </td>
-      <td className="px-5 py-4 text-center">
+      <td className="px-5 py-4 text-center sticky right-0 bg-white group-hover:bg-sky-50/40">
         <button
           onClick={onDownload}
           aria-label={`${invoice.fileName} をダウンロード`}
@@ -426,11 +426,11 @@ function TaxReturnRow({
         )}
       </td>
       <td className="px-5 py-4 hidden lg:table-cell">
-        <span className="text-[11px] text-slate-300 font-mono truncate block max-w-[180px]">
+        <span className="text-[11px] text-slate-300 font-mono truncate block max-w-[120px]" title={invoice.fileName}>
           {invoice.fileName}
         </span>
       </td>
-      <td className="px-5 py-4 text-center">
+      <td className="px-5 py-4 text-center sticky right-0 bg-white group-hover:bg-sky-50/40">
         <button
           onClick={onDownload}
           aria-label={`${invoice.fileName} をダウンロード`}
@@ -3810,7 +3810,7 @@ export default function Home() {
                           </>
                         )}
                         <th className="px-5 py-4 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest hidden lg:table-cell">File</th>
-                        <th className="px-5 py-4 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-16">DL</th>
+                        <th className="px-5 py-4 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-16 sticky right-0 bg-white">DL</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
@@ -3854,7 +3854,7 @@ export default function Home() {
                     ? `Output: CSV · ${result.bankName} ${result.accountNumber}`
                     : <>File format :{' '}
                           <code className="bg-white border border-slate-100 px-1.5 py-0.5 rounded-md font-mono text-slate-400 normal-case tracking-normal">
-                            {result.mode === 'tax-return' ? '年度_氏名_書類種別.pdf' : '種別_日付_発行者名_税込金額.pdf'}
+                            {result.mode === 'tax-return' ? '年度_氏名_書類種別.pdf' : '日付_発行者名_金額_摘要.pdf'}
                           </code>
                         </>}
                 </p>
@@ -3884,7 +3884,7 @@ export default function Home() {
               {
                 num: '03',
                 title: '分割PDFをダウンロード',
-                desc: '種別_日付_発行者名_金額で命名された1書類1PDFを個別またはZIPで一括ダウンロード。',
+                desc: '日付_発行者名_金額_摘要で命名された1書類1PDFを個別またはZIPで一括ダウンロード。',
                 accent: 'text-lime-500',
                 border: 'hover:border-lime-200',
               },

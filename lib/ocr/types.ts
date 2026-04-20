@@ -18,6 +18,7 @@ export interface InvoiceInfo {
   taxIncludedAmount: number | null;
   documentCategory: DocumentCategory;  // 請求書 or 領収書
   invoiceNumber: string | null;        // インボイス番号（T+13桁）
+  description?: string;                // 摘要（品目・件名の要約）
 }
 
 export interface InvoiceResult extends InvoiceInfo {
