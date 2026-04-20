@@ -2172,6 +2172,8 @@ export default function Home() {
                   setExistingUploads([]);
                   setSelectedBankUploadIds(new Set());
                   setSelectedInvoiceUploadIds(new Set());
+                  // クライアント選択時に既存OCRデータを自動フェッチ
+                  if (newId) fetchExistingUploads(newId);
                 }}
                 className="text-sm bg-white border border-slate-200 rounded-xl px-3 py-1.5
                   text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300
@@ -2709,6 +2711,27 @@ export default function Home() {
                       {item.label}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {/* ─── 既存データ復元バナー（新規モードで既存データがある場合） ─── */}
+              {journalInputMode === 'new' && selectedClientId && existingUploads.length > 0 && !bankOcr && !invoiceOcr && (
+                <div className="bg-sky-50 border border-sky-200 rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-sky-800">前回のOCRデータがあります</p>
+                    <p className="text-[11px] text-sky-600 mt-0.5">
+                      通帳 {existingUploads.filter(u => u.mode === 'bank-statement').length}件・
+                      請求書 {existingUploads.filter(u => u.mode === 'invoice-single').length}件のOCR済みデータ
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setJournalInputMode('existing');
+                    }}
+                    className="text-xs font-semibold text-white bg-sky-500 hover:bg-sky-600 rounded-xl px-4 py-2.5 transition-colors whitespace-nowrap"
+                  >
+                    既存データから復元
+                  </button>
                 </div>
               )}
 
