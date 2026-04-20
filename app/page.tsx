@@ -602,6 +602,11 @@ export default function Home() {
       const { log } = await res.json();
       if (!log) return;
 
+      // データ形状の簡易バリデーション
+      const isValidMatchData = (d: { results?: unknown; summary?: unknown }) =>
+        Array.isArray(d.results) && d.summary && typeof d.summary === 'object' && 'total' in d.summary;
+
+      if (!log.id || !isValidMatchData(log)) return;
       setCurrentMatchLogId(log.id);
 
       // localStorage にドラフトがあればそちらを優先（ユーザー編集が反映される）
@@ -611,12 +616,14 @@ export default function Home() {
         try {
           const draft = JSON.parse(draftJson);
           // ドラフトが同じ log ID のものか確認
-          if (draft.logId === log.id && draft.results && draft.summary) {
+          if (draft.logId === log.id && isValidMatchData(draft)) {
             setJournalMatchResult({ results: draft.results, summary: draft.summary });
-            if (draft.registeredVoucherIdx) {
+            if (Array.isArray(draft.registeredVoucherIdx)) {
               setRegisteredVoucherIdx(new Set(draft.registeredVoucherIdx));
             }
             return;
+          } else {
+            localStorage.removeItem(draftKey);
           }
         } catch {
           localStorage.removeItem(draftKey);
