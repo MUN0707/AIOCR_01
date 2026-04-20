@@ -541,6 +541,7 @@ export default function Home() {
   } | null>(null);
   const [invoiceOcr, setInvoiceOcr] = useState<{ vouchers: VoucherInput[]; count: number } | null>(null);
   const [journalMatchResult, setJournalMatchResult] = useState<{ results: MatchResult[]; summary: MatchSummary } | null>(null);
+  const [currentMatchLogId, setCurrentMatchLogId] = useState<string | null>(null);
   // 照合後に投入する「請求書ごとの源泉徴収税額」バッファ（voucher index → 金額）
   const [withholdingTaxBuf, setWithholdingTaxBuf] = useState<Record<number, number>>({});
   // #9 部分登録: 「すでに登録した voucher index の集合」「今回登録対象として選択中の集合」
@@ -577,6 +578,46 @@ export default function Home() {
   const [selectedBankUploadIds, setSelectedBankUploadIds] = useState<Set<string>>(new Set());
   const [selectedInvoiceUploadIds, setSelectedInvoiceUploadIds] = useState<Set<string>>(new Set());
   const [loadingExistingData, setLoadingExistingData] = useState(false);
+
+  // ─── 照合結果の復元・ドラフト保存 ───────────────────────────────────────
+  const DRAFT_KEY_PREFIX = 'aiocr_match_draft_';
+  const getDraftKey = (cId: string) => `${DRAFT_KEY_PREFIX}${cId}`;
+
+  // 最新照合ログを取得して UI に復元
+  const restoreMatchLog = useCallback(async (clientId: string) => {
+    try {
+      const res = await fetch(`/api/match-logs/latest?clientId=${clientId}`);
+      if (!res.ok) return;
+      const { log } = await res.json();
+      if (!log) return;
+
+      setCurrentMatchLogId(log.id);
+
+      // localStorage にドラフトがあればそちらを優先（ユーザー編集が反映される）
+      const draftKey = `${DRAFT_KEY_PREFIX}${clientId}`;
+      const draftJson = localStorage.getItem(draftKey);
+      if (draftJson) {
+        try {
+          const draft = JSON.parse(draftJson);
+          // ドラフトが同じ log ID のものか確認
+          if (draft.logId === log.id && draft.results && draft.summary) {
+            setJournalMatchResult({ results: draft.results, summary: draft.summary });
+            if (draft.registeredVoucherIdx) {
+              setRegisteredVoucherIdx(new Set(draft.registeredVoucherIdx));
+            }
+            return;
+          }
+        } catch {
+          localStorage.removeItem(draftKey);
+        }
+      }
+
+      // ドラフトがなければ DB のログから復元
+      setJournalMatchResult({ results: log.results, summary: log.summary });
+    } catch {
+      // silent
+    }
+  }, []);
 
   const fetchExistingUploads = useCallback(async (clientId: string) => {
     setExistingUploadsLoading(true);
@@ -1160,6 +1201,26 @@ export default function Home() {
 
   const isGuest = user === null;
 
+  // ─── 照合結果ドラフト自動保存（localStorage, debounce 1秒） ─────────────────
+  useEffect(() => {
+    if (!journalMatchResult || !selectedClientId || !currentMatchLogId) return;
+    const timer = setTimeout(() => {
+      try {
+        const draft = {
+          logId: currentMatchLogId,
+          results: journalMatchResult.results,
+          summary: journalMatchResult.summary,
+          registeredVoucherIdx: Array.from(registeredVoucherIdx),
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(getDraftKey(selectedClientId), JSON.stringify(draft));
+      } catch {
+        // localStorage full or unavailable — silent
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [journalMatchResult, selectedClientId, currentMatchLogId, registeredVoucherIdx]);
+
   // ─── ドラッグ&ドロップハンドラ（既存ロジックと同じ） ───────────────────────
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1696,6 +1757,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setJournalMatchResult({ results: data.results, summary: data.summary });
+      if (data.logId) setCurrentMatchLogId(data.logId);
       // 摘要ルールによる未照合取引の科目自動提案を state に反映
       if (data.suggestedUnmatchedAccounts && typeof data.suggestedUnmatchedAccounts === 'object') {
         setUnmatchedTxAccounts((prev) => ({ ...data.suggestedUnmatchedAccounts, ...prev }));
@@ -2163,6 +2225,7 @@ export default function Home() {
                   setBankFiles([]);
                   setInvoiceFiles([]);
                   setJournalMatchResult(null);
+                  setCurrentMatchLogId(null);
                   setRegisteredVoucherIdx(new Set());
                   setSelectedVoucherIdx(new Set());
                   setWithholdingTaxBuf({});
@@ -2172,8 +2235,11 @@ export default function Home() {
                   setExistingUploads([]);
                   setSelectedBankUploadIds(new Set());
                   setSelectedInvoiceUploadIds(new Set());
-                  // クライアント選択時に既存OCRデータを自動フェッチ
-                  if (newId) fetchExistingUploads(newId);
+                  // クライアント選択時に既存OCRデータ＋前回の照合結果を自動フェッチ
+                  if (newId) {
+                    fetchExistingUploads(newId);
+                    restoreMatchLog(newId);
+                  }
                 }}
                 className="text-sm bg-white border border-slate-200 rounded-xl px-3 py-1.5
                   text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300

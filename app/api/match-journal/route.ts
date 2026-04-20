@@ -284,12 +284,35 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ─── 保存（部分登録モードではスキップ） ───
-    if (shouldSave && user) {
-      await saveResultsToJournalEntries(service, user, clientId, vouchers, transactions, results, summary);
+    // ─── 照合ログは常に保存（復元用） ───
+    let logId: string | null = null;
+    if (user) {
+      try {
+        const { data: logRow } = await service
+          .from('journal_match_logs')
+          .insert({
+            user_id: user.id,
+            user_email: user.email ?? null,
+            client_id: clientId,
+            vouchers,
+            transactions,
+            results,
+            summary,
+          })
+          .select('id')
+          .single();
+        logId = logRow?.id ?? null;
+      } catch (logError) {
+        console.error('journal_match_logs 保存失敗:', logError);
+      }
     }
 
-    return NextResponse.json({ results, summary, suggestedUnmatchedAccounts });
+    // ─── 仕訳エントリ保存（部分登録モードではスキップ） ───
+    if (shouldSave && user) {
+      await saveResultsToJournalEntries(service, user, clientId, logId, vouchers, transactions, results, summary);
+    }
+
+    return NextResponse.json({ results, summary, suggestedUnmatchedAccounts, logId });
   } catch (error) {
     console.error('照合処理エラー:', error);
     const message = error instanceof Error ? error.message : '照合処理中にエラーが発生しました';
@@ -305,27 +328,13 @@ async function saveResultsToJournalEntries(
   service: ReturnType<typeof createServiceClient>,
   user: { id: string; email?: string },
   clientId: string | null,
-  vouchers: VoucherInput[],
-  transactions: TransactionInput[],
+  logId: string | null,
+  _vouchers: VoucherInput[],
+  _transactions: TransactionInput[],
   results: MatchResult[],
-  summary: ReturnType<typeof matchVouchersToTransactions>['summary']
+  _summary: ReturnType<typeof matchVouchersToTransactions>['summary']
 ) {
   try {
-    const { data: logRow } = await service
-      .from('journal_match_logs')
-      .insert({
-        user_id: user.id,
-        user_email: user.email ?? null,
-        client_id: clientId,
-        vouchers,
-        transactions,
-        results,
-        summary,
-      })
-      .select('id')
-      .single();
-
-    const logId = logRow?.id ?? null;
     const rows: Record<string, unknown>[] = [];
     for (const r of results) {
       const firstAccrual = r.accrualEntries[0];
@@ -393,9 +402,7 @@ async function saveResultsToJournalEntries(
     if (rows.length > 0) {
       await service.from('journal_entries').insert(rows);
     }
-  } catch (logError) {
-    console.error('journal_match_logs 保存失敗:', logError);
+  } catch (saveError) {
+    console.error('journal_entries 保存失敗:', saveError);
   }
-  void transactions;
-  void summary;
 }
