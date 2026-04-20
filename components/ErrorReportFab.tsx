@@ -108,7 +108,13 @@ export default function ErrorReportFab() {
           comment,
           screenshot,
           mode: null,
-          context: { page: pathname },
+          context: {
+            page: pathname,
+            title: document.title,
+            viewport: `${window.innerWidth}x${window.innerHeight}`,
+            userAgent: navigator.userAgent,
+            timestamp: new Date().toISOString(),
+          },
           site_name: process.env.NEXT_PUBLIC_SITE_NAME || null,
         }),
       });
@@ -214,8 +220,19 @@ export default function ErrorReportFab() {
               {message && (
                 <div className={`text-xs rounded-xl px-3 py-2 ${message.includes('送信しました') ? 'bg-lime-50 text-lime-700 border border-lime-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
                   {message}
+                  {!message.includes('送信しました') && (
+                    <p className="mt-1.5 text-[10px] text-red-400">
+                      送信できない場合は <a href="mailto:negitoro0707@gmail.com?subject=[Invoice OCR] エラー報告&body=エラー内容をご記入ください" className="underline hover:text-red-600">negitoro0707@gmail.com</a> へ直接ご連絡ください。
+                    </p>
+                  )}
                 </div>
               )}
+
+              <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
+                <p className="text-[10px] text-slate-400">
+                  この画面から送信できない場合: <a href="mailto:negitoro0707@gmail.com?subject=[Invoice OCR] エラー報告&body=エラー内容をご記入ください" className="text-sky-500 underline hover:text-sky-600">negitoro0707@gmail.com</a> へメールでご連絡ください。
+                </p>
+              </div>
             </div>
 
             <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2">

@@ -4432,7 +4432,9 @@ function LedgerView({
                       onClick={() => setImportPresetId(p.unsupported ? '__other__' : p.id)}
                       className={`text-sm rounded-xl px-4 py-3 border-2 transition-all text-left relative ${
                         p.unsupported
-                          ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-default'
+                          ? importPresetId === '__other__'
+                            ? 'border-amber-400 bg-amber-50 text-amber-700 cursor-pointer'
+                            : 'border-slate-200 bg-white text-slate-500 hover:border-amber-300 hover:bg-amber-50/50 cursor-pointer'
                           : importPresetId === p.id
                             ? 'border-sky-400 bg-sky-50 text-sky-700'
                             : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
@@ -7936,8 +7938,51 @@ function MatchResultTable({
     });
   };
 
+  // 支払日の前月末を算出（YYYYMMDD → YYYYMMDD）
+  const getPrevMonthEnd = (paymentDate: string): string => {
+    if (!/^\d{8}$/.test(paymentDate)) return '';
+    const y = parseInt(paymentDate.slice(0, 4));
+    const m = parseInt(paymentDate.slice(4, 6));
+    // 支払月の1日 - 1日 = 前月末
+    const d = new Date(y, m - 1, 0);
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  // 日付不明の費用計上を一括で「支払日の前月末」に設定
+  const hasUnknownDates = journalMatchResult.results.some((r) =>
+    r.accrualEntries.some((ae) => !/^\d{8}$/.test(ae.date)) && r.paymentEntry
+  );
+  const fillAllPrevMonth = () => {
+    setJournalMatchResult((prev) => {
+      if (!prev) return prev;
+      const results = prev.results.map((r) => {
+        if (!r.paymentEntry) return r;
+        const prevMonth = getPrevMonthEnd(r.paymentEntry.date);
+        if (!prevMonth) return r;
+        const accrualEntries = r.accrualEntries.map((ae) =>
+          /^\d{8}$/.test(ae.date) ? ae : { ...ae, date: prevMonth }
+        );
+        return { ...r, accrualEntries };
+      });
+      return { ...prev, results };
+    });
+  };
+
   return (
     <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+      {hasUnknownDates && (
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-50 border-b border-amber-100">
+          <span className="text-xs text-amber-700">日付不明の項目があります</span>
+          <button
+            type="button"
+            onClick={fillAllPrevMonth}
+            className="text-[11px] font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-lg px-3 py-1 transition-colors"
+          >
+            一括：支払日の前月末を設定
+          </button>
+          <span className="text-[10px] text-amber-500">※ 個別に手入力も可能です</span>
+        </div>
+      )}
       <div>
         <table className="w-full text-sm table-fixed">
           <colgroup>
@@ -8018,16 +8063,31 @@ function MatchResultTable({
                         </div>
                       </td>
                       <td className="px-2 py-2">
-                        <input
-                          type="date"
-                          value={dateIso}
-                          disabled={isRegistered}
-                          onChange={(e) => {
-                            const v = e.target.value.replace(/-/g, '');
-                            patchAccrual(i, lineIdx, { date: v || '不明' });
-                          }}
-                          className="w-full text-[11px] font-mono text-slate-600 border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:border-sky-400 disabled:bg-transparent disabled:border-transparent"
-                        />
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="date"
+                            value={dateIso}
+                            disabled={isRegistered}
+                            onChange={(e) => {
+                              const v = e.target.value.replace(/-/g, '');
+                              patchAccrual(i, lineIdx, { date: v || '不明' });
+                            }}
+                            className="flex-1 min-w-0 text-[11px] font-mono text-slate-600 border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:border-sky-400 disabled:bg-transparent disabled:border-transparent"
+                          />
+                          {!dateIso && !isRegistered && r.paymentEntry && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const pm = getPrevMonthEnd(r.paymentEntry!.date);
+                                if (pm) patchAccrual(i, lineIdx, { date: pm });
+                              }}
+                              className="text-[9px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 py-0.5 hover:bg-amber-100 whitespace-nowrap"
+                              title="支払日の前月末を設定"
+                            >
+                              前月
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-2 py-2">
                         <AccountCombobox
