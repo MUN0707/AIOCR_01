@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { Resend } from 'resend';
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL!;
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const maxDuration = 30;
 
@@ -57,6 +61,29 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
+    }
+
+    // 自分以外のユーザーからの報告時のみ管理者にメール通知
+    const reporterEmail = user?.email ?? '未ログイン';
+    if (reporterEmail !== ADMIN_EMAIL) {
+      try {
+        await resend.emails.send({
+          from: process.env.RESEND_SALES_FROM!,
+          to: ADMIN_EMAIL,
+          subject: `[エラー報告] ${siteName ?? 'unknown'} - ${reporterEmail}`,
+          html: `
+            <h2>新しいエラー報告</h2>
+            <p><strong>報告者:</strong> ${reporterEmail}</p>
+            <p><strong>サイト:</strong> ${siteName ?? '不明'}</p>
+            <p><strong>ページ:</strong> ${context?.page ?? '不明'}</p>
+            <p><strong>コメント:</strong></p>
+            <pre style="background:#f5f5f5;padding:12px;border-radius:4px;white-space:pre-wrap;">${comment}</pre>
+            ${screenshotPath ? '<p><em>スクリーンショット添付あり（管理画面で確認）</em></p>' : ''}
+          `,
+        });
+      } catch (emailError) {
+        console.error('通知メール送信失敗:', emailError);
+      }
     }
 
     return NextResponse.json({ success: true });
