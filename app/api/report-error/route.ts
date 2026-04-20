@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { Resend } from 'resend';
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL!;
-const resend = new Resend(process.env.RESEND_API_KEY);
+// ビルド時にモジュール評価されてもエラーにならないよう遅延初期化
+let _resend: Resend | null = null;
+function getResend() {
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
+}
 
 export const maxDuration = 30;
 
@@ -65,11 +69,12 @@ export async function POST(request: NextRequest) {
 
     // 自分以外のユーザーからの報告時のみ管理者にメール通知
     const reporterEmail = user?.email ?? '未ログイン';
-    if (reporterEmail !== ADMIN_EMAIL) {
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (adminEmail && reporterEmail !== adminEmail) {
       try {
-        await resend.emails.send({
+        await getResend().emails.send({
           from: process.env.RESEND_SALES_FROM!,
-          to: ADMIN_EMAIL,
+          to: adminEmail,
           subject: `[エラー報告] ${siteName ?? 'unknown'} - ${reporterEmail}`,
           html: `
             <h2>新しいエラー報告</h2>
