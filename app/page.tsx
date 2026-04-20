@@ -578,8 +578,19 @@ export default function Home() {
   const [selectedBankUploadIds, setSelectedBankUploadIds] = useState<Set<string>>(new Set());
   const [selectedInvoiceUploadIds, setSelectedInvoiceUploadIds] = useState<Set<string>>(new Set());
   const [loadingExistingData, setLoadingExistingData] = useState(false);
+  // ドラッグ複数選択（再照合用）
+  const [isListDragging, setIsListDragging] = useState(false);
+  const [dragSelecting, setDragSelecting] = useState(true); // true=追加, false=解除
+  const [deletingUploadId, setDeletingUploadId] = useState<string | null>(null);
 
-  // ─── 照合結果の復元・ドラフト保存 ───────────────────────────────────────
+  // ドラッグ選択: window mouseup で確実に解除
+  useEffect(() => {
+    const handleMouseUp = () => setIsListDragging(false);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, []);
+
+  // ─── 照合結果の復元・ドラフト保存 ─────────────���─────────────────────────
   const DRAFT_KEY_PREFIX = 'aiocr_match_draft_';
   const getDraftKey = (cId: string) => `${DRAFT_KEY_PREFIX}${cId}`;
 
@@ -633,20 +644,40 @@ export default function Home() {
     }
   }, []);
 
+  // 証票削除ハンドラー
+  const handleDeleteUpload = useCallback(async (uploadId: string) => {
+    if (!window.confirm('この証票を削除しますか？')) return;
+    setDeletingUploadId(uploadId);
+    try {
+      const res = await fetch(`/api/ocr-uploads/${uploadId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || '削除に失敗しました');
+        return;
+      }
+      setExistingUploads((prev) => prev.filter((u) => u.id !== uploadId));
+      setSelectedInvoiceUploadIds((prev) => { const next = new Set(prev); next.delete(uploadId); return next; });
+    } catch {
+      alert('削除に失敗しました');
+    } finally {
+      setDeletingUploadId(null);
+    }
+  }, []);
+
   const handleLoadExistingData = useCallback(async () => {
-    const bankIds = Array.from(selectedBankUploadIds);
+    // 通帳は自動で全件ロード、請求書はユーザー選択
+    const bankIds = existingUploads.filter((u) => u.mode === 'bank-statement').map((u) => u.id);
     const invoiceIds = Array.from(selectedInvoiceUploadIds);
-    if (bankIds.length === 0 && invoiceIds.length === 0) {
-      alert('通帳または請求書を1つ以上選択してください');
+    if (invoiceIds.length === 0) {
+      alert('請求書を1つ以上選択してください');
       return;
     }
 
-    // 選択したアップロードに紐づく旧仕訳を削除するか確認
-    const allUploadIds = [...bankIds, ...invoiceIds];
+    // 選択した請求書に紐づく旧仕訳を削除するか確認
     const deleteOld = window.confirm(
-      '選択したデータに紐づく既存の仕訳を削除してから再照合しますか？\n\n' +
+      '選択した請求書に紐づく既存の仕訳を削除してから再照合しますか？\n\n' +
       '「OK」→ 旧仕訳を削除して再照合\n' +
-      '「��ャンセル」→ 旧仕訳はそのまま残して再照合'
+      '「キャンセル」→ 旧仕訳はそのまま残して再照合'
     );
 
     setLoadingExistingData(true);
@@ -656,7 +687,7 @@ export default function Home() {
       if (deleteOld) {
         let totalDeleted = 0;
         let totalSkipped = 0;
-        for (const uid of allUploadIds) {
+        for (const uid of invoiceIds) {
           const delRes = await fetch(`/api/history/${uid}?target=journal_entries`, { method: 'DELETE' });
           if (delRes.ok) {
             const d = await delRes.json();
@@ -759,7 +790,7 @@ export default function Home() {
       setLoadingExistingData(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBankUploadIds, selectedInvoiceUploadIds, selectedClientId]);
+  }, [existingUploads, selectedInvoiceUploadIds, selectedClientId]);
 
   // ─── 未照合トランザクションの勘定科目選択 State ───────────────────────────
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
@@ -898,7 +929,7 @@ export default function Home() {
   }, []);
 
   // ─── 仕訳日記帳サブビュー State ────────────────────────────────────────────
-  const [journalSubView, setJournalSubView] = useState<'execute' | 'unmatched' | 'ledger' | 'balance' | 'master'>('execute');
+  const [journalSubView, setJournalSubView] = useState<'execute' | 'unmatched' | 'ledger' | 'balance' | 'master' | 'bank-tx'>('execute');
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[] | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
@@ -2177,7 +2208,7 @@ export default function Home() {
 
       {/* ─── メインコンテンツ ──────────────────────────────────────────────── */}
       <main className={`mx-auto px-4 sm:px-6 py-10 sm:py-14 relative space-y-6 ${
-        (mode === 'journal-entry' && (journalSubView === 'ledger' || journalSubView === 'master' || journalSubView === 'unmatched')) || mode === 'financial-statement' ? 'max-w-[1280px]' : 'max-w-[900px]'
+        (mode === 'journal-entry' && (journalSubView === 'ledger' || journalSubView === 'master' || journalSubView === 'unmatched' || journalSubView === 'bank-tx')) || mode === 'financial-statement' ? 'max-w-[1280px]' : 'max-w-[900px]'
       }`}>
 
         {/* ─── モード切替タブ ──────────────────────────────────────────────── */}
@@ -2497,6 +2528,7 @@ export default function Home() {
                 {([
                   { key: 'execute', label: '仕訳実行' },
                   { key: 'unmatched', label: '未照合' },
+                  { key: 'bank-tx', label: '入出金明細' },
                   { key: 'ledger', label: '日記帳' },
                   { key: 'balance', label: '残高' },
                   { key: 'master', label: 'マスタ' },
@@ -2642,6 +2674,14 @@ export default function Home() {
                 consumedUnmatchedIdx={consumedUnmatchedIdx}
                 onConsumeUnmatched={(idx) => setConsumedUnmatchedIdx((prev) => new Set(prev).add(idx))}
               />
+            ) : journalSubView === 'bank-tx' ? (
+              <BankTransactionsView
+                clientId={selectedClientId}
+                clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
+                accountsList={accountsList}
+                addAccountLocal={addAccountLocal}
+                onRefreshLedger={fetchLedger}
+              />
             ) : journalSubView === 'master' ? (
               <MasterView
                 accountsList={accountsList}
@@ -2786,8 +2826,7 @@ export default function Home() {
                   <div>
                     <p className="text-sm font-semibold text-sky-800">前回のOCRデータがあります</p>
                     <p className="text-[11px] text-sky-600 mt-0.5">
-                      通帳 {existingUploads.filter(u => u.mode === 'bank-statement').length}件・
-                      請求書 {existingUploads.filter(u => u.mode === 'invoice-single').length}件のOCR済みデータ
+                      請求書 {existingUploads.filter(u => u.mode === 'invoice-single').length}件のOCR済みデータ（未反映 {existingUploads.filter(u => u.mode === 'invoice-single' && u.journalEntryCount === 0).length}件）
                     </p>
                   </div>
                   <button
@@ -2801,90 +2840,145 @@ export default function Home() {
                 </div>
               )}
 
-              {/* ─── 既存データから再照合 ─── */}
+              {/* ─── 既存データから再照合（請求書のみ） ─── */}
               {journalInputMode === 'existing' && selectedClientId ? (
                 <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm space-y-4">
                   <div>
-                    <p className="text-sm font-semibold text-slate-800 tracking-tight">既存OCRデータを選択</p>
-                    <p className="text-xs text-slate-400 mt-0.5">通帳・請求書を選択して再照合を実行できます</p>
+                    <p className="text-sm font-semibold text-slate-800 tracking-tight">請求書を選択して再照合</p>
+                    <p className="text-xs text-slate-400 mt-0.5">仕訳未反映の請求書を選択してください（ドラッグで複数選択可）。通帳データは自動で読み込まれます。</p>
                   </div>
                   {existingUploadsLoading ? (
                     <p className="text-xs text-slate-400">読み込み中...</p>
-                  ) : existingUploads.length === 0 ? (
-                    <p className="text-xs text-slate-400">この法人にはまだOCRデータがありません。「新規アップロード」で作成してください。</p>
-                  ) : (
-                    <>
-                      {/* 通帳 */}
-                      {existingUploads.filter((u) => u.mode === 'bank-statement').length > 0 && (
-                        <div className="space-y-1.5">
-                          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">通帳</p>
-                          {existingUploads.filter((u) => u.mode === 'bank-statement').map((u) => (
-                            <label key={u.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                              selectedBankUploadIds.has(u.id) ? 'border-sky-300 bg-sky-50/40' : 'border-slate-100 hover:border-slate-200'
-                            }`}>
-                              <input
-                                type="checkbox"
-                                checked={selectedBankUploadIds.has(u.id)}
-                                onChange={() => setSelectedBankUploadIds((prev) => {
-                                  const next = new Set(prev);
-                                  next.has(u.id) ? next.delete(u.id) : next.add(u.id);
-                                  return next;
-                                })}
-                                className="rounded border-slate-300 text-sky-500 focus:ring-sky-400"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium text-slate-700 truncate">{u.fileName}</p>
-                                <p className="text-[10px] text-slate-400">
-                                  {u.itemCount}件の取引 · 仕訳{u.journalEntryCount}件 · {new Date(u.createdAt).toLocaleDateString('ja-JP')}
-                                </p>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                      {/* 請求書 */}
-                      {existingUploads.filter((u) => u.mode === 'invoice-single').length > 0 && (
-                        <div className="space-y-1.5">
-                          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">請求書</p>
-                          {existingUploads.filter((u) => u.mode === 'invoice-single').map((u) => (
-                            <label key={u.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                              selectedInvoiceUploadIds.has(u.id) ? 'border-sky-300 bg-sky-50/40' : 'border-slate-100 hover:border-slate-200'
-                            }`}>
-                              <input
-                                type="checkbox"
-                                checked={selectedInvoiceUploadIds.has(u.id)}
-                                onChange={() => setSelectedInvoiceUploadIds((prev) => {
-                                  const next = new Set(prev);
-                                  next.has(u.id) ? next.delete(u.id) : next.add(u.id);
-                                  return next;
-                                })}
-                                className="rounded border-slate-300 text-sky-500 focus:ring-sky-400"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium text-slate-700 truncate">{u.fileName}</p>
-                                <p className="text-[10px] text-slate-400">
-                                  {u.itemCount}件の証票 · 仕訳{u.journalEntryCount}件 · {new Date(u.createdAt).toLocaleDateString('ja-JP')}
-                                </p>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                      <button
-                        onClick={handleLoadExistingData}
-                        disabled={loadingExistingData || (selectedBankUploadIds.size === 0 && selectedInvoiceUploadIds.size === 0)}
-                        className="w-full bg-sky-400 text-white text-xs font-semibold rounded-xl py-2.5 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
-                      >
-                        {loadingExistingData ? 'データ読み込み中...' : `選択したデータを読み込む（通帳${selectedBankUploadIds.size} + 請求書${selectedInvoiceUploadIds.size}）`}
-                      </button>
-                      {(bankOcr || invoiceOcr) && (
-                        <div className="flex items-center gap-2 text-xs text-lime-600 bg-lime-50 rounded-xl px-3 py-2">
-                          <IconCheck className="w-4 h-4" />
-                          データ読み込み済み — 下の設定で照合を実行してください
-                        </div>
-                      )}
-                    </>
-                  )}
+                  ) : (() => {
+                    const unmatchedInvoices = existingUploads.filter((u) => u.mode === 'invoice-single' && u.journalEntryCount === 0);
+                    const matchedInvoices = existingUploads.filter((u) => u.mode === 'invoice-single' && u.journalEntryCount > 0);
+                    const bankCount = existingUploads.filter((u) => u.mode === 'bank-statement').length;
+                    return unmatchedInvoices.length === 0 && matchedInvoices.length === 0 ? (
+                      <p className="text-xs text-slate-400">この法人にはまだ請求書のOCRデータがありません。「新規アップロード」で作成してください。</p>
+                    ) : (
+                      <>
+                        {bankCount > 0 && (
+                          <div className="flex items-center gap-2 text-xs text-sky-600 bg-sky-50 rounded-xl px-3 py-2">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" /></svg>
+                            通帳 {bankCount}件が自動で照合に使用されます
+                          </div>
+                        )}
+                        {/* 未反映の請求書（選択可能） */}
+                        {unmatchedInvoices.length > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">未反映の請求書（{unmatchedInvoices.length}件）</p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const allIds = unmatchedInvoices.map((u) => u.id);
+                                  const allSelected = allIds.every((id) => selectedInvoiceUploadIds.has(id));
+                                  setSelectedInvoiceUploadIds(allSelected ? new Set() : new Set(allIds));
+                                }}
+                                className="text-[10px] text-sky-500 hover:text-sky-600 font-medium"
+                              >
+                                {unmatchedInvoices.every((u) => selectedInvoiceUploadIds.has(u.id)) ? 'すべて解除' : 'すべて選択'}
+                              </button>
+                            </div>
+                            <div
+                              className="space-y-1.5 select-none"
+                              onMouseLeave={() => setIsListDragging(false)}
+                            >
+                              {unmatchedInvoices.map((u) => (
+                                <div
+                                  key={u.id}
+                                  className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                                    selectedInvoiceUploadIds.has(u.id) ? 'border-sky-300 bg-sky-50/40' : 'border-slate-100 hover:border-slate-200'
+                                  }`}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    const willSelect = !selectedInvoiceUploadIds.has(u.id);
+                                    setIsListDragging(true);
+                                    setDragSelecting(willSelect);
+                                    setSelectedInvoiceUploadIds((prev) => {
+                                      const next = new Set(prev);
+                                      willSelect ? next.add(u.id) : next.delete(u.id);
+                                      return next;
+                                    });
+                                  }}
+                                  onMouseEnter={() => {
+                                    if (!isListDragging) return;
+                                    setSelectedInvoiceUploadIds((prev) => {
+                                      const next = new Set(prev);
+                                      dragSelecting ? next.add(u.id) : next.delete(u.id);
+                                      return next;
+                                    });
+                                  }}
+                                  onMouseUp={() => setIsListDragging(false)}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedInvoiceUploadIds.has(u.id)}
+                                    readOnly
+                                    className="rounded border-slate-300 text-sky-500 focus:ring-sky-400 pointer-events-none"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-slate-700 truncate">{u.fileName}</p>
+                                    <p className="text-[10px] text-slate-400">
+                                      {u.itemCount}件の証票 · {new Date(u.createdAt).toLocaleDateString('ja-JP')}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteUpload(u.id); }}
+                                    disabled={deletingUploadId === u.id}
+                                    className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                    title="この証票を削除"
+                                  >
+                                    {deletingUploadId === u.id ? (
+                                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+                                    ) : (
+                                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    )}
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* 反映済みの請求書（参考表示） */}
+                        {matchedInvoices.length > 0 && (
+                          <details className="group">
+                            <summary className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider cursor-pointer hover:text-slate-500 list-none flex items-center gap-1">
+                              <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                              反映済み（{matchedInvoices.length}件）
+                            </summary>
+                            <div className="space-y-1.5 mt-1.5">
+                              {matchedInvoices.map((u) => (
+                                <div key={u.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-50 bg-slate-50/50 opacity-60">
+                                  <svg className="w-4 h-4 text-lime-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-slate-500 truncate">{u.fileName}</p>
+                                    <p className="text-[10px] text-slate-400">
+                                      {u.itemCount}件の証票 · 仕訳{u.journalEntryCount}件 · {new Date(u.createdAt).toLocaleDateString('ja-JP')}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                        <button
+                          onClick={handleLoadExistingData}
+                          disabled={loadingExistingData || selectedInvoiceUploadIds.size === 0}
+                          className="w-full bg-sky-400 text-white text-xs font-semibold rounded-xl py-2.5 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
+                        >
+                          {loadingExistingData ? 'データ読み込み中...' : `選択した請求書で照合を実行（${selectedInvoiceUploadIds.size}件）`}
+                        </button>
+                        {(bankOcr || invoiceOcr) && (
+                          <div className="flex items-center gap-2 text-xs text-lime-600 bg-lime-50 rounded-xl px-3 py-2">
+                            <IconCheck className="w-4 h-4" />
+                            データ読み込み済み — 下の設定で照合を実行してください
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               ) : (
               /* 2パネルアップロード（新規） */
@@ -5088,26 +5182,54 @@ function EditableRow({
       <td className="px-2 py-1.5 text-center">
         <div className="flex items-center justify-center gap-1">
           {entry.ocr_upload_id ? (
-            <button
-              type="button"
-              onClick={() => openJournalPdf(entry.id, 'invoice')}
-              className="text-sky-500 hover:text-sky-700 transition-colors"
-              title="請求書PDFを開く"
-              aria-label="請求書PDFを開く"
-            >
-              <IconFile className="w-4 h-4" />
-            </button>
+            <span className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => openJournalPdf(entry.id, 'invoice')}
+                className="text-sky-500 hover:text-sky-700 transition-colors"
+                title="請求書PDFを開く"
+                aria-label="請求書PDFを開く"
+              >
+                <IconFile className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!confirm('この仕訳と請求書の紐づけを解除しますか？\n解除後、再照合で紐づけ直せます。')) return;
+                  saveIfChanged({ ocr_upload_id: null } as Partial<LedgerEntry>);
+                }}
+                className="text-slate-300 hover:text-red-400 transition-colors"
+                title="請求書の紐づけを解除"
+                aria-label="請求書の紐づけを解除"
+              >
+                <IconX className="w-3 h-3" />
+              </button>
+            </span>
           ) : null}
           {entry.bank_ocr_upload_id ? (
-            <button
-              type="button"
-              onClick={() => openJournalPdf(entry.id, 'bank')}
-              className="text-lime-500 hover:text-lime-700 transition-colors"
-              title="通帳PDFを開く"
-              aria-label="通帳PDFを開く"
-            >
-              <IconArchive className="w-4 h-4" />
-            </button>
+            <span className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => openJournalPdf(entry.id, 'bank')}
+                className="text-lime-500 hover:text-lime-700 transition-colors"
+                title="通帳PDFを開く"
+                aria-label="通帳PDFを開く"
+              >
+                <IconArchive className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!confirm('この仕訳と通帳の紐づけを解除しますか？')) return;
+                  saveIfChanged({ bank_ocr_upload_id: null } as Partial<LedgerEntry>);
+                }}
+                className="text-slate-300 hover:text-red-400 transition-colors"
+                title="通帳の紐づけを解除"
+                aria-label="通帳の紐づけを解除"
+              >
+                <IconX className="w-3 h-3" />
+              </button>
+            </span>
           ) : null}
           {!entry.ocr_upload_id && !entry.bank_ocr_upload_id && (
             <span className="text-slate-200 text-[10px]">—</span>
@@ -8362,6 +8484,350 @@ function MatchResultTable({
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── 入出金明細ビュー ─────────────────────────────────────────────────────
+
+interface BankTxAccount {
+  uploadId: string;
+  fileName: string;
+  bankName: string;
+  accountNumber: string;
+  createdAt: string;
+  transactions: Array<{
+    index: number;
+    transactionDate: string;
+    description: string;
+    debit: number | null;
+    credit: number | null;
+    matched: boolean;
+    matchedJournalDescription?: string;
+  }>;
+}
+
+function BankTransactionsView({
+  clientId,
+  clientName,
+  accountsList,
+  addAccountLocal,
+  onRefreshLedger,
+}: {
+  clientId: string | null;
+  clientName: string | null;
+  accountsList: AccountOption[];
+  addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
+  onRefreshLedger: () => void;
+}) {
+  const [accounts, setAccounts] = useState<BankTxAccount[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'unmatched' | 'matched'>('all');
+  // 未反映行の科目割り当て
+  const [txAccounts, setTxAccounts] = useState<Record<string, string>>({});
+  const [txDescriptions, setTxDescriptions] = useState<Record<string, string>>({});
+  const [selectedTx, setSelectedTx] = useState<Set<string>>(new Set());
+  const [bulkAccount, setBulkAccount] = useState('');
+  const [registering, setRegistering] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    if (!clientId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/bank-transactions?clientId=${clientId}`);
+      if (!res.ok) throw new Error('取得失敗');
+      const data = await res.json();
+      setAccounts(data.accounts ?? []);
+      if (data.accounts?.length > 0 && !selectedUploadId) {
+        setSelectedUploadId(data.accounts[0].uploadId);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '取得失敗');
+    } finally {
+      setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const currentAccount = accounts.find((a) => a.uploadId === selectedUploadId);
+  const filteredTx = currentAccount?.transactions.filter((t) => {
+    if (filter === 'unmatched') return !t.matched;
+    if (filter === 'matched') return t.matched;
+    return true;
+  }) ?? [];
+
+  const unmatchedCount = currentAccount?.transactions.filter((t) => !t.matched).length ?? 0;
+  const matchedCount = currentAccount?.transactions.filter((t) => t.matched).length ?? 0;
+
+  const handleBulkApply = () => {
+    if (!bulkAccount) return;
+    const next = { ...txAccounts };
+    for (const key of selectedTx) {
+      next[key] = bulkAccount;
+    }
+    setTxAccounts(next);
+  };
+
+  const handleRegister = async () => {
+    if (!clientId || selectedTx.size === 0) return;
+    const entries: Array<{
+      uploadId: string;
+      transactionDate: string;
+      amount: number;
+      description: string;
+      debitAccount: string;
+      creditAccount: string;
+    }> = [];
+
+    for (const key of selectedTx) {
+      const account = txAccounts[key];
+      if (!account) continue;
+      const [uploadId, idxStr] = key.split('::');
+      const tx = accounts.find((a) => a.uploadId === uploadId)?.transactions[Number(idxStr)];
+      if (!tx) continue;
+
+      const isDebit = (tx.debit ?? 0) > 0; // 出金=費用
+      entries.push({
+        uploadId,
+        transactionDate: tx.transactionDate,
+        amount: tx.debit ?? tx.credit ?? 0,
+        description: txDescriptions[key] || tx.description,
+        debitAccount: isDebit ? account : '普通預金',
+        creditAccount: isDebit ? '普通預金' : account,
+      });
+    }
+
+    if (entries.length === 0) {
+      alert('科目が設定されていない行があります');
+      return;
+    }
+
+    setRegistering(true);
+    try {
+      const res = await fetch('/api/bank-transactions/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, entries }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '登録失敗');
+      alert(`${data.inserted} 件の仕訳を登録しました`);
+      setSelectedTx(new Set());
+      setTxAccounts({});
+      setTxDescriptions({});
+      fetchData();
+      onRefreshLedger();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '登録失敗');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  if (!clientId) {
+    return <p className="text-xs text-slate-400 text-center py-8">法人を選択してください</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-base font-semibold text-slate-900 tracking-tight">
+              入出金明細 {clientName && <span className="text-sky-500">· {clientName}</span>}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">通帳OCRデータの入出金を確認し、証票なしの取引に科目を割り当てて仕訳登録できます</p>
+          </div>
+          <button
+            onClick={fetchData}
+            className="text-xs text-sky-500 hover:text-sky-600 font-medium"
+          >
+            更新
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="text-xs text-slate-400 py-8 text-center">読み込み中...</p>
+        ) : error ? (
+          <p className="text-xs text-red-500 py-4">{error}</p>
+        ) : accounts.length === 0 ? (
+          <p className="text-xs text-slate-400 py-8 text-center">通帳OCRデータがありません。「仕訳実行」タブで通帳をアップロードしてください。</p>
+        ) : (
+          <>
+            {/* 口座選択 */}
+            <div className="flex flex-wrap gap-2 mb-4">
+              {accounts.map((a) => (
+                <button
+                  key={a.uploadId}
+                  onClick={() => { setSelectedUploadId(a.uploadId); setSelectedTx(new Set()); }}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
+                    selectedUploadId === a.uploadId
+                      ? 'border-sky-300 bg-sky-50 text-sky-700 font-semibold'
+                      : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                  }`}
+                >
+                  {a.bankName || '不明'} {a.accountNumber ? `(${a.accountNumber})` : ''} · {a.transactions.length}件
+                </button>
+              ))}
+            </div>
+
+            {currentAccount && (
+              <>
+                {/* フィルタ + サマリ */}
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex items-center gap-1 bg-slate-50 rounded-lg p-0.5">
+                    {([
+                      { key: 'all' as const, label: `全て(${currentAccount.transactions.length})` },
+                      { key: 'unmatched' as const, label: `未反映(${unmatchedCount})` },
+                      { key: 'matched' as const, label: `反映済(${matchedCount})` },
+                    ]).map((f) => (
+                      <button
+                        key={f.key}
+                        onClick={() => setFilter(f.key)}
+                        className={`text-[11px] px-2.5 py-1 rounded-md transition-all ${
+                          filter === f.key ? 'bg-white shadow-sm text-slate-800 font-semibold' : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-400">{currentAccount.fileName}</p>
+                </div>
+
+                {/* 一括科目選択バー */}
+                {selectedTx.size > 0 && (
+                  <div className="flex items-center gap-2 mb-3 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2.5">
+                    <span className="text-xs text-sky-700 font-semibold whitespace-nowrap">{selectedTx.size}件選択中</span>
+                    <div className="flex-1 max-w-[200px]">
+                      <AccountCombobox
+                        value={bulkAccount}
+                        onChange={setBulkAccount}
+                        accounts={accountsList}
+                        onCreate={addAccountLocal}
+                        placeholder="一括科目"
+                        dense
+                      />
+                    </div>
+                    <button
+                      onClick={handleBulkApply}
+                      disabled={!bulkAccount}
+                      className="text-xs bg-sky-500 text-white font-semibold rounded-lg px-3 py-1.5 hover:bg-sky-600 disabled:opacity-40 transition-all"
+                    >
+                      一括適用
+                    </button>
+                    <button
+                      onClick={handleRegister}
+                      disabled={registering}
+                      className="text-xs bg-lime-600 text-white font-semibold rounded-lg px-3 py-1.5 hover:bg-lime-700 disabled:opacity-40 transition-all"
+                    >
+                      {registering ? '登録中...' : '仕訳登録'}
+                    </button>
+                  </div>
+                )}
+
+                {/* テーブル */}
+                <div className="overflow-x-auto rounded-xl border border-slate-100">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider">
+                        <th className="px-2 py-2 w-8">
+                          <input
+                            type="checkbox"
+                            checked={filteredTx.filter((t) => !t.matched).length > 0 && filteredTx.filter((t) => !t.matched).every((t) => selectedTx.has(`${selectedUploadId}::${t.index}`))}
+                            onChange={(e) => {
+                              const next = new Set(selectedTx);
+                              for (const t of filteredTx) {
+                                if (t.matched) continue;
+                                const key = `${selectedUploadId}::${t.index}`;
+                                e.target.checked ? next.add(key) : next.delete(key);
+                              }
+                              setSelectedTx(next);
+                            }}
+                            className="cursor-pointer"
+                          />
+                        </th>
+                        <th className="px-2 py-2 text-left">状態</th>
+                        <th className="px-2 py-2 text-left">日付</th>
+                        <th className="px-2 py-2 text-left">摘要</th>
+                        <th className="px-2 py-2 text-right">出金</th>
+                        <th className="px-2 py-2 text-right">入金</th>
+                        <th className="px-2 py-2 text-left min-w-[160px]">勘定科目</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {filteredTx.map((t) => {
+                        const key = `${selectedUploadId}::${t.index}`;
+                        return (
+                          <tr key={key} className={`${t.matched ? 'bg-lime-50/30' : selectedTx.has(key) ? 'bg-sky-50/40' : 'hover:bg-slate-50/30'}`}>
+                            <td className="px-2 py-1.5 text-center">
+                              {!t.matched ? (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedTx.has(key)}
+                                  onChange={() => {
+                                    const next = new Set(selectedTx);
+                                    next.has(key) ? next.delete(key) : next.add(key);
+                                    setSelectedTx(next);
+                                  }}
+                                  className="cursor-pointer"
+                                />
+                              ) : (
+                                <svg className="w-3.5 h-3.5 text-lime-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5">
+                              {t.matched ? (
+                                <span className="text-[10px] bg-lime-100 text-lime-700 px-1.5 py-0.5 rounded-full font-medium">反映済</span>
+                              ) : (
+                                <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">未反映</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 font-mono text-slate-600 whitespace-nowrap">
+                              {t.transactionDate ? `${t.transactionDate.slice(0,4)}/${t.transactionDate.slice(4,6)}/${t.transactionDate.slice(6,8)}` : '—'}
+                            </td>
+                            <td className="px-2 py-1.5 text-slate-700 truncate max-w-[200px]" title={t.description}>
+                              {t.description || '—'}
+                            </td>
+                            <td className="px-2 py-1.5 text-right tabular-nums text-red-600 font-medium">
+                              {t.debit ? `¥${t.debit.toLocaleString()}` : ''}
+                            </td>
+                            <td className="px-2 py-1.5 text-right tabular-nums text-blue-600 font-medium">
+                              {t.credit ? `¥${t.credit.toLocaleString()}` : ''}
+                            </td>
+                            <td className="px-2 py-1.5">
+                              {t.matched ? (
+                                <span className="text-[11px] text-slate-400">{t.matchedJournalDescription ?? '—'}</span>
+                              ) : (
+                                <AccountCombobox
+                                  value={txAccounts[key] ?? ''}
+                                  onChange={(v) => setTxAccounts((prev) => ({ ...prev, [key]: v }))}
+                                  accounts={accountsList}
+                                  onCreate={addAccountLocal}
+                                  placeholder="科目を選択"
+                                  dense
+                                />
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {filteredTx.length === 0 && (
+                        <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">該当する取引がありません</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

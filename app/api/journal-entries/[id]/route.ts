@@ -67,6 +67,7 @@ export async function PATCH(
   const allowed = [
     'entry_date', 'debit_account', 'credit_account', 'amount',
     'description', 'tax_type', 'vendor_name',
+    'ocr_upload_id', 'bank_ocr_upload_id',
   ] as const;
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of allowed) {
