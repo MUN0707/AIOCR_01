@@ -584,3 +584,21 @@ public/sales-deck.pdf   — 営業資料PDF
   - 「その他」UIに圧縮の旨を表示
 - 背景/理由: ユーザーから「会社のネットワーク監視に大容量UPが引っかかるかも」と懸念。サイズ削減と「テキストとして中身が見えない」ことで目立ちにくくする目的（DLPでHTTPS復号している環境では中身まで見えるが、サイズだけは確実に縮む）
 - 次にやること: なし
+
+## 2026-04-28 - freee 仕訳帳CSV インポートを正式対応
+
+- やったこと:
+  - `lib/csv-import-presets.ts` の freee preset から `unsupported: true` を削除し、UIの会計ソフト選択に「freee」を追加
+  - encoding を `utf-8` → `shift_jis` に修正（freee の標準エクスポートは Shift_JIS）
+  - 列マッピングを実フォーマットに合わせて修正：
+    - `entry_date`: `取引日` を先頭候補に
+    - `amount`: `借方金額`（既存）に加え `credit_amount: ['貸方金額']` を新設
+    - `description`: `借方備考` → `貸方備考` の順にフォールバック
+    - `vendor_name`: `借方取引先名` → `貸方取引先名` の順にフォールバック
+  - `CsvPreset.columns.credit_amount` を interface に追加
+  - `parseCsvWithPreset` を拡張：
+    - 借方金額が空または0なら `credit_amount` 列にフォールバック（freee の複合仕訳で片側のみ金額がある行に対応）
+    - `tax_type` / `description` / `vendor_name` を複数候補列方式に変更し、空でない最初の値を採用するヘルパー `resolveColumnIndices` / `pickFirstNonEmpty` を追加
+  - 実CSV（10,329行 / 95列 / Shift_JIS）でパースを検証：全行成功・amount=null 0件・貸方金額フォールバック245件発生
+- 背景/理由: ユーザーが画面UIから freee 仕訳帳CSV（5.8MB）を「その他」経由で送信。エラー報告 `9466709f-aaaf-4431-9ba4-391a2ee000e1` 起点。freee は借方/貸方が別列で、複合仕訳では片側のみ金額が入る行があるため、`credit_amount` フォールバックと多列フォールバックが必須だった
+- 次にやること: マネーフォワードCSVは引き続き `unsupported: true` のまま（CSV送信が来たら同様の手順で対応）

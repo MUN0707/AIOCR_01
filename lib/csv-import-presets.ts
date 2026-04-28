@@ -30,6 +30,7 @@ export interface CsvPreset {
     debit_account: string[];
     credit_account: string[];
     amount: string[];           // 借方金額を優先、なければ金額
+    credit_amount?: string[];   // 貸方金額が別列の場合の候補。amount が空ならこちらをフォールバック
     tax_type: string[];
     description: string[];
     vendor_name: string[];
@@ -130,18 +131,20 @@ export const CSV_PRESETS: CsvPreset[] = [
   {
     id: 'freee',
     label: 'freee会計',
-    description: 'freee の仕訳帳CSVダウンロード',
-    encoding: 'utf-8',
-    unsupported: true,
+    description: 'freee の仕訳帳CSVエクスポート',
+    // freee の仕訳帳CSVは Shift_JIS でエクスポートされるが、UTF-8 でも自動判定される
+    encoding: 'shift_jis',
     skipRows: 0,
     columns: {
-      entry_date:     ['発生日', '取引日', '日付'],
+      entry_date:     ['取引日', '発生日', '日付'],
       debit_account:  ['借方勘定科目', '借方科目'],
       credit_account: ['貸方勘定科目', '貸方科目'],
       amount:         ['借方金額', '金額', '取引金額'],
+      credit_amount:  ['貸方金額'],
       tax_type:       ['借方税区分', '税区分', '消費税区分'],
-      description:    ['摘要', '備考', '取引内容'],
-      vendor_name:    ['取引先', '取引先名', '相手先'],
+      // freee は摘要相当が「備考」列。借方備考が空なら貸方備考にフォールバック
+      description:    ['借方備考', '貸方備考', '摘要', '備考', '取引内容'],
+      vendor_name:    ['借方取引先名', '貸方取引先名', '取引先', '取引先名', '相手先'],
     },
     dateParser: freeDateParser,
   },
@@ -200,7 +203,7 @@ export function parseCsvLine(line: string): string[] {
   return result;
 }
 
-/** ヘッダ行から列インデックスマッピングを解決 */
+/** ヘッダ行から列インデックスマッピングを解決（最初にマッチしたもの） */
 function resolveColumnIndex(
   headers: string[],
   candidates: string[]
@@ -212,6 +215,30 @@ function resolveColumnIndex(
     if (idx !== -1) return idx;
   }
   return -1;
+}
+
+/** ヘッダ行から候補ヘッダ全てに対する列インデックスを順序付きで取得（重複除去） */
+function resolveColumnIndices(
+  headers: string[],
+  candidates: string[]
+): number[] {
+  const result: number[] = [];
+  for (const cand of candidates) {
+    const idx = headers.findIndex(
+      (h) => h.replace(/[\s　"]/g, '') === cand.replace(/[\s　"]/g, '')
+    );
+    if (idx !== -1 && !result.includes(idx)) result.push(idx);
+  }
+  return result;
+}
+
+/** 列インデックス候補リストから、最初に空でない値を返す */
+function pickFirstNonEmpty(cells: string[], indices: number[]): string {
+  for (const idx of indices) {
+    const v = cells[idx];
+    if (v !== undefined && v !== null && v.trim() !== '') return v;
+  }
+  return '';
 }
 
 export interface ParseResult {
@@ -283,9 +310,13 @@ export function parseCsvWithPreset(csvText: string, preset: CsvPreset): ParseRes
     debit_account: resolveColumnIndex(headers, preset.columns.debit_account),
     credit_account: resolveColumnIndex(headers, preset.columns.credit_account),
     amount: resolveColumnIndex(headers, preset.columns.amount),
-    tax_type: resolveColumnIndex(headers, preset.columns.tax_type),
-    description: resolveColumnIndex(headers, preset.columns.description),
-    vendor_name: resolveColumnIndex(headers, preset.columns.vendor_name),
+    credit_amount: preset.columns.credit_amount
+      ? resolveColumnIndex(headers, preset.columns.credit_amount)
+      : -1,
+    // 借方/貸方の備考・取引先は片方しか埋まらない行があるため候補列を順に試す
+    tax_type: resolveColumnIndices(headers, preset.columns.tax_type),
+    description: resolveColumnIndices(headers, preset.columns.description),
+    vendor_name: resolveColumnIndices(headers, preset.columns.vendor_name),
   };
 
   // 必須列チェック
@@ -298,14 +329,25 @@ export function parseCsvWithPreset(csvText: string, preset: CsvPreset): ParseRes
     return { rows: [], skipped: 0, errors, headers };
   }
 
+  const parseAmount = (raw: string): number | null => {
+    const cleaned = raw.replace(/[,，\s¥\\]/g, '');
+    if (!cleaned) return null;
+    const n = parseInt(cleaned, 10);
+    return isNaN(n) ? null : n;
+  };
+
   for (let i = preset.skipRows + 1; i < lines.length; i++) {
     const cells = parseCsvLine(lines[i]);
     const dateRaw = cells[colMap.entry_date] ?? '';
     const entryDate = dateParser(dateRaw);
     const debit = cells[colMap.debit_account] ?? '';
     const credit = cells[colMap.credit_account] ?? '';
-    const amountRaw = (cells[colMap.amount] ?? '').replace(/[,，\s¥\\]/g, '');
-    const amount = amountRaw ? parseInt(amountRaw, 10) : null;
+    let amount = parseAmount(cells[colMap.amount] ?? '');
+    // 借方金額が空/0なら貸方金額をフォールバック（freee 複合仕訳の片側行に対応）
+    if ((amount === null || amount === 0) && colMap.credit_amount !== -1) {
+      const creditAmount = parseAmount(cells[colMap.credit_amount] ?? '');
+      if (creditAmount !== null && creditAmount !== 0) amount = creditAmount;
+    }
 
     // 借方・貸方どちらも空なら空行としてスキップ
     if (!debit && !credit) {
@@ -317,10 +359,10 @@ export function parseCsvWithPreset(csvText: string, preset: CsvPreset): ParseRes
       entry_date: entryDate || '不明',
       debit_account: debit || '不明',
       credit_account: credit || '不明',
-      amount: amount !== null && !isNaN(amount) ? amount : null,
-      tax_type: colMap.tax_type !== -1 ? (cells[colMap.tax_type] ?? '') : '',
-      description: colMap.description !== -1 ? (cells[colMap.description] ?? '') : '',
-      vendor_name: colMap.vendor_name !== -1 ? (cells[colMap.vendor_name] ?? '') : '',
+      amount,
+      tax_type: pickFirstNonEmpty(cells, colMap.tax_type),
+      description: pickFirstNonEmpty(cells, colMap.description),
+      vendor_name: pickFirstNonEmpty(cells, colMap.vendor_name),
     });
   }
 
