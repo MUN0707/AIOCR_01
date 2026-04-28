@@ -4,55 +4,46 @@ import { createServiceClient } from '@/utils/supabase/service';
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const csvFile = formData.get('csv') as File | null;
-    const presetId = (formData.get('presetId') as string) || '';
-    const errorMessage = (formData.get('errorMessage') as string) || '';
-    const comment = (formData.get('comment') as string) || '';
-    const siteName = (formData.get('siteName') as string) || 'aiocr';
+    const body = await request.json();
+    const storagePath: string = body.storagePath || '';
+    const presetId: string = body.presetId || '';
+    const errorMessage: string = body.errorMessage || '';
+    const comment: string = body.comment || '';
+    const siteName: string = body.siteName || 'aiocr';
+    const fileName: string = body.fileName || '';
+    const fileSize: number = typeof body.fileSize === 'number' ? body.fileSize : 0;
 
-    if (!csvFile) {
-      return NextResponse.json({ error: 'CSVファイルが必要です' }, { status: 400 });
+    if (!storagePath) {
+      return NextResponse.json({ error: 'storagePath が必要です' }, { status: 400 });
     }
 
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'ログインしてください' }, { status: 401 });
+    }
+
+    if (!storagePath.startsWith(`${user.id}/`)) {
+      return NextResponse.json({ error: 'パスが不正です' }, { status: 400 });
+    }
+
     const service = createServiceClient();
 
-    // CSVをStorageに保存
-    const buffer = Buffer.from(await csvFile.arrayBuffer());
-    if (buffer.byteLength > 10 * 1024 * 1024) {
-      return NextResponse.json({ error: 'CSVは10MB以下にしてください' }, { status: 400 });
-    }
-
-    const prefix = user?.id ?? 'guest';
-    const safeName = csvFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const csvPath = `${prefix}/${Date.now()}-${safeName}`;
-
-    const { error: uploadError } = await service.storage
-      .from('error-screenshots')
-      .upload(csvPath, buffer, { contentType: 'text/csv', upsert: false });
-
-    if (uploadError) {
-      return NextResponse.json({ error: `CSV保存失敗: ${uploadError.message}` }, { status: 500 });
-    }
-
-    // error_reportsに記録（category: csv-import）
     const reportComment = [
       `【CSVインポートエラー】`,
       `会計ソフト: ${presetId}`,
       `エラー: ${errorMessage}`,
       comment ? `ユーザーコメント: ${comment}` : '',
-      `ファイル名: ${csvFile.name}`,
-      `サイズ: ${(buffer.byteLength / 1024).toFixed(1)}KB`,
+      `ファイル名: ${fileName}`,
+      `サイズ: ${(fileSize / 1024).toFixed(1)}KB`,
     ].filter(Boolean).join('\n');
 
     const { error: insertError } = await service.from('error_reports').insert({
-      user_id: user?.id ?? null,
-      user_email: user?.email ?? null,
+      user_id: user.id,
+      user_email: user.email ?? null,
       mode: null,
       comment: reportComment,
-      screenshot_path: csvPath,
+      screenshot_path: storagePath,
       context: { page: '/', action: 'csv-import', presetId },
       category: 'csv-import',
       site_name: siteName,

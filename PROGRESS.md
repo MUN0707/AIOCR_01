@@ -527,3 +527,50 @@ public/sales-deck.pdf   — 営業資料PDF
   - PATCH /api/journal-entries/[id] の allowed に ocr_upload_id, bank_ocr_upload_id を追加
 - 背景/理由: エラー報告 569feada（PDFを見るボタンがない、仕訳が0円）+ ユーザーからの要望（入出金明細の重複削除、再照合改善）
 - 次にやること / 未解決: 動作確認（再照合の請求書選択→照合実行、入出金明細タブでの科目割当→仕訳登録）
+
+## 2026-04-20 23:15
+- やったこと: エラー報告2件対応 + ファイル名改善
+  - **DLボタン見切れ修正**: DL列を `sticky right-0` にしてテーブル横スクロール時も常に表示されるように
+  - **請求_プレフィックス除去**: 請求書のファイル名から「請求_」を削除（領収_は維持）
+  - **ファイル名に摘要追加**: `日付_発行者名_金額_摘要.pdf` 形式に変更
+  - 複数モードOCRプロンプト（PROMPT_INVOICE）に `description` フィールドを追加
+  - InvoiceInfo型に `description?` を追加
+  - エラー報告 b3ffde78, 1dcf475b → resolved
+- 背景/理由: ユーザーからのエラー報告（DLボタン非表示、請求_が不要）+ 摘要をファイル名に含めたい要望
+- 次にやること / 未解決: Vercelデプロイ後に実際のPDFで摘要が正しく取れるか動作確認
+
+## 2026-04-20 19:05
+- やったこと: エラー報告2件対応（f77c41b0, 9560c54d → resolved）
+  - **自動仕訳タブのクライアントサイドエラー**: 再現不可だが、`restoreMatchLog` のデータ復元時にバリデーション不足が原因の可能性 → localStorage / APIからの復元データに形状チェック（`isValidMatchData`）を追加。壊れたドラフトは自動削除するように
+  - **履歴ページPDFダウンロード時のファイル名問題**: iframeのPDFビューアからDLするとSupabaseストレージのUUIDパスがファイル名になる → 履歴詳細のPDFプレビュー上に専用「PDFをダウンロード」ボタンを追加。blobでフェッチし`file_name`で保存
+- 背景/理由: ユーザーからのエラー報告UI送信（error_reports テーブル）
+- コミット: 86245e7
+
+## 2026-04-21 22:30
+- やったこと: エラー報告 fc1b5c1d 対応（resolved）
+  - **課税/非課税混在請求書のOCR分割対応**: `PROMPT_INVOICE_SINGLE` を改善
+  - サンプルJSONに課税・非課税・対象外が混在する例2を追加（管理費+保険料+印紙代）
+  - linesの分割ルールを「【最重要】」に昇格、taxTypeが異なる費目は絶対に分けるよう明記
+  - taxType判断基準（課税10%/軽減8%/非課税/対象外）の具体例を追加
+  - 勘定科目に「支払保険料」を追加
+  - バックエンド（journal-matcher.ts `getEffectiveLines`）は既に各lineのtaxTypeを個別仕訳に展開済み → プロンプト修正のみで対応完了
+- 背景/理由: 関電ファシリティーズの請求書（設備管理＝課税 + 保険料＝非課税 混在）で課税区分が分かれないという報告
+- コミット: 3649d2f
+
+## 2026-04-27 - Supabase auth共有問題チェック
+
+- やったこと: Supabase project lonmddwpcfalgtddaksg を 9 サイトで共有している件で、本サイトに membership ゲートが必要か調査
+- 結論: **対策不要**。proxy.ts の middleware で既に `subscriptions.user_id` ベースの強固なゲートが実装済み。別サイト経由ユーザーがログイン状態で来訪しても、subscription 無しは `/pricing` へ強制 redirect される。`/auth/callback` の自動トライアル発行が「参加導線」相当として機能している
+- 次にやること: なし（残り3サイトで類似対策を順次実施）
+
+## 2026-04-28 - CSV送信が大容量で 413 → JSONパースエラーになる問題を解消
+
+- やったこと:
+  - `/api/csv-submissions` を **FormDataアップロード受け → JSON `{storagePath, ...}` 受け** に変更
+  - クライアント (`app/page.tsx` `handleSubmitCsvForReview`) を **Supabase Storage に直接アップロード → APIにはパスだけ送信** に変更
+  - APIで `storagePath` が `${user.id}/` で始まることをチェック（パストラバーサル防止）
+  - クライアント側 `res.json()` を `res.text()` → `JSON.parse(try/catch)` の安全パースに変更（非JSON応答時もユーザーに表示）
+  - クライアント側で50MB上限チェックを追加
+  - 認証必須化（ゲスト送信は廃止）
+- 背景/理由: 5.7MB の弥生CSVを「対応依頼」フローで送ると Vercel Route Handler 制限（4.5MB）で 413 が返り、平文を `res.json()` がパース失敗して「Unexpected token R」が出ていた。Supabase Storage `error-screenshots` バケットには `allow_anonymous_upload_error_screenshots` で public INSERT が既に許可されており、RLS変更不要だった
+- 次にやること: なし

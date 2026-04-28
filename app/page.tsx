@@ -4516,17 +4516,47 @@ function LedgerView({
 
   const handleSubmitCsvForReview = async () => {
     if (!importFile || csvSubmitting) return;
+    if (importFile.size > 50 * 1024 * 1024) {
+      alert('CSVは50MB以下にしてください');
+      return;
+    }
     setCsvSubmitting(true);
     try {
-      const fd = new FormData();
-      fd.append('csv', importFile);
-      fd.append('presetId', importPresetId);
-      fd.append('errorMessage', importError || '');
-      fd.append('comment', csvSubmitComment);
-      fd.append('siteName', 'aiocr');
-      const res = await fetch('/api/csv-submissions', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '送信に失敗しました');
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert('ログインしてからお試しください');
+        return;
+      }
+
+      const safeName = importFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `${user.id}/${Date.now()}-${safeName}`;
+      const { error: uploadError } = await supabase.storage
+        .from('error-screenshots')
+        .upload(storagePath, importFile, { contentType: 'text/csv', upsert: false });
+      if (uploadError) throw new Error(`CSVアップロード失敗: ${uploadError.message}`);
+
+      const res = await fetch('/api/csv-submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storagePath,
+          presetId: importPresetId,
+          errorMessage: importError || '',
+          comment: csvSubmitComment,
+          siteName: 'aiocr',
+          fileName: importFile.name,
+          fileSize: importFile.size,
+        }),
+      });
+      const text = await res.text();
+      let data: { success?: boolean; error?: string } = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`サーバーから予期しない応答 (status ${res.status}): ${text.slice(0, 200)}`);
+      }
+      if (!res.ok) throw new Error(data.error || `送信に失敗しました (status ${res.status})`);
       setCsvSubmitted(true);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'CSV送信に失敗しました');
