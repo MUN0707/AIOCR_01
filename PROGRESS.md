@@ -574,3 +574,13 @@ public/sales-deck.pdf   — 営業資料PDF
   - 認証必須化（ゲスト送信は廃止）
 - 背景/理由: 5.7MB の弥生CSVを「対応依頼」フローで送ると Vercel Route Handler 制限（4.5MB）で 413 が返り、平文を `res.json()` がパース失敗して「Unexpected token R」が出ていた。Supabase Storage `error-screenshots` バケットには `allow_anonymous_upload_error_screenshots` で public INSERT が既に許可されており、RLS変更不要だった
 - 次にやること: なし
+
+## 2026-04-28 - CSV送信に gzip 圧縮を追加（社内ネットワーク対策）
+
+- やったこと:
+  - クライアントで `CompressionStream('gzip')` を使ってアップロード前に圧縮（CSVは5〜20倍縮む）
+  - Storage パスに `.gz` 拡張子を付与・Content-Type を `application/gzip` に変更
+  - APIで圧縮前後サイズを `error_reports.comment` に記録（管理者は `gunzip <path>` で解凍）
+  - 「その他」UIに圧縮の旨を表示
+- 背景/理由: ユーザーから「会社のネットワーク監視に大容量UPが引っかかるかも」と懸念。サイズ削減と「テキストとして中身が見えない」ことで目立ちにくくする目的（DLPでHTTPS復号している環境では中身まで見えるが、サイズだけは確実に縮む）
+- 次にやること: なし

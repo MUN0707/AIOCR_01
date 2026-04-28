@@ -12,6 +12,8 @@ export async function POST(request: NextRequest) {
     const siteName: string = body.siteName || 'aiocr';
     const fileName: string = body.fileName || '';
     const fileSize: number = typeof body.fileSize === 'number' ? body.fileSize : 0;
+    const compressedSize: number = typeof body.compressedSize === 'number' ? body.compressedSize : 0;
+    const compressed: boolean = body.compressed === true;
 
     if (!storagePath) {
       return NextResponse.json({ error: 'storagePath が必要です' }, { status: 400 });
@@ -29,13 +31,18 @@ export async function POST(request: NextRequest) {
 
     const service = createServiceClient();
 
+    const sizeLine = compressed && compressedSize > 0
+      ? `サイズ: ${(fileSize / 1024).toFixed(1)}KB → gzip後 ${(compressedSize / 1024).toFixed(1)}KB`
+      : `サイズ: ${(fileSize / 1024).toFixed(1)}KB`;
+
     const reportComment = [
       `【CSVインポートエラー】`,
       `会計ソフト: ${presetId}`,
       `エラー: ${errorMessage}`,
       comment ? `ユーザーコメント: ${comment}` : '',
       `ファイル名: ${fileName}`,
-      `サイズ: ${(fileSize / 1024).toFixed(1)}KB`,
+      sizeLine,
+      compressed ? `※ gzip圧縮済み（拡張子.gz / 解凍: gunzip <path>）` : '',
     ].filter(Boolean).join('\n');
 
     const { error: insertError } = await service.from('error_reports').insert({
@@ -44,7 +51,7 @@ export async function POST(request: NextRequest) {
       mode: null,
       comment: reportComment,
       screenshot_path: storagePath,
-      context: { page: '/', action: 'csv-import', presetId },
+      context: { page: '/', action: 'csv-import', presetId, compressed },
       category: 'csv-import',
       site_name: siteName,
     });

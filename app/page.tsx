@@ -4529,11 +4529,17 @@ function LedgerView({
         return;
       }
 
+      // gzip圧縮（CSVは可逆圧縮が非常に効くので5〜20倍縮む）
+      const compressedBlob = await new Response(
+        importFile.stream().pipeThrough(new CompressionStream('gzip'))
+      ).blob();
+      const compressedSize = compressedBlob.size;
+
       const safeName = importFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `${user.id}/${Date.now()}-${safeName}`;
+      const storagePath = `${user.id}/${Date.now()}-${safeName}.gz`;
       const { error: uploadError } = await supabase.storage
         .from('error-screenshots')
-        .upload(storagePath, importFile, { contentType: 'text/csv', upsert: false });
+        .upload(storagePath, compressedBlob, { contentType: 'application/gzip', upsert: false });
       if (uploadError) throw new Error(`CSVアップロード失敗: ${uploadError.message}`);
 
       const res = await fetch('/api/csv-submissions', {
@@ -4547,6 +4553,8 @@ function LedgerView({
           siteName: 'aiocr',
           fileName: importFile.name,
           fileSize: importFile.size,
+          compressedSize,
+          compressed: true,
         }),
       });
       const text = await res.text();
@@ -4688,6 +4696,8 @@ function LedgerView({
                   </p>
                   <p className="text-[11px] text-amber-600 leading-relaxed">
                     CSVファイルを送信していただければ、列マッピングを分析してインポートに対応します。
+                    <br />
+                    <span className="text-amber-500">※ 送信時はブラウザ内で gzip 圧縮します（5〜20倍縮みます）</span>
                   </p>
                   <input
                     ref={importFileRef}
