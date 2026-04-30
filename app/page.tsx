@@ -4514,7 +4514,6 @@ function LedgerView({
   const [importPresetId, setImportPresetId] = useState(CSV_PRESETS[0].id);
   const [importPreview, setImportPreview] = useState<NormalizedJournalRow[]>([]);
   const [importSkipped, setImportSkipped] = useState(0);
-  const [importCsvText, setImportCsvText] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<{ inserted: number; skipped: number } | null>(null);
@@ -4528,7 +4527,6 @@ function LedgerView({
     setImportStep('select');
     setImportPreview([]);
     setImportSkipped(0);
-    setImportCsvText('');
     setImportError(null);
     setImportLoading(false);
     setImportResult(null);
@@ -4610,8 +4608,6 @@ function LedgerView({
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
-      setImportCsvText(text);
-
       const result = parseCsvWithPreset(text, preset);
       if (result.errors.length > 0) {
         setImportError(result.errors.join(', '));
@@ -4636,34 +4632,47 @@ function LedgerView({
   };
 
   const handleImportSubmit = async () => {
-    if (importPreview.length === 0) return;
+    if (!importFile || importPreview.length === 0) return;
     setImportLoading(true);
     setImportError(null);
     try {
-      // 大容量CSV対策: 1000件ずつチャンク分割して送信（Vercel 4.5MB body 上限の 413 回避）
-      const CHUNK_SIZE = 1000;
-      let totalInserted = 0;
-      for (let i = 0; i < importPreview.length; i += CHUNK_SIZE) {
-        const chunk = importPreview.slice(i, i + CHUNK_SIZE);
-        const res = await fetch('/api/journal-entries/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            rows: chunk,
-            clientId: clientId || null,
-          }),
-        });
-        const text = await res.text();
-        let data: { success?: boolean; inserted?: number; error?: string } = {};
-        try {
-          data = text ? JSON.parse(text) : {};
-        } catch {
-          throw new Error(`サーバー応答が不正 (status ${res.status}): ${text.slice(0, 200)}`);
-        }
-        if (!res.ok) throw new Error(data.error || `インポートに失敗 (status ${res.status})`);
-        totalInserted += data.inserted ?? 0;
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('ログインしてからお試しください');
+
+      // 大容量CSV対策: gzip圧縮 → Storage 直接アップロード → API には storagePath だけ渡す
+      // （Vercel の 4.5MB body 上限による 413 を回避。「その他」CSV送信と同じ方式）
+      const compressedBlob = await new Response(
+        importFile.stream().pipeThrough(new CompressionStream('gzip'))
+      ).blob();
+
+      const safeName = importFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `${user.id}/import-${Date.now()}-${safeName}.gz`;
+      const { error: uploadError } = await supabase.storage
+        .from('error-screenshots')
+        .upload(storagePath, compressedBlob, { contentType: 'application/gzip', upsert: false });
+      if (uploadError) throw new Error(`CSVアップロード失敗: ${uploadError.message}`);
+
+      const res = await fetch('/api/journal-entries/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presetId: importPresetId,
+          storagePath,
+          compressed: true,
+          clientId: clientId || null,
+        }),
+      });
+      const text = await res.text();
+      let data: { success?: boolean; inserted?: number; skipped?: number; error?: string } = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`サーバー応答が不正 (status ${res.status}): ${text.slice(0, 200)}`);
       }
-      setImportResult({ inserted: totalInserted, skipped: importSkipped });
+      if (!res.ok) throw new Error(data.error || `インポートに失敗 (status ${res.status})`);
+
+      setImportResult({ inserted: data.inserted ?? 0, skipped: data.skipped ?? 0 });
       setImportStep('done');
       onRefresh();
     } catch (err) {

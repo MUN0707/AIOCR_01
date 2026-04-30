@@ -1,20 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { gunzipSync } from 'zlib';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
-import type { NormalizedJournalRow } from '@/lib/csv-import-presets';
+import { CSV_PRESETS, parseCsvWithPreset } from '@/lib/csv-import-presets';
 
 export const maxDuration = 60;
+
+const STORAGE_BUCKET = 'error-screenshots';
 
 /**
  * CSV インポートエンドポイント
  *
- * フロント側でパース済みの行配列を受け取り、journal_entries に挿入する。
- * 大容量CSVは Vercel の 4.5MB body 上限で 413 になるため、フロント側で
- * チャンク分割（最大2000件）して複数リクエストに分けて送る前提。
+ * 大容量CSVを Vercel の 4.5MB body 上限で 413 にしないため、
+ * フロント側で gzip 圧縮 → Storage に直接アップロード → ここには storagePath だけ渡す方式。
  *
  * body (JSON):
- *   rows: NormalizedJournalRow[]    — フロント側でパース済みの正規化行
- *   clientId: string | null         — 顧問先 ID
+ *   presetId: string                  — 'yayoi' | 'freee' | 'moneyforward'
+ *   storagePath: string               — error-screenshots バケット内のパス（${userId}/...）
+ *   compressed: boolean               — gzip 圧縮済みか（クライアントで CompressionStream('gzip') 使用時 true）
+ *   clientId: string | null           — 顧問先 ID
  */
 export async function POST(request: NextRequest) {
   try {
@@ -25,27 +29,74 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { rows, clientId } = body as {
-      rows: NormalizedJournalRow[];
+    const { presetId, storagePath, compressed, clientId } = body as {
+      presetId: string;
+      storagePath: string;
+      compressed?: boolean;
       clientId: string | null;
     };
 
-    if (!Array.isArray(rows)) {
-      return NextResponse.json({ error: 'rows は配列で指定してください' }, { status: 400 });
+    if (!presetId || !storagePath) {
+      return NextResponse.json({ error: 'presetId と storagePath は必須です' }, { status: 400 });
     }
 
-    if (rows.length === 0) {
-      return NextResponse.json({ success: true, inserted: 0 });
+    if (!storagePath.startsWith(`${user.id}/`)) {
+      return NextResponse.json({ error: 'パスが不正です' }, { status: 400 });
     }
 
-    if (rows.length > 2000) {
-      return NextResponse.json({
-        error: '1リクエストあたり最大2000件です。フロント側でチャンク分割してください',
-      }, { status: 400 });
+    const preset = CSV_PRESETS.find((p) => p.id === presetId);
+    if (!preset) {
+      return NextResponse.json({ error: `不明な会計ソフト: ${presetId}` }, { status: 400 });
     }
 
     const service = createServiceClient();
-    const insertRows = rows.map((r) => ({
+
+    // Storage から CSV を取得
+    const { data: blob, error: downloadError } = await service.storage
+      .from(STORAGE_BUCKET)
+      .download(storagePath);
+    if (downloadError || !blob) {
+      return NextResponse.json({
+        error: `CSV取得失敗: ${downloadError?.message ?? '不明'}`,
+      }, { status: 500 });
+    }
+
+    let buffer = Buffer.from(await blob.arrayBuffer());
+    if (compressed) {
+      try {
+        buffer = gunzipSync(buffer);
+      } catch (e) {
+        return NextResponse.json({
+          error: `gzip解凍失敗: ${e instanceof Error ? e.message : '不明'}`,
+        }, { status: 400 });
+      }
+    }
+
+    // プリセットのエンコーディング指定でデコード
+    const decoderLabel = preset.encoding === 'shift_jis' ? 'shift-jis' : 'utf-8';
+    let csvText: string;
+    try {
+      csvText = new TextDecoder(decoderLabel).decode(buffer);
+    } catch (e) {
+      return NextResponse.json({
+        error: `CSVデコード失敗 (${decoderLabel}): ${e instanceof Error ? e.message : '不明'}`,
+      }, { status: 400 });
+    }
+
+    const result = parseCsvWithPreset(csvText, preset);
+
+    if (result.errors.length > 0) {
+      return NextResponse.json({
+        error: `CSV解析エラー: ${result.errors.join(', ')}`,
+        headers: result.headers,
+      }, { status: 400 });
+    }
+
+    if (result.rows.length === 0) {
+      return NextResponse.json({ error: 'インポート可能な仕訳データがありません' }, { status: 400 });
+    }
+
+    const insertRows = result.rows.map((r) => ({
       user_id: user.id,
       client_id: clientId || null,
       entry_type: 'manual' as const,
@@ -73,9 +124,14 @@ export async function POST(request: NextRequest) {
       totalInserted += batch.length;
     }
 
+    // 取り込み成功後はアップロードCSVを削除（Storage節約）
+    await service.storage.from(STORAGE_BUCKET).remove([storagePath]);
+
     return NextResponse.json({
       success: true,
       inserted: totalInserted,
+      skipped: result.skipped,
+      presetLabel: preset.label,
     });
   } catch (error) {
     console.error('journal-entries/import エラー:', error);
