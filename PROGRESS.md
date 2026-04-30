@@ -683,3 +683,21 @@ public/sales-deck.pdf   — 営業資料PDF
   - 類似度マッチ機能（取引先・勘定科目の重複候補表示 + マージ API）
   - 仕訳明細 UI: voucher_group_id のグループ枠線・税区分/税額カラム
   - error_reports `2a8575ef` / `be67065c` を `resolved` に更新
+
+## 2026-04-30 21:00 - 類似度マッチ・マージ + 仕訳明細グループ表示（Commit 3）
+
+- やったこと:
+  - **類似度マッチ機能** (`lib/similarity.ts` 新設)
+    - Levenshtein 距離 (DP実装) + 文字列正規化 (空白・括弧・全半角)
+    - `findSimilarPairs()` で同一会社スコープ内の編集距離 ≤2 のペアを抽出 (最大30件)
+  - **マージ API** (`/api/accounts/merge`, `/api/vendors/merge`) を新規追加
+    - body: `{ keepId, mergeId }` → journal_entries の科目名/取引先名を keep.name に置換 → merge レコード DELETE
+  - **マスタ画面に「あいまい重複候補」セクション**を追加
+    - 勘定科目・取引先それぞれで候補ペアを一覧表示
+    - 各ペアに「左に統合」「右に統合」ボタン
+  - **仕訳明細 UI 改修**:
+    - voucher_group_id を持つ行に左サイドの枠線 (border-l-4 sky-200) で同一仕訳のグルーピングを視覚化
+    - 摘要欄末尾に税情報 `[税: 10% ¥600]` を小さく追記表示
+- 背景/理由: error_reports `2a8575ef`（名寄せツール要望）と `be67065c`（仕訳明細の表示改善）の最終仕上げ
+- 対応コミット: 次の commit
+- 次にやること: なし（error_reports 2件を resolved に更新して完了）

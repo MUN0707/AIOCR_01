@@ -9,6 +9,7 @@ import type { OcrMode } from '@/lib/ocr/types';
 import type { MatchResult, MatchSummary, VoucherInput, TransactionInput } from '@/lib/ocr/journal-matcher';
 import { CSV_PRESETS, parseCsvWithPreset, type NormalizedJournalRow } from '@/lib/csv-import-presets';
 import { splitPdfIfNeeded, type PdfChunk } from '@/lib/pdf-split';
+import { findSimilarPairs, type SimilarPair } from '@/lib/similarity';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
@@ -5199,9 +5200,15 @@ function EditableRow({
     onSaveField(entry.id, patch);
   };
 
+  // 同一仕訳(voucher_group_id)のグルーピング目印 + 税表示用の補助
+  const grouped = !!entry.voucher_group_id;
+  const taxLabel = entry.tax_amount
+    ? `税:${entry.tax_rate ? ` ${entry.tax_rate}%` : ''} ¥${Number(entry.tax_amount).toLocaleString()}`
+    : '';
+
   if (entry.locked) {
     return (
-      <tr className="bg-amber-50/20">
+      <tr className={`bg-amber-50/20 ${grouped ? 'border-l-4 border-l-sky-200' : ''}`}>
         <td className="px-2 py-2 text-center">
           <IconLock className="w-3 h-3 text-amber-500 mx-auto" />
         </td>
@@ -5250,13 +5257,16 @@ function EditableRow({
           {entry.amount != null ? `¥${Number(entry.amount).toLocaleString()}` : '—'}
         </td>
         <td className="px-2 py-2 text-xs text-slate-600 truncate" title={entry.vendor_name}>{entry.vendor_name}</td>
-        <td className="px-2 py-2 text-xs text-slate-500 truncate" title={entry.description}>{entry.description}</td>
+        <td className="px-2 py-2 text-xs text-slate-500 truncate" title={`${entry.description}${taxLabel ? ' / ' + taxLabel : ''}`}>
+          {entry.description}
+          {taxLabel && <span className="ml-1 text-[9px] text-slate-400">[{taxLabel}]</span>}
+        </td>
       </tr>
     );
   }
 
   return (
-    <tr className={`${selected ? 'bg-sky-50/40' : 'hover:bg-slate-50/30'}`}>
+    <tr className={`${selected ? 'bg-sky-50/40' : 'hover:bg-slate-50/30'} ${grouped ? 'border-l-4 border-l-sky-200' : ''}`}>
       <td className="px-2 py-1.5 text-center">
         <input type="checkbox" checked={selected} onChange={onToggleSelect} className="cursor-pointer" />
       </td>
@@ -5409,8 +5419,12 @@ function EditableRow({
             onBlur={() => {
               if (description !== entry.description) saveIfChanged({ description });
             }}
+            title={taxLabel ? `税: ${taxLabel}` : undefined}
             className="min-w-0 flex-1 text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
           />
+          {taxLabel && (
+            <span className="text-[9px] text-slate-400 shrink-0" title={taxLabel}>[{taxLabel}]</span>
+          )}
           {/* ルール化: 相手先→科目 */}
           <button
             type="button"
@@ -6755,6 +6769,54 @@ function MasterView({
     ));
     onReloadVendors();
   };
+
+  // ── あいまい重複候補の検出（同一会社スコープ内で Levenshtein ≤2） ──
+  const accSimilarPairs: SimilarPair<AccountOption>[] = useMemo(
+    () => findSimilarPairs(
+      accountsList,
+      (a) => a.name,
+      { maxDistance: 2, minLen: 3, scopeKey: (a) => a.client_id ?? '', maxResults: 30 },
+    ),
+    [accountsList],
+  );
+  const venSimilarPairs: SimilarPair<AccountOption>[] = useMemo(
+    () => findSimilarPairs(
+      vendorsList,
+      (v) => v.name,
+      { maxDistance: 2, minLen: 3, scopeKey: (v) => v.client_id ?? '', maxResults: 30 },
+    ),
+    [vendorsList],
+  );
+
+  const mergeAccount = async (keepId: string, mergeId: string) => {
+    if (!confirm('この2件をマージします。マージ元の科目は削除され、仕訳の科目名はマージ先に統一されます。よろしいですか？')) return;
+    const res = await fetch('/api/accounts/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keepId, mergeId }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || 'マージに失敗しました');
+      return;
+    }
+    onReloadAccounts();
+  };
+
+  const mergeVendor = async (keepId: string, mergeId: string) => {
+    if (!confirm('この2件をマージします。マージ元の取引先は削除され、仕訳の取引先名はマージ先に統一されます。よろしいですか？')) return;
+    const res = await fetch('/api/vendors/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keepId, mergeId }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || 'マージに失敗しました');
+      return;
+    }
+    onReloadVendors();
+  };
   const [newRule, setNewRule] = useState<{ pattern_type: 'vendor' | 'description'; pattern: string; debit_account: string }>({
     pattern_type: 'vendor', pattern: '', debit_account: '',
   });
@@ -7099,6 +7161,80 @@ function MasterView({
         </div>
       </div>
     </div>
+
+    {/* あいまい重複候補（類似度マッチ） */}
+    {(accSimilarPairs.length > 0 || venSimilarPairs.length > 0) && (
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 bg-rose-50/40">
+          <p className="text-sm font-semibold text-rose-700 tracking-tight">あいまい重複候補</p>
+          <p className="text-[10px] text-rose-500/70 mt-0.5">
+            同一会社内で名前が似ているレコードを検出しました。マージするとマージ元は削除され、仕訳の科目名/取引先名が統一されます。
+          </p>
+        </div>
+        <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* 勘定科目の候補 */}
+          <div>
+            <p className="text-[11px] font-semibold text-sky-700 mb-2">勘定科目（{accSimilarPairs.length} 件）</p>
+            <div className="space-y-1.5">
+              {accSimilarPairs.length === 0 && (
+                <p className="text-[10px] text-slate-400">候補はありません</p>
+              )}
+              {accSimilarPairs.map((p, i) => (
+                <div key={`acc_${i}`} className="text-[11px] flex items-center gap-2 border border-slate-100 rounded-lg px-2 py-1.5">
+                  <span className="text-slate-700 truncate flex-1" title={p.a.name}>{p.a.name}</span>
+                  <span className="text-slate-400">↔</span>
+                  <span className="text-slate-700 truncate flex-1" title={p.b.name}>{p.b.name}</span>
+                  <span className="text-[9px] text-slate-400 shrink-0">距離 {p.distance}</span>
+                  <button
+                    onClick={() => p.a.id && p.b.id && mergeAccount(p.a.id, p.b.id)}
+                    className="text-[10px] text-sky-600 border border-sky-200 rounded px-1.5 py-0.5 hover:bg-sky-50 shrink-0"
+                    title={`「${p.a.name}」を残し、「${p.b.name}」を削除`}
+                  >
+                    左に統合
+                  </button>
+                  <button
+                    onClick={() => p.a.id && p.b.id && mergeAccount(p.b.id, p.a.id)}
+                    className="text-[10px] text-sky-600 border border-sky-200 rounded px-1.5 py-0.5 hover:bg-sky-50 shrink-0"
+                    title={`「${p.b.name}」を残し、「${p.a.name}」を削除`}
+                  >
+                    右に統合
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* 取引先の候補 */}
+          <div>
+            <p className="text-[11px] font-semibold text-lime-700 mb-2">取引先（{venSimilarPairs.length} 件）</p>
+            <div className="space-y-1.5">
+              {venSimilarPairs.length === 0 && (
+                <p className="text-[10px] text-slate-400">候補はありません</p>
+              )}
+              {venSimilarPairs.map((p, i) => (
+                <div key={`ven_${i}`} className="text-[11px] flex items-center gap-2 border border-slate-100 rounded-lg px-2 py-1.5">
+                  <span className="text-slate-700 truncate flex-1" title={p.a.name}>{p.a.name}</span>
+                  <span className="text-slate-400">↔</span>
+                  <span className="text-slate-700 truncate flex-1" title={p.b.name}>{p.b.name}</span>
+                  <span className="text-[9px] text-slate-400 shrink-0">距離 {p.distance}</span>
+                  <button
+                    onClick={() => p.a.id && p.b.id && mergeVendor(p.a.id, p.b.id)}
+                    className="text-[10px] text-lime-700 border border-lime-200 rounded px-1.5 py-0.5 hover:bg-lime-50 shrink-0"
+                  >
+                    左に統合
+                  </button>
+                  <button
+                    onClick={() => p.a.id && p.b.id && mergeVendor(p.b.id, p.a.id)}
+                    className="text-[10px] text-lime-700 border border-lime-200 rounded px-1.5 py-0.5 hover:bg-lime-50 shrink-0"
+                  >
+                    右に統合
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* 勘定科目ルール（相手先→科目 / 摘要→科目） */}
     <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
