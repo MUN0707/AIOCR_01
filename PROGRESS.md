@@ -602,3 +602,18 @@ public/sales-deck.pdf   — 営業資料PDF
   - 実CSV（10,329行 / 95列 / Shift_JIS）でパースを検証：全行成功・amount=null 0件・貸方金額フォールバック245件発生
 - 背景/理由: ユーザーが画面UIから freee 仕訳帳CSV（5.8MB）を「その他」経由で送信。エラー報告 `9466709f-aaaf-4431-9ba4-391a2ee000e1` 起点。freee は借方/貸方が別列で、複合仕訳では片側のみ金額が入る行があるため、`credit_amount` フォールバックと多列フォールバックが必須だった
 - 次にやること: マネーフォワードCSVは引き続き `unsupported: true` のまま（CSV送信が来たら同様の手順で対応）
+
+## 2026-04-30 18:30 - freee大容量CSVインポートで413エラー修正＋未サインイン時のロック画面追加
+
+- やったこと:
+  - `/api/journal-entries/import` のコントラクトを `csvText` 受信から **parsed rows 受信** に変更
+    - 旧: `{ presetId, csvText, clientId }` → 10329行（数MB）の `csvText` を JSON body に詰めて送信 → Vercel の 4.5MB 上限で 413 → クライアントが `res.json()` で失敗（"Unexpected token 'R', \"Request En\"..."）
+    - 新: `{ rows: NormalizedJournalRow[], clientId }`、1リクエスト最大2000件にバリデート
+  - クライアント `handleImportSubmit` を **1000件ずつチャンク分割** して逐次POSTする実装に変更
+  - `res.text()` でレスポンスを受けてから `JSON.parse` を try/catch でラップし、非JSON応答時にも分かりやすいエラー文を出すよう改善
+  - **未サインイン時に「自動仕訳」「決算書」タブを開くとロック画面（IconLock + サインインCTA）を表示**するよう変更
+    - `mode === 'journal-entry' && !isGuest` / `mode === 'financial-statement' && !isGuest` でガード
+    - キャッチコピーは表示したままロック画面を下に置く構成（b案）
+- 背景/理由: error_reports `28d72490`（10329件のfreeeCSV→413）と `8d12d092`（未サインインで自動仕訳/決算書が使えてしまう）の同時対応
+- 対応コミット: `a71f07c`
+- 次にやること: なし（両報告とも `status='resolved'` に更新済み）
