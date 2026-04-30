@@ -2192,16 +2192,34 @@ export default function Home() {
 
           {/* 認証ボタン */}
           {user === undefined ? null : isGuest ? (
-            <button
-              onClick={() => router.push('/login')}
-              className="text-xs font-medium text-sky-500 border border-sky-200 rounded-xl
-                px-4 py-2 hover:bg-sky-50 hover:border-sky-300
-                transition-all duration-200 tracking-wide"
-            >
-              Googleでサインイン
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.push('/lp/invoice')}
+                className="text-xs font-semibold text-sky-600 bg-sky-50 border border-sky-200 rounded-xl
+                  px-4 py-2 hover:bg-sky-100 hover:border-sky-300
+                  transition-all duration-200 tracking-wide"
+              >
+                サービス紹介・料金
+              </button>
+              <button
+                onClick={() => router.push('/login')}
+                className="text-xs font-medium text-sky-500 border border-sky-200 rounded-xl
+                  px-4 py-2 hover:bg-sky-50 hover:border-sky-300
+                  transition-all duration-200 tracking-wide"
+              >
+                Googleでサインイン
+              </button>
+            </div>
           ) : (
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.push('/lp/invoice')}
+                className="text-xs font-medium text-slate-500 border border-slate-200 rounded-xl
+                  px-4 py-2 hover:bg-slate-50 hover:text-slate-700
+                  transition-all duration-200 tracking-wide"
+              >
+                サービス紹介
+              </button>
               <button
                 onClick={() => router.push('/history')}
                 className="text-xs font-medium text-sky-600 border border-sky-200 rounded-xl
