@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
-// YouTube動画ID（後で差し替え）。空文字の間はプレースホルダー表示。
-const YOUTUBE_VIDEO_ID = '';
+// YouTube動画ID。空文字の間はプレースホルダー表示。
+const YOUTUBE_VIDEO_ID = 'OVIZsnFJz9Q';
 
 // 他LPへのクロスナビ。href が null のものは「準備中」として非活性表示。
 const OTHER_LPS: { label: string; href: string | null }[] = [
