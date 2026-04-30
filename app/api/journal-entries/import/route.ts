@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
-import { CSV_PRESETS, parseCsvWithPreset, parseCsvLine } from '@/lib/csv-import-presets';
+import type { NormalizedJournalRow } from '@/lib/csv-import-presets';
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 /**
  * CSV インポートエンドポイント
  *
+ * フロント側でパース済みの行配列を受け取り、journal_entries に挿入する。
+ * 大容量CSVは Vercel の 4.5MB body 上限で 413 になるため、フロント側で
+ * チャンク分割（最大2000件）して複数リクエストに分けて送る前提。
+ *
  * body (JSON):
- *   presetId: string          — 会計ソフト ID ('yayoi' | 'freee' | 'moneyforward')
- *   csvText: string           — CSV テキスト（フロント側でエンコード変換済み）
- *   clientId: string | null   — 顧問先 ID
+ *   rows: NormalizedJournalRow[]    — フロント側でパース済みの正規化行
+ *   clientId: string | null         — 顧問先 ID
  */
 export async function POST(request: NextRequest) {
   try {
@@ -22,37 +25,27 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { presetId, csvText, clientId } = body as {
-      presetId: string;
-      csvText: string;
+    const { rows, clientId } = body as {
+      rows: NormalizedJournalRow[];
       clientId: string | null;
     };
 
-    if (!presetId || !csvText) {
-      return NextResponse.json({ error: 'presetId と csvText は必須です' }, { status: 400 });
+    if (!Array.isArray(rows)) {
+      return NextResponse.json({ error: 'rows は配列で指定してください' }, { status: 400 });
     }
 
-    const preset = CSV_PRESETS.find((p) => p.id === presetId);
-    if (!preset) {
-      return NextResponse.json({ error: `不明な会計ソフト: ${presetId}` }, { status: 400 });
+    if (rows.length === 0) {
+      return NextResponse.json({ success: true, inserted: 0 });
     }
 
-    const result = parseCsvWithPreset(csvText, preset);
-
-    if (result.errors.length > 0) {
+    if (rows.length > 2000) {
       return NextResponse.json({
-        error: `CSV解析エラー: ${result.errors.join(', ')}`,
-        headers: result.headers,
+        error: '1リクエストあたり最大2000件です。フロント側でチャンク分割してください',
       }, { status: 400 });
     }
 
-    if (result.rows.length === 0) {
-      return NextResponse.json({ error: 'インポート可能な仕訳データがありません' }, { status: 400 });
-    }
-
-    // journal_entries に一括挿入
     const service = createServiceClient();
-    const insertRows = result.rows.map((r) => ({
+    const insertRows = rows.map((r) => ({
       user_id: user.id,
       client_id: clientId || null,
       entry_type: 'manual' as const,
@@ -83,8 +76,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       inserted: totalInserted,
-      skipped: result.skipped,
-      presetLabel: preset.label,
     });
   } catch (error) {
     console.error('journal-entries/import エラー:', error);

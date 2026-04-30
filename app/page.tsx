@@ -2526,8 +2526,32 @@ export default function Home() {
           </div>
         )}
 
+        {/* ─── 未サインイン時のロック画面（自動仕訳・決算書） ─────────────── */}
+        {(mode === 'journal-entry' || mode === 'financial-statement') && isGuest && (
+          <div className="bg-white border border-slate-100 rounded-2xl p-12 text-center shadow-sm max-w-xl mx-auto">
+            <div className="text-slate-200 flex justify-center mb-5">
+              <IconLock className="w-10 h-10" />
+            </div>
+            <p className="text-base font-semibold text-slate-800 mb-1.5 tracking-tight">
+              この機能はサインインが必要です
+            </p>
+            <p className="text-sm text-slate-400 mb-8 leading-relaxed">
+              {mode === 'journal-entry' ? '自動仕訳' : '決算書'}機能をご利用いただくには
+              <br className="sm:hidden" />Googleアカウントでサインインしてください
+            </p>
+            <button
+              onClick={() => router.push('/login')}
+              className="px-8 py-3 rounded-xl bg-sky-400 text-white text-sm font-semibold
+                hover:bg-sky-500 hover:-translate-y-0.5 active:translate-y-0
+                transition-all duration-200 shadow-md shadow-sky-200/60 tracking-wide"
+            >
+              Googleでサインイン
+            </button>
+          </div>
+        )}
+
         {/* ─── 自動仕訳モード専用UI ────────────────────────────────────────── */}
-        {mode === 'journal-entry' && (
+        {mode === 'journal-entry' && !isGuest && (
           <section className="space-y-5">
             {/* サブビュー切替: 実行 / 日記帳 / 残高 / マスタ + 常駐のエラー報告ボタン */}
             <div className="relative max-w-xl mx-auto">
@@ -3387,7 +3411,7 @@ export default function Home() {
         )}
 
         {/* ─── 決算書モード ──────────────────────────────────────────────── */}
-        {mode === 'financial-statement' && (
+        {mode === 'financial-statement' && !isGuest && (
           <FinancialStatementView
             selectedClientId={selectedClientId}
             accountsList={accountsList}
@@ -4616,18 +4640,30 @@ function LedgerView({
     setImportLoading(true);
     setImportError(null);
     try {
-      const res = await fetch('/api/journal-entries/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          presetId: importPresetId,
-          csvText: importCsvText,
-          clientId: clientId || null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'インポートに失敗しました');
-      setImportResult({ inserted: data.inserted, skipped: data.skipped });
+      // 大容量CSV対策: 1000件ずつチャンク分割して送信（Vercel 4.5MB body 上限の 413 回避）
+      const CHUNK_SIZE = 1000;
+      let totalInserted = 0;
+      for (let i = 0; i < importPreview.length; i += CHUNK_SIZE) {
+        const chunk = importPreview.slice(i, i + CHUNK_SIZE);
+        const res = await fetch('/api/journal-entries/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rows: chunk,
+            clientId: clientId || null,
+          }),
+        });
+        const text = await res.text();
+        let data: { success?: boolean; inserted?: number; error?: string } = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          throw new Error(`サーバー応答が不正 (status ${res.status}): ${text.slice(0, 200)}`);
+        }
+        if (!res.ok) throw new Error(data.error || `インポートに失敗 (status ${res.status})`);
+        totalInserted += data.inserted ?? 0;
+      }
+      setImportResult({ inserted: totalInserted, skipped: importSkipped });
       setImportStep('done');
       onRefresh();
     } catch (err) {
