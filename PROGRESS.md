@@ -617,3 +617,16 @@ public/sales-deck.pdf   — 営業資料PDF
 - 背景/理由: error_reports `28d72490`（10329件のfreeeCSV→413）と `8d12d092`（未サインインで自動仕訳/決算書が使えてしまう）の同時対応
 - 対応コミット: `a71f07c`
 - 次にやること: なし（両報告とも `status='resolved'` に更新済み）
+
+## 2026-04-30 19:00 - 仕訳CSVインポートを「その他」CSV送信と同じStorage方式に統一
+
+- やったこと:
+  - 上記 `a71f07c` のチャンク分割方式は途中失敗時に部分挿入が残る弱点があったため、
+    「その他」CSV送信（`197665a` + `59615a1`）と同じ **gzip + Storage 直接UP** 方式に揃え直し
+  - API（`/api/journal-entries/import`）を `{ rows }` 受信から `{ presetId, storagePath, compressed, clientId }` 受信に再変更
+    - Storage（`error-screenshots` バケット）から gzip圧縮CSVを download → `gunzipSync` → `TextDecoder('shift-jis' | 'utf-8')` でデコード → `parseCsvWithPreset` → 500件ずつ挿入 → 成功後 Storage 削除
+  - クライアント `handleImportSubmit` を `importFile` を `CompressionStream('gzip')` で圧縮 → Supabase Storage upload → `storagePath` だけPOSTする実装に変更
+  - 未使用になった `importCsvText` state を削除
+- 背景/理由: ユーザーから「『その他』のときと改善方式が違う」と指摘。コードパターン統一・原子性確保・社内NW対策（gzip）継承の3点で Storage 方式が優位
+- 対応コミット: `89f23c1`
+- 次にやること: なし
