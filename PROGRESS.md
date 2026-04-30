@@ -660,3 +660,26 @@ public/sales-deck.pdf   — 営業資料PDF
   - 未確認/未分類の勘定科目をマスタ画面で目立たせる（赤バッジ等）
   - 仕訳明細 UI に同一 voucher_group_id のグループ枠線、税区分・税額カラム表示
   - 全部完了後に error_reports `2a8575ef` / `be67065c` を `resolved` に更新
+
+## 2026-04-30 20:30 - マスタ画面に会社割当 UI を追加（Commit 2）
+
+- やったこと:
+  - **API 改修**:
+    - `/api/accounts` GET: `?clientId=<uuid>` 指定で会社別に絞り込み、`?clientId=null` で未割当のみ
+    - `/api/accounts/[id]` PATCH: `client_id` / `confirmed` / `auto_registered` を更新可能に
+    - `/api/vendors` GET / POST / `[id]` PATCH も同様に `client_id` 対応
+    - 既存ユニーク重複チェックも `(user_id, client_id, ...)` ベースに
+  - **マスタ画面 UI 改修** (`app/page.tsx`):
+    - ヘッダに「会社で絞り込む」プルダウン（全件 / 未割当のみ / 各会社）
+    - ヘッダに「割当先選択 + 一括割当ボタン」（未割当の科目/取引先をまとめて指定会社へ移行）
+    - MasterRow 各行に：
+      - **会社セレクタ**（その場で会社割当変更）
+      - **「未確認」バッジ**（auto_registered=true & confirmed=false の科目を黄色で強調）+ 確認ボタン
+      - **「未割当」バッジ**（client_id NULL の行）
+    - AccountOption / AccountItem / VendorItem 型に `client_id` / `auto_registered` / `confirmed` を追加
+- 背景/理由: Commit 1 で土台（DB スキーマ）はできたので、ユーザーが UI から会社割当・科目の確認をできる形に
+- 対応コミット: 次の commit
+- 次にやること（Commit 3）:
+  - 類似度マッチ機能（取引先・勘定科目の重複候補表示 + マージ API）
+  - 仕訳明細 UI: voucher_group_id のグループ枠線・税区分/税額カラム
+  - error_reports `2a8575ef` / `be67065c` を `resolved` に更新

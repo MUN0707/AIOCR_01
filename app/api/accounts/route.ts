@@ -48,7 +48,9 @@ async function ensureDefaults(service: ReturnType<typeof createServiceClient>, u
     .insert(DEFAULT_ACCOUNTS.map((a) => ({ ...a, user_id: userId })));
 }
 
-export async function GET() {
+const SELECT_COLS = 'id, name, reading, category, sub_category, display_order, client_id, auto_registered, confirmed';
+
+export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
@@ -56,13 +58,24 @@ export async function GET() {
   const service = createServiceClient();
   await ensureDefaults(service, user.id);
 
-  const { data, error } = await service
+  const { searchParams } = new URL(request.url);
+  const clientIdParam = searchParams.get('clientId');
+
+  let query = service
     .from('accounts')
-    .select('id, name, reading, category, sub_category, display_order')
+    .select(SELECT_COLS)
     .eq('user_id', user.id)
     .order('display_order', { ascending: true })
     .order('name', { ascending: true });
 
+  // clientId='null' → 未割当のみ / clientId=<uuid> → その会社のみ / 指定なし → 全件
+  if (clientIdParam === 'null') {
+    query = query.is('client_id', null);
+  } else if (clientIdParam) {
+    query = query.eq('client_id', clientIdParam);
+  }
+
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ accounts: data ?? [] });
 }
@@ -77,6 +90,7 @@ export async function POST(request: NextRequest) {
   const reading: string = (body.reading ?? '').trim().toLowerCase();
   const category: string = (body.category ?? '').trim();
   const sub_category: string = (body.sub_category ?? '').trim();
+  const client_id: string | null = body.client_id ?? null;
 
   if (!name) return NextResponse.json({ error: '科目名を入力してください' }, { status: 400 });
   if (name.length > 60) return NextResponse.json({ error: '科目名が長すぎます' }, { status: 400 });
@@ -84,8 +98,17 @@ export async function POST(request: NextRequest) {
   const service = createServiceClient();
   const { data, error } = await service
     .from('accounts')
-    .insert({ user_id: user.id, name, reading, category, sub_category: sub_category || null })
-    .select('id, name, reading, category, sub_category, display_order')
+    .insert({
+      user_id: user.id,
+      client_id,
+      name,
+      reading,
+      category,
+      sub_category: sub_category || null,
+      auto_registered: false,
+      confirmed: true,
+    })
+    .select(SELECT_COLS)
     .single();
 
   if (error) {

@@ -25,6 +25,7 @@ export async function PATCH(
   if (typeof body.reading === 'string') {
     update.reading = body.reading.trim().toLowerCase();
   }
+  if ('client_id' in body) update.client_id = body.client_id ?? null;
 
   const service = createServiceClient();
   const { data, error } = await service
@@ -32,7 +33,7 @@ export async function PATCH(
     .update(update)
     .eq('id', id)
     .eq('user_id', user.id)
-    .select('id, name, normalized_key, reading')
+    .select('id, name, normalized_key, reading, client_id')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

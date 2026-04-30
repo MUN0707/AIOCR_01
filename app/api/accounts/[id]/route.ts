@@ -24,6 +24,9 @@ export async function PATCH(
   if (typeof body.category === 'string') update.category = body.category;
   if (typeof body.sub_category === 'string') update.sub_category = body.sub_category || null;
   if (typeof body.display_order === 'number') update.display_order = body.display_order;
+  if ('client_id' in body) update.client_id = body.client_id ?? null;
+  if (typeof body.confirmed === 'boolean') update.confirmed = body.confirmed;
+  if (typeof body.auto_registered === 'boolean') update.auto_registered = body.auto_registered;
 
   const service = createServiceClient();
 
@@ -44,7 +47,7 @@ export async function PATCH(
     .update(update)
     .eq('id', id)
     .eq('user_id', user.id)
-    .select('id, name, reading, category, sub_category, display_order')
+    .select('id, name, reading, category, sub_category, display_order, client_id, auto_registered, confirmed')
     .single();
 
   if (error) {

@@ -866,7 +866,7 @@ export default function Home() {
   }, []);
 
   // ─── 勘定科目マスタ State（起動時に1回だけロード） ────────────────────────
-  interface AccountItem { id: string; name: string; reading: string; category: string; sub_category?: string | null; display_order?: number | null }
+  interface AccountItem { id: string; name: string; reading: string; category: string; sub_category?: string | null; display_order?: number | null; client_id?: string | null; auto_registered?: boolean; confirmed?: boolean }
   const [accountsList, setAccountsList] = useState<AccountItem[]>([]);
 
   const fetchAccounts = useCallback(async () => {
@@ -910,7 +910,7 @@ export default function Home() {
   }, [accountsList]);
 
   // ─── 取引先マスタ State ──────────────────────────────────────────────────
-  interface VendorItem { id: string; name: string; normalized_key: string; reading: string }
+  interface VendorItem { id: string; name: string; normalized_key: string; reading: string; client_id?: string | null }
   const [vendorsList, setVendorsList] = useState<VendorItem[]>([]);
 
   const fetchVendors = useCallback(async () => {
@@ -2726,6 +2726,7 @@ export default function Home() {
               <MasterView
                 accountsList={accountsList}
                 vendorsList={vendorsList}
+                clients={clients}
                 onReloadAccounts={fetchAccounts}
                 onReloadVendors={fetchVendors}
                 onCreateAccount={addAccountLocal}
@@ -6475,7 +6476,7 @@ function FixedAssetSection({
 
 // ─── 勘定科目コンボボックス（補完つきインライン入力） ────────────────────────
 
-interface AccountOption { id?: string; name: string; reading?: string; category?: string; sub_category?: string | null; display_order?: number | null }
+interface AccountOption { id?: string; name: string; reading?: string; category?: string; sub_category?: string | null; display_order?: number | null; client_id?: string | null; auto_registered?: boolean; confirmed?: boolean }
 
 function AccountCombobox({
   value,
@@ -6695,6 +6696,7 @@ interface RuleItem { id: string; pattern_type: 'vendor' | 'description'; pattern
 function MasterView({
   accountsList,
   vendorsList,
+  clients,
   onReloadAccounts,
   onReloadVendors,
   onCreateAccount,
@@ -6705,6 +6707,7 @@ function MasterView({
 }: {
   accountsList: AccountOption[];
   vendorsList: AccountOption[];
+  clients: ClientItem[];
   onReloadAccounts: () => void;
   onReloadVendors: () => void;
   onCreateAccount: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
@@ -6713,6 +6716,45 @@ function MasterView({
   onCreateRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
   onDeleteRule: (id: string) => Promise<void>;
 }) {
+  // 会社絞り込み: '' = 全件、'null' = 未割当のみ、uuid = その会社
+  const [scopeClientId, setScopeClientId] = useState<string>('');
+  // 一括割当先（未割当を一括でこの会社へ移すための選択）
+  const [bulkTargetClientId, setBulkTargetClientId] = useState<string>('');
+
+  const accUnassignedCount = useMemo(() =>
+    accountsList.filter((a) => !a.client_id).length, [accountsList]);
+  const venUnassignedCount = useMemo(() =>
+    vendorsList.filter((v) => !v.client_id).length, [vendorsList]);
+
+  const bulkAssignAccounts = async () => {
+    if (!bulkTargetClientId) return alert('割当先の会社を選択してください');
+    const target = accountsList.filter((a) => !a.client_id && a.id);
+    if (target.length === 0) return alert('未割当の勘定科目はありません');
+    if (!confirm(`未割当の勘定科目 ${target.length} 件をこの会社へ割り当てます。よろしいですか？`)) return;
+    await Promise.all(target.map((a) =>
+      fetch(`/api/accounts/${a.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: bulkTargetClientId }),
+      }),
+    ));
+    onReloadAccounts();
+  };
+
+  const bulkAssignVendors = async () => {
+    if (!bulkTargetClientId) return alert('割当先の会社を選択してください');
+    const target = vendorsList.filter((v) => !v.client_id && v.id);
+    if (target.length === 0) return alert('未割当の取引先はありません');
+    if (!confirm(`未割当の取引先 ${target.length} 件をこの会社へ割り当てます。よろしいですか？`)) return;
+    await Promise.all(target.map((v) =>
+      fetch(`/api/vendors/${v.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: bulkTargetClientId, previousName: v.name }),
+      }),
+    ));
+    onReloadVendors();
+  };
   const [newRule, setNewRule] = useState<{ pattern_type: 'vendor' | 'description'; pattern: string; debit_account: string }>({
     pattern_type: 'vendor', pattern: '', debit_account: '',
   });
@@ -6756,22 +6798,38 @@ function MasterView({
 
   const filteredAccounts = useMemo(() => {
     const q = accSearch.trim().toLowerCase();
-    if (!q) return sortedAccounts;
-    return sortedAccounts.filter((a) =>
-      a.name.toLowerCase().includes(q) ||
-      (a.reading ?? '').toLowerCase().includes(q) ||
-      (a.sub_category ?? '').toLowerCase().includes(q)
-    );
-  }, [sortedAccounts, accSearch]);
+    const inScope = (a: AccountOption): boolean => {
+      if (scopeClientId === '') return true;
+      if (scopeClientId === 'null') return !a.client_id;
+      return a.client_id === scopeClientId;
+    };
+    return sortedAccounts.filter((a) => {
+      if (!inScope(a)) return false;
+      if (!q) return true;
+      return (
+        a.name.toLowerCase().includes(q) ||
+        (a.reading ?? '').toLowerCase().includes(q) ||
+        (a.sub_category ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [sortedAccounts, accSearch, scopeClientId]);
 
   const filteredVendors = useMemo(() => {
     const q = venSearch.trim().toLowerCase();
-    if (!q) return vendorsList;
-    return vendorsList.filter((v) =>
-      v.name.toLowerCase().includes(q) ||
-      (v.reading ?? '').toLowerCase().includes(q)
-    );
-  }, [vendorsList, venSearch]);
+    const inScope = (v: AccountOption): boolean => {
+      if (scopeClientId === '') return true;
+      if (scopeClientId === 'null') return !v.client_id;
+      return v.client_id === scopeClientId;
+    };
+    return vendorsList.filter((v) => {
+      if (!inScope(v)) return false;
+      if (!q) return true;
+      return (
+        v.name.toLowerCase().includes(q) ||
+        (v.reading ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [vendorsList, venSearch, scopeClientId]);
 
   const patchAccount = async (id: string, patch: Partial<AccountOption>) => {
     const res = await fetch(`/api/accounts/${id}`, {
@@ -6848,6 +6906,55 @@ function MasterView({
 
   return (
     <div className="space-y-5">
+    {/* 会社フィルタ + 未割当の一括割当 UI */}
+    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 flex flex-wrap items-center gap-3">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-slate-500 font-semibold">会社で絞り込む:</span>
+        <select
+          value={scopeClientId}
+          onChange={(e) => setScopeClientId(e.target.value)}
+          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-sky-400"
+        >
+          <option value="">全件表示</option>
+          <option value="null">未割当のみ</option>
+          {clients.map((c) => (
+            <option key={c.id} value={c.id}>{clientDisplayLabel(c)}</option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center gap-2 ml-auto">
+        <span className="text-xs text-slate-500">
+          未割当: 勘定科目 {accUnassignedCount} 件 / 取引先 {venUnassignedCount} 件
+        </span>
+        <select
+          value={bulkTargetClientId}
+          onChange={(e) => setBulkTargetClientId(e.target.value)}
+          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-sky-400"
+        >
+          <option value="">割当先を選択</option>
+          {clients.map((c) => (
+            <option key={c.id} value={c.id}>{clientDisplayLabel(c)}</option>
+          ))}
+        </select>
+        <button
+          onClick={bulkAssignAccounts}
+          disabled={!bulkTargetClientId || accUnassignedCount === 0}
+          className="text-[10px] text-white bg-sky-500 rounded-lg px-2.5 py-1.5 font-semibold hover:bg-sky-600 disabled:opacity-40"
+          title="未割当の勘定科目を一括で選択中の会社へ割り当て"
+        >
+          科目を一括割当
+        </button>
+        <button
+          onClick={bulkAssignVendors}
+          disabled={!bulkTargetClientId || venUnassignedCount === 0}
+          className="text-[10px] text-white bg-lime-500 rounded-lg px-2.5 py-1.5 font-semibold hover:bg-lime-600 disabled:opacity-40"
+          title="未割当の取引先を一括で選択中の会社へ割り当て"
+        >
+          取引先を一括割当
+        </button>
+      </div>
+    </div>
+
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       {/* 勘定科目マスタ */}
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
@@ -6914,6 +7021,7 @@ function MasterView({
                   onDelete={() => deleteAccount(a.id!)}
                   showSubCategory
                   duplicate={accDupNames.has(a.name.trim().toLowerCase())}
+                  clients={clients}
                 />
               ))}
               {filteredAccounts.length === 0 && (
@@ -6978,6 +7086,7 @@ function MasterView({
                   onSave={(patch) => patchVendor(v.id!, patch, v.name)}
                   onDelete={() => deleteVendor(v.id!)}
                   duplicate={venDupNames.has(v.name.trim().toLowerCase())}
+                  clients={clients}
                 />
               ))}
               {filteredVendors.length === 0 && (
@@ -7104,38 +7213,57 @@ function MasterRow({
   onDelete,
   showSubCategory = false,
   duplicate = false,
+  clients = [],
 }: {
   item: AccountOption;
   onSave: (patch: Partial<AccountOption>) => void;
   onDelete: () => void;
   showSubCategory?: boolean;
   duplicate?: boolean;
+  clients?: ClientItem[];
 }) {
   const [name, setName] = useState(item.name);
   const [reading, setReading] = useState(item.reading ?? '');
-  // sub_category は親 props 由来だと「PATCH→reload」までの間に値が戻ってしまうので
-  // 楽観更新するためにローカル state で持つ。props 側が変わったら同期する。
   const [subCategory, setSubCategory] = useState<string>(item.sub_category ?? '');
   useEffect(() => {
     setSubCategory(item.sub_category ?? '');
   }, [item.sub_category]);
 
+  // 未確認: 自動登録された + 未確認の科目を強調
+  const isUnconfirmed = item.auto_registered === true && item.confirmed === false;
+  // 未割当: 会社が設定されていない（freee 自動登録時に Importer から渡されなかったケースなど）
+  const isUnassigned = !item.client_id;
+
+  const handleConfirm = () => {
+    onSave({ confirmed: true });
+  };
+
   return (
-    <tr className={`hover:bg-slate-50/30 ${duplicate ? 'bg-red-50/40' : ''}`}>
+    <tr className={`hover:bg-slate-50/30 ${duplicate ? 'bg-red-50/40' : ''} ${isUnconfirmed ? 'bg-amber-50/40' : ''}`}>
       <td className="px-4 py-2">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={() => { if (name !== item.name) onSave({ name }); }}
-            className="flex-1 text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+            className="flex-1 min-w-[80px] text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
           />
           {duplicate && (
             <span className="text-[9px] text-red-600 bg-red-100 rounded px-1 py-0.5 font-semibold shrink-0">重複</span>
           )}
+          {isUnconfirmed && (
+            <span className="text-[9px] text-amber-700 bg-amber-100 rounded px-1 py-0.5 font-semibold shrink-0" title="インポート時に自動登録されました。区分が正しいか確認してください">
+              未確認
+            </span>
+          )}
+          {isUnassigned && clients.length > 0 && (
+            <span className="text-[9px] text-slate-600 bg-slate-100 rounded px-1 py-0.5 font-semibold shrink-0" title="会社が割り当てられていません">
+              未割当
+            </span>
+          )}
         </div>
       </td>
-      <td className="px-4 py-2" style={{ width: showSubCategory ? '28%' : '40%' }}>
+      <td className="px-4 py-2" style={{ width: showSubCategory ? '22%' : '32%' }}>
         <input
           value={reading}
           onChange={(e) => setReading(e.target.value.toLowerCase())}
@@ -7145,7 +7273,7 @@ function MasterRow({
         />
       </td>
       {showSubCategory && (
-        <td className="px-2 py-2" style={{ width: '130px' }}>
+        <td className="px-2 py-2" style={{ width: '125px' }}>
           <select
             value={subCategory}
             onChange={(e) => {
@@ -7163,13 +7291,42 @@ function MasterRow({
           </select>
         </td>
       )}
-      <td className="px-4 py-2 text-right" style={{ width: '80px' }}>
-        <button
-          onClick={onDelete}
-          className="text-[10px] text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50"
-        >
-          削除
-        </button>
+      {clients.length > 0 && (
+        <td className="px-2 py-2" style={{ width: '130px' }}>
+          <select
+            value={item.client_id ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              onSave({ client_id: v || null });
+            }}
+            className="w-full text-[11px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white text-slate-600"
+            title="この科目を所属させる会社"
+          >
+            <option value="">（未割当）</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>{clientDisplayLabel(c)}</option>
+            ))}
+          </select>
+        </td>
+      )}
+      <td className="px-2 py-2 text-right" style={{ width: '110px' }}>
+        <div className="flex items-center justify-end gap-1">
+          {isUnconfirmed && (
+            <button
+              onClick={handleConfirm}
+              className="text-[10px] text-amber-700 border border-amber-300 rounded-md px-2 py-1 hover:bg-amber-50"
+              title="区分を確認した（このバッジを消します）"
+            >
+              確認
+            </button>
+          )}
+          <button
+            onClick={onDelete}
+            className="text-[10px] text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50"
+          >
+            削除
+          </button>
+        </div>
       </td>
     </tr>
   );
