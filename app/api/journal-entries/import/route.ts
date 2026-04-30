@@ -233,11 +233,9 @@ async function ensureAccountsForRows(
 
   if (toInsert.length === 0) return 0;
 
-  // 同名重複は ON CONFLICT DO NOTHING 相当の挙動にしたいが Supabase だと面倒なので、
-  // ユニーク制約でこける可能性を考慮し ignoreDuplicates 相当の onConflict を指定
-  const { error } = await service
-    .from('accounts')
-    .upsert(toInsert, { onConflict: 'user_id,client_id,name', ignoreDuplicates: true });
+  // ユニーク制約は COALESCE 式インデックスのため onConflict (列名) が通らない。
+  // existingSet で重複除外済みなので素の insert で OK。
+  const { error } = await service.from('accounts').insert(toInsert);
 
   if (error) {
     console.warn('accounts 自動登録 警告:', error.message);
@@ -306,9 +304,7 @@ async function ensureVendorsForRows(
 
   if (toInsert.length === 0) return 0;
 
-  const { error } = await service
-    .from('vendors')
-    .upsert(toInsert, { onConflict: 'user_id,client_id,normalized_key', ignoreDuplicates: true });
+  const { error } = await service.from('vendors').insert(toInsert);
 
   if (error) {
     console.warn('vendors 自動登録 警告:', error.message);

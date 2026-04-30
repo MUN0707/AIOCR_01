@@ -701,3 +701,20 @@ public/sales-deck.pdf   — 営業資料PDF
 - 背景/理由: error_reports `2a8575ef`（名寄せツール要望）と `be67065c`（仕訳明細の表示改善）の最終仕上げ
 - 対応コミット: 次の commit
 - 次にやること: なし（error_reports 2件を resolved に更新して完了）
+
+## 2026-04-30 21:30 - フォービス再インポート + ON CONFLICT 不具合の修正
+
+- やったこと:
+  - フォービス (client_id=047) の旧データ 10329 件 (voucher_group_id/meta/tax_rate すべて NULL) を DELETE
+  - `scripts/reimport-foovis.mjs` を作成し、Storage の 4/28 生CSV (5.9MB) から service_role で再 INSERT
+  - 結果: journal_entries 10329 件、voucher_group_id 全件あり、4744 仕訳にグループ化、
+    meta 全件あり、tax_rate 全件あり (税抜経理のため tax_amount は元CSV側で0件のまま)
+  - **不具合修正**: accounts/vendors 自動登録の `upsert(..., onConflict: 'user_id,client_id,name')`
+    が「ユニーク制約は COALESCE 式インデックス」のため失敗していた。`onConflict` 列名は
+    式インデックスを参照できないため、`existingSet` で重複除外済みなので素の `insert` に変更
+  - `app/api/journal-entries/import/route.ts` 本番側も同様に修正
+  - 自動登録結果: accounts 118 件 (うち confirmed=false 60 件 — 「未確認」バッジでマスタ表示)
+    vendors 92 件
+- 背景/理由: Bパターンで「私が削除→スクリプトで再インポート」を実行。途中で upsert の警告から
+  自動登録が 0 件の状態に気付き、スクリプトと本番コードを両方直した
+- 次にやること: 本番 API の修正をデプロイ (次の commit)
