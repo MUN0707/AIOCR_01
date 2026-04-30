@@ -630,3 +630,33 @@ public/sales-deck.pdf   — 営業資料PDF
 - 背景/理由: ユーザーから「『その他』のときと改善方式が違う」と指摘。コードパターン統一・原子性確保・社内NW対策（gzip）継承の3点で Storage 方式が優位
 - 対応コミット: `89f23c1`
 - 次にやること: なし
+
+## 2026-04-30 20:00 - 仕訳CSVインポート抜本改修（freee複合仕訳・税額・マスタ会社別化の土台）
+
+- やったこと:
+  - **マイグレーション** `20260430_master_client_scope_and_journal_meta.sql` を適用
+    - `accounts` / `vendors` / `account_rules` に `client_id uuid` を追加（FK→clients、ON DELETE SET NULL）。既存ユニーク制約を `(user_id, COALESCE(client_id), ...)` 形式に張り直し。`accounts` には `auto_registered`, `confirmed` フラグも追加
+    - `journal_entries` に `debit_amount`, `credit_amount`, `tax_amount`, `tax_rate`, `is_internal_tax`, `voucher_seq`, `voucher_total_lines`, `meta jsonb` を追加。既存 `amount` を `debit_amount`/`credit_amount` に複写
+    - `journal_entries.voucher_group_id` をインポート時のグループ識別子として再利用
+  - **freee CSV パーサー改修** (`lib/csv-import-presets.ts`)
+    - `freeeAdvanced: true` モードを新設。No列で同一仕訳を検出し、95列すべてを `meta` JSONB に raw 保存
+    - 借方税金額/貸方税金額/税率/内税外税/取引先名/備考 を分離抽出、借方金額・貸方金額を独立カラムへ
+  - **インポート API 改修** (`app/api/journal-entries/import/route.ts`)
+    - 同じ No 値の行に同じ `voucher_group_id` (uuid) を発番
+    - 借方・貸方科目の未登録分を `accounts` に **自動INSERT**（`auto_registered=true`、category 判定可なら `confirmed=true`）
+    - 取引先名の未登録分を `vendors` に自動INSERT（`normalize_key` ベース）
+    - 税額・税率・内税外税・raw_meta を保存
+  - **勘定科目自動分類** (`lib/account-category-classifier.ts`) を新設
+    - 完全一致辞書（freee既定60科目）+ パターン辞書（語尾「費/料/代/損」→expense、「前払/仮払」→asset 等）
+    - 該当しないものは `category='uncategorized'`、`confirmed=false` で残してマスタ画面確認待ちにする
+  - **仕訳明細日付バグ修正** (`app/page.tsx`)
+    - 日付列の固定幅を 110px → 150px に拡大。`<input type="date">` の曜日付き表示「YYYY/MM/DD(月)」が切り詰められて「2025/10/0(月)」と見えていた現象を解消
+  - LedgerEntry 型に新カラム（debit/credit_amount, tax_amount, tax_rate, voucher_group_id 等）追加
+- 背景/理由: error_reports `2a8575ef`（取引先・勘定科目マスタを会社別にしたい / 勘定科目自動登録）と `be67065c`（10/0 表示・税区分/税額消失・3行仕訳が3行で読めない）の2件への対応開始。順序確認は不要（CLAUDE.md ルール）
+- 次にやること（残作業を Commit 2/3 で対応予定）:
+  - accounts/vendors API を `clientId` クエリで絞れるよう改修 + クライアントコード対応
+  - マスタ画面に「会社プルダウン + 未割当レコードの一括割当UI」追加
+  - 類似度マッチ機能（重複候補表示・マージ）
+  - 未確認/未分類の勘定科目をマスタ画面で目立たせる（赤バッジ等）
+  - 仕訳明細 UI に同一 voucher_group_id のグループ枠線、税区分・税額カラム表示
+  - 全部完了後に error_reports `2a8575ef` / `be67065c` を `resolved` に更新

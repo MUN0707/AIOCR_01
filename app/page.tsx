@@ -77,6 +77,11 @@ interface LedgerEntry {
   debit_account: string;
   credit_account: string;
   amount: number | null;
+  debit_amount?: number | null;
+  credit_amount?: number | null;
+  tax_amount?: number | null;
+  tax_rate?: string | null;
+  is_internal_tax?: boolean | null;
   description: string;
   tax_type: string;
   vendor_name: string;
@@ -86,6 +91,10 @@ interface LedgerEntry {
   locked: boolean;
   ocr_upload_id: string | null;
   bank_ocr_upload_id: string | null;
+  voucher_group_id?: string | null;
+  voucher_seq?: number | null;
+  voucher_total_lines?: number | null;
+  meta?: Record<string, string> | null;
 }
 
 async function openJournalPdf(entryId: string, source: 'invoice' | 'bank' = 'invoice'): Promise<void> {
@@ -5096,17 +5105,17 @@ function LedgerView({
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
           <p className="text-sm font-semibold text-slate-700 tracking-tight">仕訳明細</p>
         </div>
-        <table className="w-full text-sm table-fixed" style={{ minWidth: '1100px' }}>
+        <table className="w-full text-sm table-fixed" style={{ minWidth: '1140px' }}>
           <colgroup>
             <col style={{ width: '36px' }} />   {/* チェック */}
-            <col style={{ width: '110px' }} />  {/* 日付 */}
+            <col style={{ width: '150px' }} />  {/* 日付（input[type=date] の曜日表示込みで折り返さない幅） */}
             <col style={{ width: '68px' }} />   {/* 種別 */}
             <col style={{ width: '44px' }} />   {/* 証憑 */}
             <col style={{ width: '150px' }} />  {/* 借方 */}
             <col style={{ width: '150px' }} />  {/* 貸方 */}
             <col style={{ width: '110px' }} />  {/* 金額 */}
             <col style={{ width: '160px' }} />  {/* 取引先 */}
-            <col />                              {/* 摘要（残り ~272px+） */}
+            <col />                              {/* 摘要（残り） */}
           </colgroup>
           <thead className="bg-white">
             <tr className="border-b border-slate-100">
