@@ -318,8 +318,8 @@ export function parseCsvWithPreset(csvText: string, preset: CsvPreset): ParseRes
 
       rows.push({
         entry_date: entryDate || '不明',
-        debit_account: debit || '不明',
-        credit_account: credit || '不明',
+        debit_account: debit || '',
+        credit_account: credit || '',
         amount,
         debit_amount: debitAmount,
         credit_amount: creditAmount,
@@ -389,8 +389,8 @@ export function parseCsvWithPreset(csvText: string, preset: CsvPreset): ParseRes
 
     rows.push({
       entry_date: entryDate || '不明',
-      debit_account: debit || '不明',
-      credit_account: credit || '不明',
+      debit_account: debit || '',
+      credit_account: credit || '',
       amount,
       debit_amount: debitAmount,
       credit_amount: creditAmount,
@@ -536,8 +536,8 @@ function parseFreeeAdvanced(
 
     rows.push({
       entry_date: dateParser(get(cells, idxs.date)) || '不明',
-      debit_account: debit || '不明',
-      credit_account: credit || '不明',
+      debit_account: debit || '',
+      credit_account: credit || '',
       amount: debitAmount ?? creditAmount,
       debit_amount: debitAmount,
       credit_amount: creditAmount,

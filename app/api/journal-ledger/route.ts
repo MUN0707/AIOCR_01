@@ -17,24 +17,30 @@ export async function GET(request: NextRequest) {
 
     const service = createServiceClient();
 
-    // エントリ取得
-    let entryQuery = service
-      .from('journal_entries')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('entry_date', { ascending: true })
-      .order('created_at', { ascending: true })
-      .limit(5000);
-
-    if (clientId) {
-      entryQuery = entryQuery.eq('client_id', clientId);
-    } else {
-      entryQuery = entryQuery.is('client_id', null);
-    }
-
-    const { data: entries, error: entriesError } = await entryQuery;
-    if (entriesError) {
-      return NextResponse.json({ error: entriesError.message }, { status: 500 });
+    // エントリ取得（Postgrest の db-max-rows 制約を回避するため range でページング）
+    const PAGE = 1000;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entries: any[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      let q = service
+        .from('journal_entries')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('entry_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .range(offset, offset + PAGE - 1);
+      if (clientId) {
+        q = q.eq('client_id', clientId);
+      } else {
+        q = q.is('client_id', null);
+      }
+      const { data: page, error: pageError } = await q;
+      if (pageError) {
+        return NextResponse.json({ error: pageError.message }, { status: 500 });
+      }
+      if (!page || page.length === 0) break;
+      entries.push(...page);
+      if (page.length < PAGE) break;
     }
 
     // 締め設定取得

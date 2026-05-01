@@ -2729,6 +2729,14 @@ export default function Home() {
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
                 clientId={selectedClientId}
                 onRefresh={fetchLedger}
+                accountsList={accountsList}
+                onOpenGeneralLedger={(account) => {
+                  // 総勘定元帳を新しいタブで開く（複数科目を並べて見られるように）
+                  const params = new URLSearchParams();
+                  if (selectedClientId) params.set('clientId', selectedClientId);
+                  if (account) params.set('account', account);
+                  window.open(`/general-ledger?${params.toString()}`, '_blank');
+                }}
                 unmatchedTransactions={journalMatchResult?.summary.unmatchedTransactions ?? []}
                 consumedUnmatchedIdx={consumedUnmatchedIdx}
                 onConsumeUnmatched={(idx) => setConsumedUnmatchedIdx((prev) => new Set(prev).add(idx))}
@@ -4198,36 +4206,59 @@ function formatDateYmd(s: string): string {
   return s;
 }
 
+// 「不明」「空」を集計対象外とするヘルパ
+function isValidAccountName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  if (name === '不明' || name === '(不明)') return false;
+  return true;
+}
+
 function computeBalances(entries: LedgerEntry[]) {
   const accountSet = new Set<string>();
   const accountBalances: Record<string, { debit: number; credit: number }> = {};
   for (const e of entries) {
-    accountSet.add(e.debit_account);
-    accountSet.add(e.credit_account);
     const amt = e.amount ?? 0;
-    if (!accountBalances[e.debit_account]) accountBalances[e.debit_account] = { debit: 0, credit: 0 };
-    if (!accountBalances[e.credit_account]) accountBalances[e.credit_account] = { debit: 0, credit: 0 };
-    accountBalances[e.debit_account].debit += amt;
-    accountBalances[e.credit_account].credit += amt;
+    if (isValidAccountName(e.debit_account)) {
+      accountSet.add(e.debit_account);
+      if (!accountBalances[e.debit_account]) accountBalances[e.debit_account] = { debit: 0, credit: 0 };
+      accountBalances[e.debit_account].debit += amt;
+    }
+    if (isValidAccountName(e.credit_account)) {
+      accountSet.add(e.credit_account);
+      if (!accountBalances[e.credit_account]) accountBalances[e.credit_account] = { debit: 0, credit: 0 };
+      accountBalances[e.credit_account].credit += amt;
+    }
   }
   const accounts = Array.from(accountSet).sort();
 
-  const payableByVendor: Record<string, { accrued: number; paid: number }> = {};
+  // 未払費用：vendor_name 別に計上額／支払額を集計
+  // vendor 未登録分は空扱いの「(取引先未登録)」へまとめ、別途強調する
+  const UNREGISTERED = '(取引先未登録)';
+  const payableByVendor: Record<string, { accrued: number; paid: number; entryCount: number }> = {};
   for (const e of entries) {
     const amt = e.amount ?? 0;
+    const vRaw = (e.vendor_name ?? '').trim();
+    const v = vRaw || UNREGISTERED;
     if (e.credit_account === '未払費用') {
-      const v = e.vendor_name || '(不明)';
-      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0 };
+      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0, entryCount: 0 };
       payableByVendor[v].accrued += amt;
+      payableByVendor[v].entryCount += 1;
     }
     if (e.debit_account === '未払費用') {
-      const v = e.vendor_name || '(不明)';
-      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0 };
+      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0, entryCount: 0 };
       payableByVendor[v].paid += amt;
+      payableByVendor[v].entryCount += 1;
     }
   }
   const vendorRows = Object.entries(payableByVendor)
-    .map(([vendor, v]) => ({ vendor, accrued: v.accrued, paid: v.paid, balance: v.accrued - v.paid }))
+    .map(([vendor, v]) => ({
+      vendor,
+      accrued: v.accrued,
+      paid: v.paid,
+      balance: v.accrued - v.paid,
+      entryCount: v.entryCount,
+      isUnregistered: vendor === UNREGISTERED,
+    }))
     .sort((a, b) => b.balance - a.balance);
 
   return { accounts, accountBalances, vendorRows };
@@ -5125,15 +5156,16 @@ function LedgerView({
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
           <p className="text-sm font-semibold text-slate-700 tracking-tight">仕訳明細</p>
         </div>
-        <table className="w-full text-sm table-fixed" style={{ minWidth: '1140px' }}>
+        <table className="w-full text-sm table-fixed" style={{ minWidth: '1260px' }}>
           <colgroup>
             <col style={{ width: '36px' }} />   {/* チェック */}
             <col style={{ width: '150px' }} />  {/* 日付（input[type=date] の曜日表示込みで折り返さない幅） */}
             <col style={{ width: '68px' }} />   {/* 種別 */}
             <col style={{ width: '44px' }} />   {/* 証憑 */}
             <col style={{ width: '150px' }} />  {/* 借方 */}
+            <col style={{ width: '110px' }} />  {/* 借方金額 */}
             <col style={{ width: '150px' }} />  {/* 貸方 */}
-            <col style={{ width: '110px' }} />  {/* 金額 */}
+            <col style={{ width: '110px' }} />  {/* 貸方金額 */}
             <col style={{ width: '160px' }} />  {/* 取引先 */}
             <col />                              {/* 摘要（残り） */}
           </colgroup>
@@ -5151,17 +5183,39 @@ function LedgerView({
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">種別</th>
               <th className="px-2 py-3 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest">証憑</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方</th>
+              <th className="px-2 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方金額</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
-              <th className="px-2 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">金額</th>
+              <th className="px-2 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方金額</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
-            {filtered.map((e) => (
+          <tbody>
+            {(() => {
+              // voucher_group_id でグループ化された連続行に視覚的な区切りを付ける
+              // - 連続するグループは交互に薄い帯背景
+              // - グループ末尾の下にだけ太いボーダー
+              const groupRowSlots: Array<{ entry: LedgerEntry; groupKey: string; isFirstInGroup: boolean; isLastInGroup: boolean; bandIdx: number }> = [];
+              let prevGroup = '';
+              let bandIdx = 0;
+              for (let i = 0; i < filtered.length; i++) {
+                const e = filtered[i];
+                const groupKey = e.voucher_group_id || `__single_${e.id}`;
+                const isFirstInGroup = groupKey !== prevGroup;
+                const next = filtered[i + 1];
+                const nextGroup = next ? (next.voucher_group_id || `__single_${next.id}`) : '';
+                const isLastInGroup = groupKey !== nextGroup;
+                if (isFirstInGroup) bandIdx++;
+                groupRowSlots.push({ entry: e, groupKey, isFirstInGroup, isLastInGroup, bandIdx });
+                prevGroup = groupKey;
+              }
+              return groupRowSlots.map(({ entry: e, isFirstInGroup, isLastInGroup, bandIdx }) => (
               <EditableRow
                 key={`${e.id}_${e.updated_at}`}
                 entry={e}
+                isFirstInGroup={isFirstInGroup}
+                isLastInGroup={isLastInGroup}
+                bandIdx={bandIdx}
                 selected={selectedIds.has(e.id)}
                 onToggleSelect={() => toggleOne(e.id)}
                 onSaveField={onSaveField}
@@ -5171,7 +5225,8 @@ function LedgerView({
                 addVendorLocal={addVendorLocal}
                 onAddRule={onAddRule}
               />
-            ))}
+              ));
+            })()}
           </tbody>
         </table>
       </div>
@@ -5183,6 +5238,9 @@ function LedgerView({
 
 function EditableRow({
   entry,
+  isFirstInGroup,
+  isLastInGroup,
+  bandIdx,
   selected,
   onToggleSelect,
   onSaveField,
@@ -5193,6 +5251,9 @@ function EditableRow({
   onAddRule,
 }: {
   entry: LedgerEntry;
+  isFirstInGroup: boolean;
+  isLastInGroup: boolean;
+  bandIdx: number;
   selected: boolean;
   onToggleSelect: () => void;
   onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
@@ -5224,13 +5285,31 @@ function EditableRow({
     ? `税:${entry.tax_rate ? ` ${entry.tax_rate}%` : ''} ¥${Number(entry.tax_amount).toLocaleString()}`
     : '';
 
+  // 「不明」「空」科目を片側だけのものとして扱い、その側の金額欄を消す
+  const hasDebit = !!entry.debit_account && entry.debit_account !== '不明';
+  const hasCredit = !!entry.credit_account && entry.credit_account !== '不明';
+
+  // グループ内連続行の視覚的グルーピング:
+  //  - グループ末尾: 太い下ボーダー
+  //  - グループ内行: 通常の細い下ボーダー
+  //  - 同グループは交互の薄い帯背景（bandIdx の偶奇）
+  const groupBandBg = grouped
+    ? (bandIdx % 2 === 0 ? 'bg-sky-50/30' : 'bg-white')
+    : '';
+  const groupBorder = grouped && isLastInGroup
+    ? 'border-b-2 border-b-sky-200'
+    : 'border-b border-b-slate-50';
+  const groupSideBorder = grouped ? 'border-l-4 border-l-sky-200' : '';
+
   if (entry.locked) {
     return (
-      <tr className={`bg-amber-50/20 ${grouped ? 'border-l-4 border-l-sky-200' : ''}`}>
+      <tr className={`${groupBandBg || 'bg-amber-50/20'} ${groupSideBorder} ${groupBorder}`}>
         <td className="px-2 py-2 text-center">
           <IconLock className="w-3 h-3 text-amber-500 mx-auto" />
         </td>
-        <td className="px-2 py-2 text-xs font-mono text-slate-500">{formatDateYmd(entry.entry_date)}</td>
+        <td className="px-2 py-2 text-xs font-mono text-slate-500">
+          {isFirstInGroup ? formatDateYmd(entry.entry_date) : <span className="text-slate-300">〃</span>}
+        </td>
         <td className="px-2 py-2">
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
             entry.entry_type === 'accrual' ? 'bg-sky-100 text-sky-600'
@@ -5269,10 +5348,17 @@ function EditableRow({
             )}
           </div>
         </td>
-        <td className="px-2 py-2 text-xs text-slate-600">{entry.debit_account}</td>
-        <td className="px-2 py-2 text-xs text-slate-600">{entry.credit_account}</td>
+        <td className="px-2 py-2 text-xs text-slate-600">
+          {hasDebit ? entry.debit_account : <span className="text-slate-300">—</span>}
+        </td>
         <td className="px-2 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
-          {entry.amount != null ? `¥${Number(entry.amount).toLocaleString()}` : '—'}
+          {hasDebit && entry.amount != null ? `¥${Number(entry.amount).toLocaleString()}` : <span className="text-slate-300">—</span>}
+        </td>
+        <td className="px-2 py-2 text-xs text-slate-600">
+          {hasCredit ? entry.credit_account : <span className="text-slate-300">—</span>}
+        </td>
+        <td className="px-2 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
+          {hasCredit && entry.amount != null ? `¥${Number(entry.amount).toLocaleString()}` : <span className="text-slate-300">—</span>}
         </td>
         <td className="px-2 py-2 text-xs text-slate-600 truncate" title={entry.vendor_name}>{entry.vendor_name}</td>
         <td className="px-2 py-2 text-xs text-slate-500 truncate" title={`${entry.description}${taxLabel ? ' / ' + taxLabel : ''}`}>
@@ -5284,7 +5370,7 @@ function EditableRow({
   }
 
   return (
-    <tr className={`${selected ? 'bg-sky-50/40' : 'hover:bg-slate-50/30'} ${grouped ? 'border-l-4 border-l-sky-200' : ''}`}>
+    <tr className={`${selected ? 'bg-sky-50/40' : (groupBandBg || 'hover:bg-slate-50/30')} ${groupSideBorder} ${groupBorder}`}>
       <td className="px-2 py-1.5 text-center">
         <input type="checkbox" checked={selected} onChange={onToggleSelect} className="cursor-pointer" />
       </td>
@@ -5384,6 +5470,22 @@ function EditableRow({
         />
       </td>
       <td className="px-2 py-1.5">
+        {hasDebit ? (
+          <input
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            onBlur={() => {
+              const next = amount === '' ? null : Number(amount);
+              if (next !== entry.amount) saveIfChanged({ amount: next });
+            }}
+            className="w-full text-sm text-right tabular-nums border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+          />
+        ) : (
+          <span className="block text-right text-slate-300">—</span>
+        )}
+      </td>
+      <td className="px-2 py-1.5">
         <AccountCombobox
           value={creditAccount}
           onChange={(v) => {
@@ -5401,16 +5503,20 @@ function EditableRow({
         />
       </td>
       <td className="px-2 py-1.5">
-        <input
-          type="number"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          onBlur={() => {
-            const next = amount === '' ? null : Number(amount);
-            if (next !== entry.amount) saveIfChanged({ amount: next });
-          }}
-          className="w-full text-sm text-right tabular-nums border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
-        />
+        {hasCredit ? (
+          <input
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            onBlur={() => {
+              const next = amount === '' ? null : Number(amount);
+              if (next !== entry.amount) saveIfChanged({ amount: next });
+            }}
+            className="w-full text-sm text-right tabular-nums border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
+          />
+        ) : (
+          <span className="block text-right text-slate-300">—</span>
+        )}
       </td>
       <td className="px-2 py-1.5">
         <AccountCombobox
@@ -5505,6 +5611,21 @@ interface AccountingRuleRow {
   depreciation_timing: 'monthly' | 'annual';
 }
 
+// 勘定科目をグループ順で整列するためのカテゴリ順序
+const CATEGORY_ORDER: Record<string, number> = {
+  asset: 1, liability: 2, equity: 3, revenue: 4, expense: 5,
+};
+const CATEGORY_LABEL: Record<string, string> = {
+  asset: '資産', liability: '負債', equity: '純資産', revenue: '収益', expense: '費用',
+};
+const SUB_CATEGORY_ORDER: Record<string, number> = {
+  '流動資産': 1, '固定資産': 2, '繰延資産': 3,
+  '流動負債': 1, '固定負債': 2,
+  '純資産': 1,
+  '売上高': 1, '営業外収益': 2, '特別利益': 3,
+  '売上原価': 1, '販管費': 2, '営業外費用': 3, '特別損失': 4,
+};
+
 function BalanceView({
   entries,
   loading,
@@ -5512,6 +5633,8 @@ function BalanceView({
   clientName,
   clientId,
   onRefresh,
+  accountsList,
+  onOpenGeneralLedger,
   unmatchedTransactions,
   consumedUnmatchedIdx,
   onConsumeUnmatched,
@@ -5522,6 +5645,8 @@ function BalanceView({
   clientName: string | null;
   clientId: string | null;
   onRefresh: () => void;
+  accountsList: AccountOption[];
+  onOpenGeneralLedger: (account: string) => void;
   unmatchedTransactions: TransactionInput[];
   consumedUnmatchedIdx: Set<number>;
   onConsumeUnmatched: (idx: number) => void;
@@ -5827,52 +5952,94 @@ function BalanceView({
       )}
 
       {/* 未払費用 取引先別残高 */}
-      {vendorRows.length > 0 && (
-        <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
-            <p className="text-sm font-semibold text-sky-700 tracking-tight">
-              未払費用 取引先別残高 {clientName && <span className="text-sky-400">· {clientName}</span>}
-            </p>
-            <p className="text-[10px] text-sky-500/70 mt-0.5">貸方計上 − 借方消込 = 未払残高</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[600px]">
-              <thead>
-                <tr className="border-b border-slate-50">
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
-                  <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">計上額</th>
-                  <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">支払済</th>
-                  <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">残高</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {vendorRows.map((row) => (
-                  <tr key={row.vendor} className="hover:bg-sky-50/30">
-                    <td className="px-4 py-3 text-xs text-slate-700 font-medium">{row.vendor}</td>
-                    <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{row.accrued.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{row.paid.toLocaleString()}</td>
-                    <td className={`px-4 py-3 text-right text-sm font-semibold tabular-nums ${row.balance > 0 ? 'text-amber-600' : row.balance < 0 ? 'text-red-500' : 'text-slate-400'}`}>
-                      ¥{row.balance.toLocaleString()}
+      {vendorRows.length > 0 && (() => {
+        const totalAccrued = vendorRows.reduce((s, r) => s + r.accrued, 0);
+        const totalPaid = vendorRows.reduce((s, r) => s + r.paid, 0);
+        const totalBalance = totalAccrued - totalPaid;
+        const unregisteredRow = vendorRows.find((r) => r.isUnregistered);
+        return (
+          <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
+              <p className="text-sm font-semibold text-sky-700 tracking-tight">
+                未払費用 取引先別残高 {clientName && <span className="text-sky-400">· {clientName}</span>}
+              </p>
+              <p className="text-[10px] text-sky-500/70 mt-0.5">貸方計上 − 借方消込 = 未払残高</p>
+            </div>
+            {unregisteredRow && unregisteredRow.entryCount > 0 && (
+              <div className="px-5 py-3 bg-amber-50/60 border-b border-amber-100 text-xs text-amber-700">
+                <span className="font-semibold">{unregisteredRow.entryCount} 件</span> の未払費用仕訳に取引先が登録されていません。
+                <button
+                  type="button"
+                  onClick={() => onOpenGeneralLedger('未払費用')}
+                  className="ml-2 underline hover:text-amber-900"
+                >
+                  「未払費用」の総勘定元帳を開く →
+                </button>
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[640px]">
+                <thead>
+                  <tr className="border-b border-slate-50">
+                    <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">件数</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">計上額</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">支払済</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">残高</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {vendorRows.map((row) => (
+                    <tr key={row.vendor} className={row.isUnregistered ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-sky-50/30'}>
+                      <td className={`px-4 py-3 text-xs font-medium ${row.isUnregistered ? 'text-amber-700' : 'text-slate-700'}`}>
+                        {row.vendor}
+                        {row.isUnregistered && <span className="ml-1 text-[9px] text-amber-500">⚠</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-slate-400 tabular-nums">{row.entryCount}</td>
+                      <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{row.accrued.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{row.paid.toLocaleString()}</td>
+                      <td className={`px-4 py-3 text-right text-sm font-semibold tabular-nums ${row.balance > 0 ? 'text-amber-600' : row.balance < 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                        ¥{row.balance.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-slate-50/60 border-t-2 border-slate-200">
+                    <td className="px-4 py-2 text-xs font-bold text-slate-700">合計</td>
+                    <td className="px-4 py-2"></td>
+                    <td className="px-4 py-2 text-right text-xs font-semibold text-slate-700 tabular-nums">¥{totalAccrued.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-right text-xs font-semibold text-slate-700 tabular-nums">¥{totalPaid.toLocaleString()}</td>
+                    <td className={`px-4 py-2 text-right text-sm font-bold tabular-nums ${totalBalance > 0 ? 'text-amber-700' : totalBalance < 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                      ¥{totalBalance.toLocaleString()}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
-      {/* ─── 固定資産 ─────────────────────────────────────────────────── */}
-      <FixedAssetSection
-        assets={fixedAssets}
-        entries={filteredEntries}
-        clientId={clientId}
-        onRefresh={() => { fetchFixedAssets(); onRefresh(); }}
-        depPeriodStart={depPeriodStart}
-        unmatchedTransactions={unmatchedTransactions}
-        consumedUnmatchedIdx={consumedUnmatchedIdx}
-        onConsumeUnmatched={onConsumeUnmatched}
-      />
+      {/* ─── 固定資産・減価償却（折りたたみ：BS償却関連は分離して見やすく） ─── */}
+      <details className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+        <summary className="px-5 py-4 cursor-pointer hover:bg-slate-50/40 select-none flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-700 tracking-tight">固定資産・減価償却</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">クリックで開く（資産マスタ・償却仕訳生成・会計ルール）</p>
+          </div>
+          <span className="text-xs text-slate-400">▼</span>
+        </summary>
+        <div className="border-t border-slate-100 p-1 space-y-5">
+          {/* ─── 固定資産 ─── */}
+          <FixedAssetSection
+            assets={fixedAssets}
+            entries={filteredEntries}
+            clientId={clientId}
+            onRefresh={() => { fetchFixedAssets(); onRefresh(); }}
+            depPeriodStart={depPeriodStart}
+            unmatchedTransactions={unmatchedTransactions}
+            consumedUnmatchedIdx={consumedUnmatchedIdx}
+            onConsumeUnmatched={onConsumeUnmatched}
+          />
 
       {/* 減価償却仕訳 生成パネル */}
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
@@ -6130,41 +6297,128 @@ function BalanceView({
           </div>
         )}
       </div>
+        </div>
+      </details>
 
-      {/* 勘定科目別 集計 */}
-      <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
-          <p className="text-sm font-semibold text-slate-700 tracking-tight">勘定科目別 集計</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[600px]">
-            <thead>
-              <tr className="border-b border-slate-50">
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">勘定科目</th>
-                <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方合計</th>
-                <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方合計</th>
-                <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">差額（借−貸）</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {accounts.map((acc) => {
-                const b = accountBalances[acc] ?? { debit: 0, credit: 0 };
-                const diff = b.debit - b.credit;
-                return (
-                  <tr key={acc} className="hover:bg-slate-50/40">
-                    <td className="px-4 py-3 text-xs text-slate-700 font-medium">{acc}</td>
-                    <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{b.debit.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{b.credit.toLocaleString()}</td>
-                    <td className={`px-4 py-3 text-right text-xs font-semibold tabular-nums ${diff > 0 ? 'text-sky-600' : diff < 0 ? 'text-lime-600' : 'text-slate-400'}`}>
-                      ¥{diff.toLocaleString()}
-                    </td>
+      {/* 勘定科目別 集計（カテゴリ→サブカテゴリ→display_order でグループ順に整列） */}
+      {(() => {
+        // accountsList から name → meta を引く
+        const metaByName = new Map<string, AccountOption>();
+        for (const a of accountsList) metaByName.set(a.name, a);
+
+        type AccRow = { name: string; category: string; sub: string; order: number; debit: number; credit: number };
+        const rows: AccRow[] = accounts.map((acc) => {
+          const meta = metaByName.get(acc);
+          const b = accountBalances[acc] ?? { debit: 0, credit: 0 };
+          return {
+            name: acc,
+            category: meta?.category ?? '',
+            sub: meta?.sub_category ?? '',
+            order: meta?.display_order ?? 0,
+            debit: b.debit,
+            credit: b.credit,
+          };
+        });
+        rows.sort((a, b) => {
+          const ca = CATEGORY_ORDER[a.category] ?? 99;
+          const cb = CATEGORY_ORDER[b.category] ?? 99;
+          if (ca !== cb) return ca - cb;
+          const sa = SUB_CATEGORY_ORDER[a.sub] ?? 99;
+          const sb = SUB_CATEGORY_ORDER[b.sub] ?? 99;
+          if (sa !== sb) return sa - sb;
+          if (a.order !== b.order) return a.order - b.order;
+          return a.name.localeCompare(b.name, 'ja');
+        });
+
+        // category 単位の小計
+        const categoryTotals: Record<string, { debit: number; credit: number }> = {};
+        for (const r of rows) {
+          const key = r.category || 'unknown';
+          if (!categoryTotals[key]) categoryTotals[key] = { debit: 0, credit: 0 };
+          categoryTotals[key].debit += r.debit;
+          categoryTotals[key].credit += r.credit;
+        }
+
+        return (
+          <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-700 tracking-tight">勘定科目別 集計</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">資産→負債→純資産→収益→費用 の順に表示。科目名クリックで総勘定元帳を開きます</p>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[640px]">
+                <thead>
+                  <tr className="border-b border-slate-50">
+                    <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">勘定科目</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方合計</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方合計</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">差額（借−貸）</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const elements: React.ReactNode[] = [];
+                    let prevCategory = '__init__';
+                    let prevSub = '__init__';
+                    for (const r of rows) {
+                      const cat = r.category || 'unknown';
+                      if (cat !== prevCategory) {
+                        const t = categoryTotals[cat] ?? { debit: 0, credit: 0 };
+                        const tDiff = t.debit - t.credit;
+                        elements.push(
+                          <tr key={`cat-${cat}`} className="bg-sky-50/60 border-y border-sky-100">
+                            <td className="px-4 py-2 text-[11px] font-bold text-sky-700 uppercase tracking-wider">
+                              {CATEGORY_LABEL[cat] ?? '未分類'}
+                            </td>
+                            <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">¥{t.debit.toLocaleString()}</td>
+                            <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">¥{t.credit.toLocaleString()}</td>
+                            <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">¥{tDiff.toLocaleString()}</td>
+                          </tr>
+                        );
+                        prevCategory = cat;
+                        prevSub = '__init__';
+                      }
+                      if (r.sub && r.sub !== prevSub) {
+                        elements.push(
+                          <tr key={`sub-${cat}-${r.sub}`} className="bg-slate-50/40">
+                            <td colSpan={4} className="px-6 py-1.5 text-[10px] font-semibold text-slate-500">
+                              {r.sub}
+                            </td>
+                          </tr>
+                        );
+                        prevSub = r.sub;
+                      }
+                      const diff = r.debit - r.credit;
+                      elements.push(
+                        <tr key={`acc-${r.name}`} className="hover:bg-slate-50/40 border-b border-slate-50">
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => onOpenGeneralLedger(r.name)}
+                              className="text-xs text-slate-700 font-medium hover:text-sky-600 hover:underline cursor-pointer text-left"
+                              title={`${r.name} の総勘定元帳を新しいタブで開く`}
+                            >
+                              {r.name}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{r.debit.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{r.credit.toLocaleString()}</td>
+                          <td className={`px-4 py-3 text-right text-xs font-semibold tabular-nums ${diff > 0 ? 'text-sky-600' : diff < 0 ? 'text-lime-600' : 'text-slate-400'}`}>
+                            ¥{diff.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return elements;
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
