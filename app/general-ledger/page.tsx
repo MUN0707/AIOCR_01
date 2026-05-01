@@ -10,6 +10,9 @@ interface LedgerEntry {
   debit_account: string;
   credit_account: string;
   amount: number | null;
+  // 多明細仕訳では片側だけ別の値を持つことがあるので per-side を優先する
+  debit_amount?: number | null;
+  credit_amount?: number | null;
   vendor_name: string;
   description: string;
   voucher_group_id?: string | null;
@@ -127,8 +130,10 @@ function GeneralLedgerInner() {
       const amt = e.amount ?? 0;
       const side: 'debit' | 'credit' = e.debit_account === account ? 'debit' : 'credit';
       const counter = side === 'debit' ? e.credit_account : e.debit_account;
-      const debit = side === 'debit' ? amt : 0;
-      const credit = side === 'credit' ? amt : 0;
+      // 多明細仕訳では debit_amount / credit_amount が異なる
+      // GLでは「この科目の側に立った金額」を出さなければならないので per-side を採用する
+      const debit = side === 'debit' ? Number(e.debit_amount ?? amt) : 0;
+      const credit = side === 'credit' ? Number(e.credit_amount ?? amt) : 0;
       bal += debit - credit;
       return { entry: e, side, counter, debit, credit, balance: bal };
     });

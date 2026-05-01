@@ -2730,12 +2730,15 @@ export default function Home() {
                 clientId={selectedClientId}
                 onRefresh={fetchLedger}
                 accountsList={accountsList}
-                onOpenGeneralLedger={(account, vendor) => {
+                onOpenGeneralLedger={(account, vendor, from, to) => {
                   // 総勘定元帳を新しいタブで開く（複数科目を並べて見られるように）
+                  // 残高画面で絞り込んでいた期間を URL に乗せて引き継ぐ
                   const params = new URLSearchParams();
                   if (selectedClientId) params.set('clientId', selectedClientId);
                   if (account) params.set('account', account);
                   if (vendor) params.set('vendor', vendor);
+                  if (from) params.set('from', from);
+                  if (to) params.set('to', to);
                   window.open(`/general-ledger?${params.toString()}`, '_blank');
                 }}
                 unmatchedTransactions={journalMatchResult?.summary.unmatchedTransactions ?? []}
@@ -4241,22 +4244,26 @@ function computeBalances(entries: LedgerEntry[]) {
 
   for (const e of entries) {
     const amt = e.amount ?? 0;
+    // 多明細仕訳では debit_amount / credit_amount が異なるので per-side を採用
+    // （単一行仕訳では両方とも amount に等しい）
+    const dAmt = Number(e.debit_amount ?? amt);
+    const cAmt = Number(e.credit_amount ?? amt);
     const vRaw = (e.vendor_name ?? '').trim();
     const v = vRaw || UNREGISTERED_VENDOR;
     if (isValidAccountName(e.debit_account)) {
       accountSet.add(e.debit_account);
       if (!accountBalances[e.debit_account]) accountBalances[e.debit_account] = { debit: 0, credit: 0 };
-      accountBalances[e.debit_account].debit += amt;
+      accountBalances[e.debit_account].debit += dAmt;
       const bucket = ensureVendorBucket(e.debit_account, v);
-      bucket.debit += amt;
+      bucket.debit += dAmt;
       bucket.entryCount += 1;
     }
     if (isValidAccountName(e.credit_account)) {
       accountSet.add(e.credit_account);
       if (!accountBalances[e.credit_account]) accountBalances[e.credit_account] = { debit: 0, credit: 0 };
-      accountBalances[e.credit_account].credit += amt;
+      accountBalances[e.credit_account].credit += cAmt;
       const bucket = ensureVendorBucket(e.credit_account, v);
-      bucket.credit += amt;
+      bucket.credit += cAmt;
       bucket.entryCount += 1;
     }
   }
@@ -5081,11 +5088,12 @@ function LedgerView({
   const sAmount = searchAmount.replace(/[^0-9]/g, '');
   const sDate = searchDate.replace(/[^0-9]/g, '');
   const sDesc = searchDescription.trim().toLowerCase();
-  const filtered = entries.filter((e) => {
+  // 個別行マッチング（任意の検索条件にマッチする行）
+  const matchesIndividual = (e: LedgerEntry): boolean => {
     if (accountFilter && e.debit_account !== accountFilter && e.credit_account !== accountFilter) return false;
     if (startYmd || endYmd) {
       const d = e.entry_date;
-      if (!d || d.length !== 8) return false; // 期間絞り込み中は日付不明を除外
+      if (!d || d.length !== 8) return false;
       if (startYmd && d < startYmd) return false;
       if (endYmd && d > endYmd) return false;
     }
@@ -5098,9 +5106,44 @@ function LedgerView({
     if (sDate && !(e.entry_date || '').includes(sDate)) return false;
     if (sDesc && !(e.description || '').toLowerCase().includes(sDesc)) return false;
     return true;
+  };
+
+  // 多明細仕訳は群ごと表示する（1行だけマッチして表示すると残りが消えて意味不明になる）
+  // 群内のいずれか1行でも条件を満たせば、群の全行を採用する
+  const matchedGroupIds = new Set<string>();
+  for (const e of entries) {
+    if (e.voucher_group_id && matchesIndividual(e)) matchedGroupIds.add(e.voucher_group_id);
+  }
+  const filteredRaw = entries.filter((e) => {
+    if (e.voucher_group_id && matchedGroupIds.has(e.voucher_group_id)) return true;
+    return matchesIndividual(e);
   });
+
+  // 群ごとに行が連続するように整列: entry_date → voucher_group_id → voucher_seq
+  // (API は entry_date + created_at で返すので、群が散らばることがある)
+  const filtered = [...filteredRaw].sort((a, b) => {
+    const ad = a.entry_date || '';
+    const bd = b.entry_date || '';
+    if (ad !== bd) return ad.localeCompare(bd);
+    const ag = a.voucher_group_id || `__single_${a.id}`;
+    const bg = b.voucher_group_id || `__single_${b.id}`;
+    if (ag !== bg) return ag.localeCompare(bg);
+    const as = a.voucher_seq ?? 0;
+    const bs = b.voucher_seq ?? 0;
+    if (as !== bs) return as - bs;
+    return a.id.localeCompare(b.id);
+  });
+
   // 表示件数制限：DOM 量を抑えてレンダリング負荷を下げる
-  const displayed = filtered.slice(0, displayLimit);
+  // ただし、displayLimit が群を途中で切らないように、群末尾まで含める
+  let cut = Math.min(displayLimit, filtered.length);
+  if (cut < filtered.length) {
+    const lastGroup = filtered[cut - 1]?.voucher_group_id;
+    if (lastGroup) {
+      while (cut < filtered.length && filtered[cut].voucher_group_id === lastGroup) cut++;
+    }
+  }
+  const displayed = filtered.slice(0, cut);
   const hasMore = filtered.length > displayed.length;
 
   const editableFiltered = displayed.filter((e) => !e.locked);
@@ -5967,7 +6010,7 @@ function BalanceView({
   clientId: string | null;
   onRefresh: () => void;
   accountsList: AccountOption[];
-  onOpenGeneralLedger: (account: string, vendor?: string | null) => void;
+  onOpenGeneralLedger: (account: string, vendor?: string | null, from?: string | null, to?: string | null) => void;
   unmatchedTransactions: TransactionInput[];
   consumedUnmatchedIdx: Set<number>;
   onConsumeUnmatched: (idx: number) => void;
@@ -6684,7 +6727,7 @@ function BalanceView({
                           <td className="px-4 py-3 text-right">
                             <button
                               type="button"
-                              onClick={(e) => { e.stopPropagation(); onOpenGeneralLedger(r.name); }}
+                              onClick={(e) => { e.stopPropagation(); onOpenGeneralLedger(r.name, null, startDate || null, endDate || null); }}
                               className="text-[10px] text-sky-600 hover:text-sky-800 hover:underline"
                               title={`${r.name} 全体の総勘定元帳を新しいタブで開く`}
                             >
@@ -6719,7 +6762,7 @@ function BalanceView({
                               <td className="px-4 py-2 text-right">
                                 <button
                                   type="button"
-                                  onClick={(e) => { e.stopPropagation(); onOpenGeneralLedger(r.name, vendorParam); }}
+                                  onClick={(e) => { e.stopPropagation(); onOpenGeneralLedger(r.name, vendorParam, startDate || null, endDate || null); }}
                                   className="text-[10px] text-sky-600 hover:text-sky-800 hover:underline"
                                   title={`${r.name} × ${vr.vendor} の総勘定元帳を新しいタブで開く`}
                                 >

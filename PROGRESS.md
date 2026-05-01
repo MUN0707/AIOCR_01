@@ -755,6 +755,20 @@ public/sales-deck.pdf   — 営業資料PDF
 - 背景/理由: 前回の 7d50311 で「不明 → —」を表示側だけ対応していたが、編集可能行のコンボボックスは値そのまま表示するため依然「不明」と見えていた。また「未払費用だけ取引先別に出すのは中途半端」という指摘に応えて全科目展開に統一
 - 次にやること: error_reports は status='resolved' に更新済み。様子見
 
+## 2026-05-01 18:30
+- やったこと: 仕訳明細・残高・GL のエラー報告3件追加対応（eb9c2475 / 64732513 / 1feb210e）
+  - **eb9c2475「多明細仕訳4行と書いてあるのに1行しか出ない」**: 原因は2つ
+    - (1) API は `entry_date + created_at` 順で返すため voucher_group の行が散らばる場合がある → LedgerView 内で `(entry_date → voucher_group_id → voucher_seq)` にクライアント側で再ソート
+    - (2) displayLimit=50 が群を途中で切ると残りの行がフィルタ outside に行ってしまう → 「群の途中で切れたら群末尾まで含める」ロジック追加。さらに「群内のいずれか1行が検索条件に当たれば群全体を表示」する filter rewrite を実施
+  - **64732513「総勘定元帳に期間引き継ぎ」**: 残高画面から「開く →」を押した時、`onOpenGeneralLedger` が account/vendor のみ渡していた。シグネチャに `from`/`to` を追加し、BalanceView の startDate/endDate を URL の `?from=&to=` に乗せるよう変更。GL 側は元々受け取る実装あり
+  - **1feb210e「未払費用_雇用保険料の金額が違う（358,441円のはずが451,141円）」**: 原因は GL と TB が `entry.amount` を借方・貸方の両方に使っていた点。多明細仕訳では debit_amount=451,141 / credit_amount=358,441 のように左右非対称になり得るが、未払費用側を見るには `credit_amount` を採用しないといけない
+    - `app/general-ledger/page.tsx` の `ledgerLines`: `debit/credit = side==='debit' ? Number(e.debit_amount ?? amt) : 0` に修正
+    - `app/page.tsx` の `computeBalances`: 借方加算は `dAmt = e.debit_amount ?? amt`、貸方加算は `cAmt = e.credit_amount ?? amt` に分離
+    - LedgerEntry interface に `debit_amount?` / `credit_amount?` を追加（GL側）
+- 背景/理由: 前回 commit a4a7ac7 で「仕訳明細の表示」だけ per-side を直したが、TB集計と GL に同じバグが残っていたため、未払費用が二重計上されたように見えていた。多明細仕訳の表示も「ぱっと見1行しかない」と誤認させる UX 不備があった
+- 対応コミット: 次の commit
+- 次にやること: error_reports は本commit後 resolved に更新
+
 ## 2026-05-01 17:35
 - やったこと: 仕訳明細のエラー報告3件対応（84cc4dbd / f007b09f / f7b8f38e）
   - **多明細仕訳の貸借表示を修正**: これまで全行で `entry.amount` を借方金額・貸方金額の両方に流用していたため、消費税分割や複合仕訳で誤った金額（実際の `debit_amount` / `credit_amount` と異なる）を表示していた。LedgerEntry の `debit_amount ?? amount` / `credit_amount ?? amount` を per-side で表示するよう修正。仮払消費税のサブ行（credit_amount=null）は今まで通り「貸方—」表示だが、伝票全体での一致は次のバッジで担保
