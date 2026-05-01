@@ -4591,7 +4591,13 @@ function LedgerView({
   // 期間フィルタ・件数制限で絞ってから DOM に落とす
   const [ledgerStartDate, setLedgerStartDate] = useState<string>(''); // YYYY-MM-DD
   const [ledgerEndDate, setLedgerEndDate] = useState<string>('');
-  const [displayLimit, setDisplayLimit] = useState<number>(500);
+  const [displayLimit, setDisplayLimit] = useState<number>(50);
+  // カラム別検索（借方科目/貸方科目/金額/日付/摘要）
+  const [searchDebit, setSearchDebit] = useState<string>('');
+  const [searchCredit, setSearchCredit] = useState<string>('');
+  const [searchAmount, setSearchAmount] = useState<string>('');
+  const [searchDate, setSearchDate] = useState<string>('');
+  const [searchDescription, setSearchDescription] = useState<string>('');
 
   // 期間プリセット
   const setLedgerPeriod = (preset: 'all' | 'thisMonth' | 'lastMonth' | 'thisFiscal') => {
@@ -5069,6 +5075,12 @@ function LedgerView({
 
   const startYmd = ledgerStartDate ? ledgerStartDate.replace(/-/g, '') : '';
   const endYmd = ledgerEndDate ? ledgerEndDate.replace(/-/g, '') : '';
+  // 検索クエリ準備（小文字化のみ。日付は数字のみ抽出）
+  const sDebit = searchDebit.trim().toLowerCase();
+  const sCredit = searchCredit.trim().toLowerCase();
+  const sAmount = searchAmount.replace(/[^0-9]/g, '');
+  const sDate = searchDate.replace(/[^0-9]/g, '');
+  const sDesc = searchDescription.trim().toLowerCase();
   const filtered = entries.filter((e) => {
     if (accountFilter && e.debit_account !== accountFilter && e.credit_account !== accountFilter) return false;
     if (startYmd || endYmd) {
@@ -5077,6 +5089,14 @@ function LedgerView({
       if (startYmd && d < startYmd) return false;
       if (endYmd && d > endYmd) return false;
     }
+    if (sDebit && !(e.debit_account || '').toLowerCase().includes(sDebit)) return false;
+    if (sCredit && !(e.credit_account || '').toLowerCase().includes(sCredit)) return false;
+    if (sAmount) {
+      const amts = [e.amount, e.debit_amount, e.credit_amount].filter((a) => a != null) as number[];
+      if (!amts.some((a) => String(a).includes(sAmount))) return false;
+    }
+    if (sDate && !(e.entry_date || '').includes(sDate)) return false;
+    if (sDesc && !(e.description || '').toLowerCase().includes(sDesc)) return false;
     return true;
   });
   // 表示件数制限：DOM 量を抑えてレンダリング負荷を下げる
@@ -5183,7 +5203,7 @@ function LedgerView({
               <input
                 type="date"
                 value={ledgerStartDate}
-                onChange={(e) => { setLedgerStartDate(e.target.value); setDisplayLimit(500); }}
+                onChange={(e) => { setLedgerStartDate(e.target.value); setDisplayLimit(50); }}
                 className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400"
               />
             </div>
@@ -5193,7 +5213,7 @@ function LedgerView({
               <input
                 type="date"
                 value={ledgerEndDate}
-                onChange={(e) => { setLedgerEndDate(e.target.value); setDisplayLimit(500); }}
+                onChange={(e) => { setLedgerEndDate(e.target.value); setDisplayLimit(50); }}
                 className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400"
               />
             </div>
@@ -5207,7 +5227,7 @@ function LedgerView({
                 <button
                   key={p.key}
                   type="button"
-                  onClick={() => { setLedgerPeriod(p.key); setDisplayLimit(500); }}
+                  onClick={() => { setLedgerPeriod(p.key); setDisplayLimit(50); }}
                   className="text-[11px] font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-600 transition-colors"
                 >
                   {p.label}
@@ -5222,6 +5242,8 @@ function LedgerView({
               onChange={(e) => setDisplayLimit(Number(e.target.value))}
               className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-sky-400"
             >
+              <option value={50}>50 件</option>
+              <option value={100}>100 件</option>
               <option value={200}>200 件</option>
               <option value={500}>500 件</option>
               <option value={1000}>1000 件</option>
@@ -5314,12 +5336,101 @@ function LedgerView({
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
             </tr>
+            {/* カラム別 検索行（部分一致） */}
+            <tr className="border-b border-slate-100 bg-slate-50/30">
+              <th className="px-1 py-1.5"></th>
+              <th className="px-1 py-1.5">
+                <input
+                  type="text"
+                  value={searchDate}
+                  onChange={(e) => { setSearchDate(e.target.value); setDisplayLimit(50); }}
+                  placeholder="例 20251001"
+                  className="w-full text-[11px] font-mono border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
+                />
+              </th>
+              <th className="px-1 py-1.5"></th>
+              <th className="px-1 py-1.5"></th>
+              <th className="px-1 py-1.5">
+                <input
+                  type="text"
+                  value={searchDebit}
+                  onChange={(e) => { setSearchDebit(e.target.value); setDisplayLimit(50); }}
+                  placeholder="借方科目で絞込"
+                  className="w-full text-[11px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
+                />
+              </th>
+              <th className="px-1 py-1.5">
+                <input
+                  type="text"
+                  value={searchAmount}
+                  onChange={(e) => { setSearchAmount(e.target.value); setDisplayLimit(50); }}
+                  placeholder="金額"
+                  inputMode="numeric"
+                  className="w-full text-[11px] text-right tabular-nums border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
+                />
+              </th>
+              <th className="px-1 py-1.5">
+                <input
+                  type="text"
+                  value={searchCredit}
+                  onChange={(e) => { setSearchCredit(e.target.value); setDisplayLimit(50); }}
+                  placeholder="貸方科目で絞込"
+                  className="w-full text-[11px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
+                />
+              </th>
+              <th className="px-1 py-1.5">
+                {(searchDebit || searchCredit || searchAmount || searchDate || searchDescription) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchDebit('');
+                      setSearchCredit('');
+                      setSearchAmount('');
+                      setSearchDate('');
+                      setSearchDescription('');
+                      setDisplayLimit(50);
+                    }}
+                    className="w-full text-[10px] text-slate-500 border border-slate-200 hover:bg-slate-50 rounded px-1.5 py-1"
+                  >
+                    検索クリア
+                  </button>
+                ) : null}
+              </th>
+              <th className="px-1 py-1.5"></th>
+              <th className="px-1 py-1.5">
+                <input
+                  type="text"
+                  value={searchDescription}
+                  onChange={(e) => { setSearchDescription(e.target.value); setDisplayLimit(50); }}
+                  placeholder="摘要キーワード"
+                  className="w-full text-[11px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
+                />
+              </th>
+            </tr>
           </thead>
           <tbody>
             {(() => {
               // voucher_group_id でグループ化された連続行に視覚的な区切りを付ける
               // - 連続するグループは交互に薄い帯背景
               // - グループ末尾の下にだけ太いボーダー
+              // - 多明細グループの先頭行に貸借合計バッジ（一致確認用）
+
+              // グループ全体の借方/貸方合計を entries 全件から事前集計
+              // （displayed は表示制限で切られているため group の一部しか含まない場合がある）
+              const groupTotalsAll = new Map<string, { debit: number; credit: number; lines: number }>();
+              for (const e of entries) {
+                if (!e.voucher_group_id) continue;
+                const t = groupTotalsAll.get(e.voucher_group_id) || { debit: 0, credit: 0, lines: 0 };
+                const hasD = !!e.debit_account && e.debit_account !== '不明';
+                const hasC = !!e.credit_account && e.credit_account !== '不明';
+                const dAmt = e.debit_amount ?? (hasD ? e.amount : null);
+                const cAmt = e.credit_amount ?? (hasC ? e.amount : null);
+                if (dAmt != null) t.debit += Number(dAmt);
+                if (cAmt != null) t.credit += Number(cAmt);
+                t.lines++;
+                groupTotalsAll.set(e.voucher_group_id, t);
+              }
+
               const groupRowSlots: Array<{ entry: LedgerEntry; groupKey: string; isFirstInGroup: boolean; isLastInGroup: boolean; bandIdx: number }> = [];
               let prevGroup = '';
               let bandIdx = 0;
@@ -5334,23 +5445,27 @@ function LedgerView({
                 groupRowSlots.push({ entry: e, groupKey, isFirstInGroup, isLastInGroup, bandIdx });
                 prevGroup = groupKey;
               }
-              return groupRowSlots.map(({ entry: e, isFirstInGroup, isLastInGroup, bandIdx }) => (
-              <EditableRow
-                key={`${e.id}_${e.updated_at}`}
-                entry={e}
-                isFirstInGroup={isFirstInGroup}
-                isLastInGroup={isLastInGroup}
-                bandIdx={bandIdx}
-                selected={selectedIds.has(e.id)}
-                onToggleSelect={() => toggleOne(e.id)}
-                onSaveField={onSaveField}
-                accountsList={accountsList}
-                addAccountLocal={addAccountLocal}
-                vendorsList={vendorsList}
-                addVendorLocal={addVendorLocal}
-                onAddRule={onAddRule}
-              />
-              ));
+              return groupRowSlots.map(({ entry: e, isFirstInGroup, isLastInGroup, bandIdx }) => {
+                const summary = e.voucher_group_id ? groupTotalsAll.get(e.voucher_group_id) ?? null : null;
+                return (
+                <EditableRow
+                  key={`${e.id}_${e.updated_at}`}
+                  entry={e}
+                  isFirstInGroup={isFirstInGroup}
+                  isLastInGroup={isLastInGroup}
+                  bandIdx={bandIdx}
+                  groupSummary={summary && summary.lines > 1 ? summary : null}
+                  selected={selectedIds.has(e.id)}
+                  onToggleSelect={() => toggleOne(e.id)}
+                  onSaveField={onSaveField}
+                  accountsList={accountsList}
+                  addAccountLocal={addAccountLocal}
+                  vendorsList={vendorsList}
+                  addVendorLocal={addVendorLocal}
+                  onAddRule={onAddRule}
+                />
+                );
+              });
             })()}
           </tbody>
         </table>
@@ -5360,6 +5475,13 @@ function LedgerView({
               残り <span className="font-semibold text-slate-700">{(filtered.length - displayed.length).toLocaleString()}</span> 件あります
             </p>
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDisplayLimit((n) => n + 50)}
+                className="text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded-lg px-3 py-1.5 font-semibold"
+              >
+                +50 件 表示
+              </button>
               <button
                 type="button"
                 onClick={() => setDisplayLimit((n) => n + 500)}
@@ -5389,6 +5511,7 @@ function EditableRow({
   isFirstInGroup,
   isLastInGroup,
   bandIdx,
+  groupSummary,
   selected,
   onToggleSelect,
   onSaveField,
@@ -5402,6 +5525,7 @@ function EditableRow({
   isFirstInGroup: boolean;
   isLastInGroup: boolean;
   bandIdx: number;
+  groupSummary: { debit: number; credit: number; lines: number } | null;
   selected: boolean;
   onToggleSelect: () => void;
   onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
@@ -5414,9 +5538,14 @@ function EditableRow({
   const [date, setDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
   const [debitAccount, setDebitAccount] = useState(entry.debit_account);
   const [creditAccount, setCreditAccount] = useState(entry.credit_account);
-  const [amount, setAmount] = useState(entry.amount != null ? String(entry.amount) : '');
+  // 多明細仕訳では debit_amount と credit_amount が異なるので分けて編集する
+  const initialDebitAmt = entry.debit_amount ?? entry.amount;
+  const initialCreditAmt = entry.credit_amount ?? entry.amount;
+  const [debitAmount, setDebitAmount] = useState(initialDebitAmt != null ? String(initialDebitAmt) : '');
+  const [creditAmount, setCreditAmount] = useState(initialCreditAmt != null ? String(initialCreditAmt) : '');
   const [vendorName, setVendorName] = useState(entry.vendor_name);
   const [description, setDescription] = useState(entry.description);
+  const isVoucherSplit = !!entry.voucher_group_id && (entry.voucher_total_lines ?? 1) > 1;
 
   const dateInputValue = date.length === 8
     ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}`
@@ -5449,8 +5578,34 @@ function EditableRow({
     : 'border-b border-b-slate-50';
   const groupSideBorder = grouped ? 'border-l-4 border-l-sky-200' : '';
 
+  // 多明細仕訳の先頭行に貸借合計バッジ（一致確認用）
+  // 「片方しか入っていない」サブ行（仮払消費税など）を見ても群全体で貸借一致していることが分かるようにする
+  const voucherBadge = (isFirstInGroup && groupSummary) ? (
+    <tr className={`${groupBandBg} ${groupSideBorder} border-b border-b-slate-100`}>
+      <td colSpan={10} className="px-3 py-1.5">
+        <div className="flex items-center gap-3 text-[10px] text-slate-500 flex-wrap">
+          <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 font-semibold tracking-wide">
+            多明細仕訳 {groupSummary.lines}行
+          </span>
+          <span className="font-mono">借方計 ¥{groupSummary.debit.toLocaleString()}</span>
+          <span className="text-slate-300">/</span>
+          <span className="font-mono">貸方計 ¥{groupSummary.credit.toLocaleString()}</span>
+          {groupSummary.debit === groupSummary.credit ? (
+            <span className="text-lime-600 font-semibold">✓ 貸借一致</span>
+          ) : (
+            <span className="text-red-500 font-semibold">
+              ⚠ 不一致（差 ¥{Math.abs(groupSummary.debit - groupSummary.credit).toLocaleString()}）
+            </span>
+          )}
+        </div>
+      </td>
+    </tr>
+  ) : null;
+
   if (entry.locked) {
     return (
+      <>
+      {voucherBadge}
       <tr className={`${groupBandBg || 'bg-amber-50/20'} ${groupSideBorder} ${groupBorder}`}>
         <td className="px-2 py-2 text-center">
           <IconLock className="w-3 h-3 text-amber-500 mx-auto" />
@@ -5500,13 +5655,13 @@ function EditableRow({
           {hasDebit ? entry.debit_account : <span className="text-slate-300">—</span>}
         </td>
         <td className="px-2 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
-          {hasDebit && entry.amount != null ? `¥${Number(entry.amount).toLocaleString()}` : <span className="text-slate-300">—</span>}
+          {hasDebit && initialDebitAmt != null ? `¥${Number(initialDebitAmt).toLocaleString()}` : <span className="text-slate-300">—</span>}
         </td>
         <td className="px-2 py-2 text-xs text-slate-600">
           {hasCredit ? entry.credit_account : <span className="text-slate-300">—</span>}
         </td>
         <td className="px-2 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
-          {hasCredit && entry.amount != null ? `¥${Number(entry.amount).toLocaleString()}` : <span className="text-slate-300">—</span>}
+          {hasCredit && initialCreditAmt != null ? `¥${Number(initialCreditAmt).toLocaleString()}` : <span className="text-slate-300">—</span>}
         </td>
         <td className="px-2 py-2 text-xs text-slate-600 truncate" title={entry.vendor_name}>{entry.vendor_name}</td>
         <td className="px-2 py-2 text-xs text-slate-500 truncate" title={`${entry.description}${taxLabel ? ' / ' + taxLabel : ''}`}>
@@ -5514,10 +5669,13 @@ function EditableRow({
           {taxLabel && <span className="ml-1 text-[9px] text-slate-400">[{taxLabel}]</span>}
         </td>
       </tr>
+      </>
     );
   }
 
   return (
+    <>
+    {voucherBadge}
     <tr className={`${selected ? 'bg-sky-50/40' : (groupBandBg || 'hover:bg-slate-50/30')} ${groupSideBorder} ${groupBorder}`}>
       <td className="px-2 py-1.5 text-center">
         <input type="checkbox" checked={selected} onChange={onToggleSelect} className="cursor-pointer" />
@@ -5621,11 +5779,19 @@ function EditableRow({
         {hasDebit ? (
           <input
             type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            value={debitAmount}
+            onChange={(e) => setDebitAmount(e.target.value)}
             onBlur={() => {
-              const next = amount === '' ? null : Number(amount);
-              if (next !== entry.amount) saveIfChanged({ amount: next });
+              const next = debitAmount === '' ? null : Number(debitAmount);
+              if (next === initialDebitAmt) return;
+              if (isVoucherSplit) {
+                // 多明細仕訳では借方だけを更新
+                saveIfChanged({ debit_amount: next });
+              } else {
+                // 単一仕訳では amount と両側を揃える
+                saveIfChanged({ amount: next, debit_amount: next, credit_amount: next });
+                if (next != null) setCreditAmount(String(next));
+              }
             }}
             className="w-full text-sm text-right tabular-nums border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
           />
@@ -5654,11 +5820,17 @@ function EditableRow({
         {hasCredit ? (
           <input
             type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            value={creditAmount}
+            onChange={(e) => setCreditAmount(e.target.value)}
             onBlur={() => {
-              const next = amount === '' ? null : Number(amount);
-              if (next !== entry.amount) saveIfChanged({ amount: next });
+              const next = creditAmount === '' ? null : Number(creditAmount);
+              if (next === initialCreditAmt) return;
+              if (isVoucherSplit) {
+                saveIfChanged({ credit_amount: next });
+              } else {
+                saveIfChanged({ amount: next, debit_amount: next, credit_amount: next });
+                if (next != null) setDebitAmount(String(next));
+              }
             }}
             className="w-full text-sm text-right tabular-nums border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
           />
@@ -5729,6 +5901,7 @@ function EditableRow({
         </div>
       </td>
     </tr>
+    </>
   );
 }
 
