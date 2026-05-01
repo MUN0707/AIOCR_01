@@ -779,3 +779,18 @@ public/sales-deck.pdf   — 営業資料PDF
 - 背景/理由: 報告 84cc4dbd「仮払消費税が借方にあるだけで貸借一致していない」は、多明細仕訳のサブ行（消費税分）を単独で見て「片肺＝貸借不一致では？」と誤認したもの。実際は伝票グループ全体では一致しているため、その事実を画面に明示することで不安を解消した。報告 f7b8f38e の検索機能は、10000+ 件の仕訳から特定の科目・金額・摘要を素早く探せるようにする要望
 - 対応コミット: 次の commit
 - 次にやること: error_reports は本commit後 resolved に更新
+
+## 2026-05-01 19:35
+- やったこと: 残高画面読み込み遅延のエラー報告対応（4e78a5c8）
+  - **症状**: 「残高」タブを開くと「読み込み中...」が長時間続く（journal_entries 10337 件）
+  - **原因**: BalanceView は `/api/journal-ledger` で全件 SELECT * を 1000件 × 11 ページ直列フェッチ → ~10MB の JSON をブラウザで computeBalances 集計、という構成。期間フィルタ・行展開のたびに全走査が走り体感が悪化
+  - **対策（B案：本気パス）**:
+    - DB に集計 RPC `compute_journal_balance(user_id, client_id, start, end)` 追加（migration `20260501_journal_balance_rpc.sql`）。`UNION ALL` で借方/貸方を GROUP BY (account, vendor)。warm 33ms / cold 1043ms（EXPLAIN ANALYZE）
+    - 件数表示用に `compute_journal_counts` RPC も追加
+    - 新 API `/api/journal-balance` を新設し、上記RPC + 締め情報 + 固定資産仕訳サブセット（source_fixed_asset_id 付きのみ）を返す。10337件 → 集計済み 796 行に圧縮
+    - BalanceView を refactor: 親から entries を貰わず自前で fetch。期間フィルタ変更で再fetch
+    - 親側 useEffect で「残高タブ表示時の journal-ledger 二重 fetch」を停止（ledger タブのみ呼ぶ）
+    - FixedAssetSection の `entries` 型を `BalanceDepreciationEntry[]` に変更（必要なフィールドだけ）
+- 背景/理由: 半年で1万件、今後も会社・期が増えるため client集計だと早晩破綻する。サーバ集計に切替えてペイロードを3桁減らした
+- 対応コミット: 06e1ef9
+- 次にやること: error_report 4e78a5c8 → resolved 更新済み。日記帳タブも同様の構成（10000件をクライアント描画）なので、同じ問題が再発したらサーバ側ページネーション or 仮想スクロールを検討
