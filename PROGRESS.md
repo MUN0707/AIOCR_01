@@ -794,3 +794,15 @@ public/sales-deck.pdf   — 営業資料PDF
 - 背景/理由: 半年で1万件、今後も会社・期が増えるため client集計だと早晩破綻する。サーバ集計に切替えてペイロードを3桁減らした
 - 対応コミット: 06e1ef9
 - 次にやること: error_report 4e78a5c8 → resolved 更新済み。日記帳タブも同様の構成（10000件をクライアント描画）なので、同じ問題が再発したらサーバ側ページネーション or 仮想スクロールを検討
+
+## 2026-05-01 20:15
+- やったこと: 日記帳タブも残高タブと同じパターンでサーバ側フィルタ + ページング化（コミット fafc295）
+  - **背景**: 前回コミット 7d50311 の「デフォルト 500→50 件表示」は描画コストは下げたが、API は依然として全件(10337) の `SELECT *` を 1000×11ページ直列で取得していたため「読み込みスピナーが長い」問題は残ったままだった。指摘を受けて根本対応
+  - **対策**:
+    - DB に `fetch_journal_ledger` RPC 追加（migration `20260501_journal_ledger_rpc.sql`）。期間/科目/検索/LIMIT をすべてサーバ側で適用、多明細仕訳の群一致と群末尾保持も SQL の CTE 内で完結
+    - `/api/journal-ledger` を RPC 呼び出しに置換し、`{entries, filteredCount, totalCount, closedUntil}` を返す
+    - LedgerView を refactor: 親から entries を貰わず自前 fetch。検索入力は 350ms debounce、フィルタ/検索変更で displayLimit=50 リセット
+    - 親の `ledgerEntries`/`ledgerLoading`/`ledgerError`/`closedUntil` state と useEffect 撤去。ミューテーション後は `bumpLedgerRefresh()` で LedgerView に再fetchを通知
+    - CSVエクスポートは limit=100000 で別 fetch して全件出力
+- 効果: 50件表示時のレスポンスは集計済み近傍（warm 342ms / 60件のJSON）。10MB JSON 直列11ページ取得が消滅
+- 次にやること: 残った重そうな箇所は仕訳実行画面（match結果のクライアント描画）。問題発覚したら対応
