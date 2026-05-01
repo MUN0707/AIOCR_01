@@ -947,37 +947,10 @@ export default function Home() {
 
   // ─── 仕訳日記帳サブビュー State ────────────────────────────────────────────
   const [journalSubView, setJournalSubView] = useState<'execute' | 'unmatched' | 'ledger' | 'balance' | 'master' | 'bank-tx'>('execute');
-  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[] | null>(null);
-  const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerAccountFilter, setLedgerAccountFilter] = useState<string>('');
-  const [closedUntil, setClosedUntil] = useState<string | null>(null);
-
-  const fetchLedger = useCallback(async () => {
-    setLedgerLoading(true);
-    setLedgerError(null);
-    try {
-      const url = selectedClientId
-        ? `/api/journal-ledger?clientId=${encodeURIComponent(selectedClientId)}`
-        : '/api/journal-ledger';
-      const res = await fetch(url);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '取得失敗');
-      setLedgerEntries(data.entries);
-      setClosedUntil(data.closedUntil ?? null);
-    } catch (e) {
-      setLedgerError(e instanceof Error ? e.message : '日記帳の取得に失敗しました');
-    } finally {
-      setLedgerLoading(false);
-    }
-  }, [selectedClientId]);
-
-  useEffect(() => {
-    // 残高タブは独自に集計APIをfetchするのでここでは引かない
-    if (mode === 'journal-entry' && journalSubView === 'ledger') {
-      fetchLedger();
-    }
-  }, [mode, journalSubView, fetchLedger]);
+  // LedgerView は自前で fetch するので、親はリフレッシュ通知だけ持つ（ミューテーション後にBumpする）
+  const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
+  const bumpLedgerRefresh = useCallback(() => setLedgerRefreshKey((k) => k + 1), []);
 
   const handleSaveField = async (id: string, patch: Partial<LedgerEntry>) => {
     const res = await fetch(`/api/journal-entries/${id}`, {
@@ -990,9 +963,7 @@ export default function Home() {
       alert(data.error || '更新失敗');
       return;
     }
-    // 楽観的更新: 直ちに再フェッチせず、ローカル state だけ更新するのが理想だが
-    // シンプルに静かに再フェッチ（行単位で再描画されるが入力中の他フィールドには干渉しない）
-    fetchLedger();
+    bumpLedgerRefresh();
   };
 
   const handleBulkDelete = async (ids: string[]) => {
@@ -1009,7 +980,7 @@ export default function Home() {
     if (data.skipped > 0) {
       alert(`${data.deleted} 件削除しました（${data.skipped} 件は締め済みのためスキップ）`);
     }
-    fetchLedger();
+    bumpLedgerRefresh();
   };
 
   const handleCloseAt = async (closedUntilYmd: string) => {
@@ -1023,7 +994,7 @@ export default function Home() {
       alert(data.error || '締め設定失敗');
       return;
     }
-    fetchLedger();
+    bumpLedgerRefresh();
   };
 
   const handleReopenClosing = async () => {
@@ -1037,7 +1008,7 @@ export default function Home() {
       alert(data.error || '解除失敗');
       return;
     }
-    fetchLedger();
+    bumpLedgerRefresh();
   };
 
   // ─── PDFプレビューモーダル State ───────────────────────────────────────────
@@ -2703,15 +2674,11 @@ export default function Home() {
               </div>
             ) : journalSubView === 'ledger' ? (
               <LedgerView
-                entries={ledgerEntries}
-                loading={ledgerLoading}
-                error={ledgerError}
+                refreshKey={ledgerRefreshKey}
                 accountFilter={ledgerAccountFilter}
                 setAccountFilter={setLedgerAccountFilter}
-                onRefresh={fetchLedger}
                 clientId={selectedClientId}
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
-                closedUntil={closedUntil}
                 onSaveField={handleSaveField}
                 onBulkDelete={handleBulkDelete}
                 onClose={handleCloseAt}
@@ -2726,7 +2693,7 @@ export default function Home() {
               <BalanceView
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
                 clientId={selectedClientId}
-                onRefresh={fetchLedger}
+                onRefresh={bumpLedgerRefresh}
                 accountsList={accountsList}
                 onOpenGeneralLedger={(account, vendor, from, to) => {
                   // 総勘定元帳を新しいタブで開く（複数科目を並べて見られるように）
@@ -2749,7 +2716,7 @@ export default function Home() {
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
                 accountsList={accountsList}
                 addAccountLocal={addAccountLocal}
-                onRefreshLedger={fetchLedger}
+                onRefreshLedger={bumpLedgerRefresh}
               />
             ) : journalSubView === 'master' ? (
               <MasterView
@@ -4551,15 +4518,11 @@ function UnmatchedView({
 // ─── 仕訳日記帳ビュー（明細 + 編集削除 + 締め） ─────────────────────────────
 
 function LedgerView({
-  entries,
-  loading,
-  error,
+  refreshKey,
   accountFilter,
   setAccountFilter,
-  onRefresh,
   clientId,
   clientName,
-  closedUntil,
   onSaveField,
   onBulkDelete,
   onClose,
@@ -4570,15 +4533,11 @@ function LedgerView({
   addVendorLocal,
   onAddRule,
 }: {
-  entries: LedgerEntry[] | null;
-  loading: boolean;
-  error: string | null;
+  refreshKey: number;
   accountFilter: string;
   setAccountFilter: (v: string) => void;
-  onRefresh: () => void;
   clientId: string | null;
   clientName: string | null;
-  closedUntil: string | null;
   onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
   onBulkDelete: (ids: string[]) => Promise<void>;
   onClose: (closedUntil: string) => void;
@@ -4592,8 +4551,7 @@ function LedgerView({
   const [closingInput, setClosingInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // パフォーマンス対策: 仕訳が大量にあると一度に全件描画すると重い
-  // 期間フィルタ・件数制限で絞ってから DOM に落とす
+  // パフォーマンス対策: 期間/科目/検索/件数を全てサーバ側に渡してフィルタ + LIMIT する
   const [ledgerStartDate, setLedgerStartDate] = useState<string>(''); // YYYY-MM-DD
   const [ledgerEndDate, setLedgerEndDate] = useState<string>('');
   const [displayLimit, setDisplayLimit] = useState<number>(50);
@@ -4603,6 +4561,84 @@ function LedgerView({
   const [searchAmount, setSearchAmount] = useState<string>('');
   const [searchDate, setSearchDate] = useState<string>('');
   const [searchDescription, setSearchDescription] = useState<string>('');
+
+  // ─── サーバ側フィルタ済みの仕訳 ──────────────────────────────────────────
+  const [entries, setEntries] = useState<LedgerEntry[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [filteredCount, setFilteredCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [closedUntil, setClosedUntil] = useState<string | null>(null);
+
+  // 検索系入力は debounce（フィルタは即時 / 検索文字列は 350ms）
+  const [debouncedSearchDebit, setDebouncedSearchDebit] = useState('');
+  const [debouncedSearchCredit, setDebouncedSearchCredit] = useState('');
+  const [debouncedSearchAmount, setDebouncedSearchAmount] = useState('');
+  const [debouncedSearchDate, setDebouncedSearchDate] = useState('');
+  const [debouncedSearchDescription, setDebouncedSearchDescription] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearchDebit(searchDebit);
+      setDebouncedSearchCredit(searchCredit);
+      setDebouncedSearchAmount(searchAmount);
+      setDebouncedSearchDate(searchDate);
+      setDebouncedSearchDescription(searchDescription);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchDebit, searchCredit, searchAmount, searchDate, searchDescription]);
+
+  // フィルタ/検索条件が変わったら表示件数を 50 にリセット
+  useEffect(() => {
+    setDisplayLimit(50);
+  }, [
+    ledgerStartDate, ledgerEndDate, accountFilter,
+    debouncedSearchDebit, debouncedSearchCredit, debouncedSearchAmount,
+    debouncedSearchDate, debouncedSearchDescription,
+  ]);
+
+  const buildLedgerParams = useCallback((limit: number) => {
+    const params = new URLSearchParams();
+    if (clientId) params.set('clientId', clientId);
+    if (ledgerStartDate) params.set('startDate', ledgerStartDate.replace(/-/g, ''));
+    if (ledgerEndDate) params.set('endDate', ledgerEndDate.replace(/-/g, ''));
+    if (accountFilter) params.set('account', accountFilter);
+    if (debouncedSearchDebit) params.set('searchDebit', debouncedSearchDebit);
+    if (debouncedSearchCredit) params.set('searchCredit', debouncedSearchCredit);
+    if (debouncedSearchAmount) params.set('searchAmount', debouncedSearchAmount.replace(/[^0-9]/g, ''));
+    if (debouncedSearchDate) params.set('searchDate', debouncedSearchDate.replace(/[^0-9]/g, ''));
+    if (debouncedSearchDescription) params.set('searchDescription', debouncedSearchDescription);
+    params.set('limit', String(limit));
+    return params;
+  }, [
+    clientId, ledgerStartDate, ledgerEndDate, accountFilter,
+    debouncedSearchDebit, debouncedSearchCredit, debouncedSearchAmount,
+    debouncedSearchDate, debouncedSearchDescription,
+  ]);
+
+  const fetchEntries = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = buildLedgerParams(displayLimit);
+      const res = await fetch(`/api/journal-ledger?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '取得失敗');
+      setEntries(data.entries ?? []);
+      setFilteredCount(data.filteredCount ?? 0);
+      setTotalCount(data.totalCount ?? 0);
+      setClosedUntil(data.closedUntil ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '日記帳の取得に失敗しました');
+    } finally {
+      setLoading(false);
+    }
+  }, [buildLedgerParams, displayLimit]);
+
+  useEffect(() => {
+    fetchEntries();
+    // refreshKey は親からのミューテーション通知。依存に含めて再 fetch を起動する
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchEntries, refreshKey]);
 
   // 期間プリセット
   const setLedgerPeriod = (preset: 'all' | 'thisMonth' | 'lastMonth' | 'thisFiscal') => {
@@ -4800,7 +4836,7 @@ function LedgerView({
 
       setImportResult({ inserted: data.inserted ?? 0, skipped: data.skipped ?? 0 });
       setImportStep('done');
-      onRefresh();
+      fetchEntries();
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'インポートに失敗しました');
     } finally {
@@ -5050,7 +5086,16 @@ function LedgerView({
       <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-4 text-sm text-red-600">{error}</div>
     );
   }
-  if (!entries || entries.length === 0) {
+  // 初回 fetch 完了前 + 全くデータがない場合のみ「データなし」の空状態を出す
+  if (entries === null) {
+    return (
+      <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
+        <div className="w-8 h-8 border-4 border-sky-200 border-t-sky-500 rounded-full animate-spin mx-auto" />
+        <p className="text-xs text-slate-400 mt-3">読み込み中...</p>
+      </div>
+    );
+  }
+  if (totalCount === 0) {
     return (
       <div className="space-y-5">
         <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
@@ -5071,78 +5116,14 @@ function LedgerView({
     );
   }
 
-  const accountSet = new Set<string>();
-  for (const e of entries) {
-    accountSet.add(e.debit_account);
-    accountSet.add(e.credit_account);
-  }
-  const accounts = Array.from(accountSet).sort();
+  // ドロップダウン用の科目候補はマスタを優先（fetch される entries は表示分だけなので
+  // 全候補が含まれない可能性がある）。マスタ未登録の科目で絞りたい場合は検索行を使用
+  const accounts = accountsList.map((a) => a.name).sort();
 
-  const startYmd = ledgerStartDate ? ledgerStartDate.replace(/-/g, '') : '';
-  const endYmd = ledgerEndDate ? ledgerEndDate.replace(/-/g, '') : '';
-  // 検索クエリ準備（小文字化のみ。日付は数字のみ抽出）
-  const sDebit = searchDebit.trim().toLowerCase();
-  const sCredit = searchCredit.trim().toLowerCase();
-  const sAmount = searchAmount.replace(/[^0-9]/g, '');
-  const sDate = searchDate.replace(/[^0-9]/g, '');
-  const sDesc = searchDescription.trim().toLowerCase();
-  // 個別行マッチング（任意の検索条件にマッチする行）
-  const matchesIndividual = (e: LedgerEntry): boolean => {
-    if (accountFilter && e.debit_account !== accountFilter && e.credit_account !== accountFilter) return false;
-    if (startYmd || endYmd) {
-      const d = e.entry_date;
-      if (!d || d.length !== 8) return false;
-      if (startYmd && d < startYmd) return false;
-      if (endYmd && d > endYmd) return false;
-    }
-    if (sDebit && !(e.debit_account || '').toLowerCase().includes(sDebit)) return false;
-    if (sCredit && !(e.credit_account || '').toLowerCase().includes(sCredit)) return false;
-    if (sAmount) {
-      const amts = [e.amount, e.debit_amount, e.credit_amount].filter((a) => a != null) as number[];
-      if (!amts.some((a) => String(a).includes(sAmount))) return false;
-    }
-    if (sDate && !(e.entry_date || '').includes(sDate)) return false;
-    if (sDesc && !(e.description || '').toLowerCase().includes(sDesc)) return false;
-    return true;
-  };
-
-  // 多明細仕訳は群ごと表示する（1行だけマッチして表示すると残りが消えて意味不明になる）
-  // 群内のいずれか1行でも条件を満たせば、群の全行を採用する
-  const matchedGroupIds = new Set<string>();
-  for (const e of entries) {
-    if (e.voucher_group_id && matchesIndividual(e)) matchedGroupIds.add(e.voucher_group_id);
-  }
-  const filteredRaw = entries.filter((e) => {
-    if (e.voucher_group_id && matchedGroupIds.has(e.voucher_group_id)) return true;
-    return matchesIndividual(e);
-  });
-
-  // 群ごとに行が連続するように整列: entry_date → voucher_group_id → voucher_seq
-  // (API は entry_date + created_at で返すので、群が散らばることがある)
-  const filtered = [...filteredRaw].sort((a, b) => {
-    const ad = a.entry_date || '';
-    const bd = b.entry_date || '';
-    if (ad !== bd) return ad.localeCompare(bd);
-    const ag = a.voucher_group_id || `__single_${a.id}`;
-    const bg = b.voucher_group_id || `__single_${b.id}`;
-    if (ag !== bg) return ag.localeCompare(bg);
-    const as = a.voucher_seq ?? 0;
-    const bs = b.voucher_seq ?? 0;
-    if (as !== bs) return as - bs;
-    return a.id.localeCompare(b.id);
-  });
-
-  // 表示件数制限：DOM 量を抑えてレンダリング負荷を下げる
-  // ただし、displayLimit が群を途中で切らないように、群末尾まで含める
-  let cut = Math.min(displayLimit, filtered.length);
-  if (cut < filtered.length) {
-    const lastGroup = filtered[cut - 1]?.voucher_group_id;
-    if (lastGroup) {
-      while (cut < filtered.length && filtered[cut].voucher_group_id === lastGroup) cut++;
-    }
-  }
-  const displayed = filtered.slice(0, cut);
-  const hasMore = filtered.length > displayed.length;
+  // entries は既にサーバ側でフィルタ + ソート + LIMIT (+群末尾保持) 済み
+  const filtered = entries;
+  const displayed = filtered;
+  const hasMore = filteredCount > displayed.length;
 
   const editableFiltered = displayed.filter((e) => !e.locked);
   const allSelected = editableFiltered.length > 0 && editableFiltered.every((e) => selectedIds.has(e.id));
@@ -5180,7 +5161,8 @@ function LedgerView({
             仕訳日記帳 {clientName && <span className="text-sky-500">· {clientName}</span>}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            全 {entries.length} 件 · 該当 {filtered.length} 件 · 表示 {displayed.length} 件
+            全 {totalCount.toLocaleString()} 件 · 該当 {filteredCount.toLocaleString()} 件 · 表示 {displayed.length.toLocaleString()} 件
+            {loading && <span className="ml-2 text-sky-500">更新中...</span>}
             {selectedIds.size > 0 && <span className="ml-2 text-sky-600">· {selectedIds.size} 件選択中</span>}
             {closedUntil && (
               <span className="ml-2 text-amber-600">
@@ -5213,21 +5195,30 @@ function LedgerView({
             CSVインポート
           </button>
           <button
-            onClick={() => {
-              const header = ['日付', '借方科目', '貸方科目', '金額', '摘要', '消費税区分', '取引先'];
-              const rows = filtered.map((e) => [
-                e.entry_date, e.debit_account, e.credit_account,
-                e.amount != null ? String(e.amount) : '',
-                e.description, e.tax_type, e.vendor_name,
-              ]);
-              downloadCsv([header, ...rows], `仕訳日記帳${clientName ? '_' + clientName : ''}.csv`);
+            onClick={async () => {
+              try {
+                const params = buildLedgerParams(100000);
+                const res = await fetch(`/api/journal-ledger?${params.toString()}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'エクスポート失敗');
+                const allEntries = (data.entries ?? []) as LedgerEntry[];
+                const header = ['日付', '借方科目', '貸方科目', '金額', '摘要', '消費税区分', '取引先'];
+                const rows = allEntries.map((e) => [
+                  e.entry_date, e.debit_account, e.credit_account,
+                  e.amount != null ? String(e.amount) : '',
+                  e.description, e.tax_type, e.vendor_name,
+                ]);
+                downloadCsv([header, ...rows], `仕訳日記帳${clientName ? '_' + clientName : ''}.csv`);
+              } catch (e) {
+                alert(e instanceof Error ? e.message : 'エクスポート失敗');
+              }
             }}
             className="text-xs text-lime-700 bg-lime-50 border border-lime-200 rounded-xl px-4 py-2 font-semibold hover:bg-lime-100 transition-all"
           >
             CSVエクスポート
           </button>
           <button
-            onClick={onRefresh}
+            onClick={fetchEntries}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
           >
             再読み込み
@@ -5513,7 +5504,7 @@ function LedgerView({
         {hasMore && (
           <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between text-xs">
             <p className="text-slate-500">
-              残り <span className="font-semibold text-slate-700">{(filtered.length - displayed.length).toLocaleString()}</span> 件あります
+              残り <span className="font-semibold text-slate-700">{(filteredCount - displayed.length).toLocaleString()}</span> 件あります
             </p>
             <div className="flex gap-2">
               <button
@@ -5532,10 +5523,10 @@ function LedgerView({
               </button>
               <button
                 type="button"
-                onClick={() => setDisplayLimit(filtered.length)}
+                onClick={() => setDisplayLimit(filteredCount)}
                 className="text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1.5 font-semibold"
               >
-                すべて表示（{filtered.length.toLocaleString()} 件）
+                すべて表示（{filteredCount.toLocaleString()} 件）
               </button>
             </div>
           </div>

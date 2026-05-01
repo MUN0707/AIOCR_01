@@ -4,10 +4,28 @@ import { createServiceClient } from '@/utils/supabase/service';
 
 export const maxDuration = 30;
 
+interface LedgerEntryRow {
+  id: string;
+  entry_date: string | null;
+  // 他の列は jsonb で透過的に返す
+  [k: string]: unknown;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const clientId = searchParams.get('clientId');
+    const startDate = (searchParams.get('startDate') ?? '').trim();
+    const endDate = (searchParams.get('endDate') ?? '').trim();
+    const accountFilter = (searchParams.get('account') ?? '').trim();
+    const searchDebit = (searchParams.get('searchDebit') ?? '').trim();
+    const searchCredit = (searchParams.get('searchCredit') ?? '').trim();
+    const searchAmount = (searchParams.get('searchAmount') ?? '').trim();
+    const searchDate = (searchParams.get('searchDate') ?? '').trim();
+    const searchDescription = (searchParams.get('searchDescription') ?? '').trim();
+    const limitParam = Number(searchParams.get('limit') ?? '50');
+    // 50 〜 100000 にクランプ。100000 はほぼ「全件」CSVエクスポート用
+    const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.floor(limitParam), 1), 100000) : 50;
 
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -17,52 +35,41 @@ export async function GET(request: NextRequest) {
 
     const service = createServiceClient();
 
-    // エントリ取得（Postgrest の db-max-rows 制約を回避するため range でページング）
-    const PAGE = 1000;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const entries: any[] = [];
-    for (let offset = 0; ; offset += PAGE) {
-      let q = service
-        .from('journal_entries')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('entry_date', { ascending: true })
-        .order('created_at', { ascending: true })
-        .range(offset, offset + PAGE - 1);
-      if (clientId) {
-        q = q.eq('client_id', clientId);
-      } else {
-        q = q.is('client_id', null);
-      }
-      const { data: page, error: pageError } = await q;
-      if (pageError) {
-        return NextResponse.json({ error: pageError.message }, { status: 500 });
-      }
-      if (!page || page.length === 0) break;
-      entries.push(...page);
-      if (page.length < PAGE) break;
+    const { data: rpcRows, error: rpcError } = await service.rpc('fetch_journal_ledger', {
+      p_user_id: user.id,
+      p_client_id: clientId,
+      p_start_date: startDate,
+      p_end_date: endDate,
+      p_account_filter: accountFilter,
+      p_search_debit: searchDebit,
+      p_search_credit: searchCredit,
+      p_search_amount: searchAmount,
+      p_search_date: searchDate,
+      p_search_description: searchDescription,
+      p_limit: limit,
+    });
+    if (rpcError) {
+      return NextResponse.json({ error: rpcError.message }, { status: 500 });
     }
 
-    // 締め設定取得
-    let closingQuery = service
-      .from('journal_closings')
-      .select('closed_until')
-      .eq('user_id', user.id);
-    if (clientId) {
-      closingQuery = closingQuery.eq('client_id', clientId);
-    } else {
-      closingQuery = closingQuery.is('client_id', null);
-    }
-    const { data: closingRows } = await closingQuery;
-    const closedUntil: string | null = closingRows?.[0]?.closed_until ?? null;
+    const row = (rpcRows ?? [])[0] ?? { entries: [], filtered_count: 0, total_count: 0, closed_until: null };
+    const entries: LedgerEntryRow[] = Array.isArray(row.entries) ? row.entries as LedgerEntryRow[] : [];
+    const closedUntil: string | null = row.closed_until ?? null;
+    const filteredCount = Number(row.filtered_count) || 0;
+    const totalCount = Number(row.total_count) || 0;
 
-    // locked フラグを付与（entry_date <= closed_until なら true）
-    const entriesWithLock = (entries ?? []).map((e) => ({
+    // locked フラグを付与（既存の API と同じ加工）
+    const entriesWithLock = entries.map((e) => ({
       ...e,
-      locked: closedUntil && e.entry_date !== '不明' ? e.entry_date <= closedUntil : false,
+      locked: closedUntil && e.entry_date && e.entry_date !== '不明' ? e.entry_date <= closedUntil : false,
     }));
 
-    return NextResponse.json({ entries: entriesWithLock, closedUntil });
+    return NextResponse.json({
+      entries: entriesWithLock,
+      closedUntil,
+      filteredCount,
+      totalCount,
+    });
   } catch (error) {
     console.error('日記帳取得エラー:', error);
     const message = error instanceof Error ? error.message : '日記帳の取得に失敗しました';
