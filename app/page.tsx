@@ -973,7 +973,8 @@ export default function Home() {
   }, [selectedClientId]);
 
   useEffect(() => {
-    if (mode === 'journal-entry' && (journalSubView === 'ledger' || journalSubView === 'balance')) {
+    // 残高タブは独自に集計APIをfetchするのでここでは引かない
+    if (mode === 'journal-entry' && journalSubView === 'ledger') {
       fetchLedger();
     }
   }, [mode, journalSubView, fetchLedger]);
@@ -2723,9 +2724,6 @@ export default function Home() {
               />
             ) : journalSubView === 'balance' ? (
               <BalanceView
-                entries={ledgerEntries}
-                loading={ledgerLoading}
-                error={ledgerError}
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
                 clientId={selectedClientId}
                 onRefresh={fetchLedger}
@@ -5990,10 +5988,24 @@ const SUB_CATEGORY_ORDER: Record<string, number> = {
   '売上原価': 1, '販管費': 2, '営業外費用': 3, '特別損失': 4,
 };
 
+interface BalanceApiResponse {
+  accounts: string[];
+  accountBalances: Record<string, { debit: number; credit: number }>;
+  vendorBreakdownByAccount: Record<string, VendorBreakdownRow[]>;
+  totalCount: number;
+  filteredCount: number;
+  closedUntil: string | null;
+  depreciationEntries: BalanceDepreciationEntry[];
+}
+
+interface BalanceDepreciationEntry {
+  id: string;
+  source_fixed_asset_id: string;
+  entry_date: string | null;
+  amount: number | null;
+}
+
 function BalanceView({
-  entries,
-  loading,
-  error,
   clientName,
   clientId,
   onRefresh,
@@ -6003,9 +6015,6 @@ function BalanceView({
   consumedUnmatchedIdx,
   onConsumeUnmatched,
 }: {
-  entries: LedgerEntry[] | null;
-  loading: boolean;
-  error: string | null;
   clientName: string | null;
   clientId: string | null;
   onRefresh: () => void;
@@ -6018,6 +6027,41 @@ function BalanceView({
   // 期間フィルタ: YYYY-MM-DD（空=全期間）
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+
+  // サーバ集計データ
+  const [balanceData, setBalanceData] = useState<BalanceApiResponse | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+
+  const fetchBalance = useCallback(async () => {
+    setBalanceLoading(true);
+    setBalanceError(null);
+    try {
+      const params = new URLSearchParams();
+      if (clientId) params.set('clientId', clientId);
+      if (startDate) params.set('startDate', startDate.replace(/-/g, ''));
+      if (endDate) params.set('endDate', endDate.replace(/-/g, ''));
+      const res = await fetch(`/api/journal-balance?${params.toString()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || '残高取得失敗');
+      setBalanceData(json as BalanceApiResponse);
+    } catch (e) {
+      setBalanceError(e instanceof Error ? e.message : '残高の取得に失敗しました');
+    } finally {
+      setBalanceLoading(false);
+    }
+  }, [clientId, startDate, endDate]);
+
+  useEffect(() => {
+    fetchBalance();
+  }, [fetchBalance]);
+
+  // 残高画面内のミューテーション後に呼ぶ統合リフレッシュ
+  // （balance再集計 + 親側の元帳など他ビューも更新）
+  const refreshAll = useCallback(() => {
+    fetchBalance();
+    onRefresh();
+  }, [fetchBalance, onRefresh]);
 
   // TB各行の取引先別ドリルダウン展開状態
   const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());
@@ -6091,7 +6135,7 @@ function BalanceView({
     }
     setDepMsg(`計上 ${json.inserted} 件 / スキップ ${json.skipped} 件`);
     await fetchFixedAssets();
-    onRefresh();
+    refreshAll();
   };
 
   const checkDepreciation = async () => {
@@ -6154,7 +6198,7 @@ function BalanceView({
       return;
     }
     setRecalcDialogResult(`完了: 削除 ${json.deleted ?? 0} 件 / 計上 ${json.inserted} 件 / 調整額合計 ¥${(json.adjustment_total ?? 0).toLocaleString()}`);
-    onRefresh();
+    refreshAll();
   };
 
   const deleteRule = async (id: string) => {
@@ -6185,7 +6229,7 @@ function BalanceView({
     const json = await res.json();
     if (!res.ok) { setRecalcMsg(`エラー: ${json.error}`); return; }
     setRecalcMsg(`完了: 削除 ${json.deleted ?? 0} 件 / 計上 ${json.inserted} 件 / 調整額合計 ¥${(json.adjustment_total ?? 0).toLocaleString()}`);
-    onRefresh();
+    refreshAll();
   };
 
   const toYmd = (iso: string) => iso.replace(/-/g, ''); // YYYY-MM-DD → YYYYMMDD
@@ -6223,7 +6267,8 @@ function BalanceView({
     }
   };
 
-  if (loading) {
+  // 初回フェッチ前のローディング（再フェッチ時はデータを残してチラつき防止）
+  if (balanceLoading && !balanceData) {
     return (
       <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
         <div className="w-8 h-8 border-4 border-sky-200 border-t-sky-500 rounded-full animate-spin mx-auto" />
@@ -6231,10 +6276,10 @@ function BalanceView({
       </div>
     );
   }
-  if (error) {
-    return <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-4 text-sm text-red-600">{error}</div>;
+  if (balanceError) {
+    return <div className="bg-red-50 border border-red-100 rounded-2xl px-5 py-4 text-sm text-red-600">{balanceError}</div>;
   }
-  if (!entries || entries.length === 0) {
+  if (!balanceData || balanceData.totalCount === 0) {
     return (
       <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
         <p className="text-sm text-slate-400">
@@ -6244,17 +6289,7 @@ function BalanceView({
     );
   }
 
-  const startYmd = startDate ? toYmd(startDate) : '';
-  const endYmd = endDate ? toYmd(endDate) : '';
-  const filteredEntries = entries.filter((e) => {
-    const d = e.entry_date;
-    if (!d || d === '不明' || d.length !== 8) return !startYmd && !endYmd; // 不明は全期間時のみ含める
-    if (startYmd && d < startYmd) return false;
-    if (endYmd && d > endYmd) return false;
-    return true;
-  });
-
-  const { accounts, accountBalances, vendorBreakdownByAccount } = computeBalances(filteredEntries);
+  const { accounts, accountBalances, vendorBreakdownByAccount, totalCount, filteredCount, depreciationEntries } = balanceData;
 
   const toggleExpand = (acc: string) => {
     setExpandedAccounts((prev) => {
@@ -6316,11 +6351,12 @@ function BalanceView({
         </div>
         <p className="text-[11px] text-slate-400 mt-3">
           期間: <span className="font-mono text-slate-600">{periodLabel}</span>
-          <span className="ml-3">対象仕訳 {filteredEntries.length} / {entries.length} 件</span>
+          <span className="ml-3">対象仕訳 {filteredCount} / {totalCount} 件</span>
+          {balanceLoading && <span className="ml-3 text-sky-500">更新中...</span>}
         </p>
       </div>
 
-      {filteredEntries.length === 0 && (
+      {filteredCount === 0 && (
         <div className="bg-white border border-slate-100 rounded-2xl p-10 text-center">
           <p className="text-sm text-slate-400">指定期間に該当する仕訳はありません</p>
         </div>
@@ -6339,9 +6375,9 @@ function BalanceView({
           {/* ─── 固定資産 ─── */}
           <FixedAssetSection
             assets={fixedAssets}
-            entries={filteredEntries}
+            entries={depreciationEntries}
             clientId={clientId}
-            onRefresh={() => { fetchFixedAssets(); onRefresh(); }}
+            onRefresh={() => { fetchFixedAssets(); refreshAll(); }}
             depPeriodStart={depPeriodStart}
             unmatchedTransactions={unmatchedTransactions}
             consumedUnmatchedIdx={consumedUnmatchedIdx}
@@ -6805,7 +6841,7 @@ function FixedAssetSection({
   onConsumeUnmatched,
 }: {
   assets: FixedAssetRow[];
-  entries: LedgerEntry[];
+  entries: BalanceDepreciationEntry[];
   clientId: string | null;
   onRefresh: () => void;
   depPeriodStart: string;
@@ -6873,9 +6909,8 @@ function FixedAssetSection({
   // 当期償却額を資産ごとに集計
   const depByAsset = new Map<string, number>();
   for (const e of entries) {
-    const tag = (e as unknown as { source_fixed_asset_id?: string }).source_fixed_asset_id;
-    if (!tag) continue;
-    depByAsset.set(tag, (depByAsset.get(tag) ?? 0) + Number(e.amount ?? 0));
+    if (!e.source_fixed_asset_id) continue;
+    depByAsset.set(e.source_fixed_asset_id, (depByAsset.get(e.source_fixed_asset_id) ?? 0) + Number(e.amount ?? 0));
   }
 
   // period start での簿価計算のため、開始日前の累計
@@ -6883,10 +6918,9 @@ function FixedAssetSection({
   const depBeforeStart = new Map<string, number>();
   if (startYmd) {
     for (const e of entries) {
-      const tag = (e as unknown as { source_fixed_asset_id?: string }).source_fixed_asset_id;
-      if (!tag) continue;
+      if (!e.source_fixed_asset_id) continue;
       if (!e.entry_date || e.entry_date >= startYmd) continue;
-      depBeforeStart.set(tag, (depBeforeStart.get(tag) ?? 0) + Number(e.amount ?? 0));
+      depBeforeStart.set(e.source_fixed_asset_id, (depBeforeStart.get(e.source_fixed_asset_id) ?? 0) + Number(e.amount ?? 0));
     }
   }
 
