@@ -182,8 +182,8 @@ function parseFreeeAdvanced(csvText) {
 
     rows.push({
       entry_date: defaultDateParser(get(cells, I.date)) || '不明',
-      debit_account: debit || '不明',
-      credit_account: credit || '不明',
+      debit_account: debit || '',
+      credit_account: credit || '',
       amount: debitAmount ?? creditAmount,
       debit_amount: debitAmount,
       credit_amount: creditAmount,

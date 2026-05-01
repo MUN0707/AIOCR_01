@@ -2730,11 +2730,12 @@ export default function Home() {
                 clientId={selectedClientId}
                 onRefresh={fetchLedger}
                 accountsList={accountsList}
-                onOpenGeneralLedger={(account) => {
+                onOpenGeneralLedger={(account, vendor) => {
                   // 総勘定元帳を新しいタブで開く（複数科目を並べて見られるように）
                   const params = new URLSearchParams();
                   if (selectedClientId) params.set('clientId', selectedClientId);
                   if (account) params.set('account', account);
+                  if (vendor) params.set('vendor', vendor);
                   window.open(`/general-ledger?${params.toString()}`, '_blank');
                 }}
                 unmatchedTransactions={journalMatchResult?.summary.unmatchedTransactions ?? []}
@@ -4213,55 +4214,73 @@ function isValidAccountName(name: string | null | undefined): boolean {
   return true;
 }
 
+// 取引先未登録のラベル（取引先別ドリルダウンで使用）
+const UNREGISTERED_VENDOR = '(取引先未登録)';
+
+export interface VendorBreakdownRow {
+  vendor: string;
+  debit: number;
+  credit: number;
+  entryCount: number;
+  isUnregistered: boolean;
+}
+
 function computeBalances(entries: LedgerEntry[]) {
   const accountSet = new Set<string>();
   const accountBalances: Record<string, { debit: number; credit: number }> = {};
+  // 各科目について vendor 別の借方/貸方/件数
+  const vendorByAccount: Record<string, Record<string, { debit: number; credit: number; entryCount: number }>> = {};
+
+  const ensureVendorBucket = (account: string, vendor: string) => {
+    if (!vendorByAccount[account]) vendorByAccount[account] = {};
+    if (!vendorByAccount[account][vendor]) {
+      vendorByAccount[account][vendor] = { debit: 0, credit: 0, entryCount: 0 };
+    }
+    return vendorByAccount[account][vendor];
+  };
+
   for (const e of entries) {
     const amt = e.amount ?? 0;
+    const vRaw = (e.vendor_name ?? '').trim();
+    const v = vRaw || UNREGISTERED_VENDOR;
     if (isValidAccountName(e.debit_account)) {
       accountSet.add(e.debit_account);
       if (!accountBalances[e.debit_account]) accountBalances[e.debit_account] = { debit: 0, credit: 0 };
       accountBalances[e.debit_account].debit += amt;
+      const bucket = ensureVendorBucket(e.debit_account, v);
+      bucket.debit += amt;
+      bucket.entryCount += 1;
     }
     if (isValidAccountName(e.credit_account)) {
       accountSet.add(e.credit_account);
       if (!accountBalances[e.credit_account]) accountBalances[e.credit_account] = { debit: 0, credit: 0 };
       accountBalances[e.credit_account].credit += amt;
+      const bucket = ensureVendorBucket(e.credit_account, v);
+      bucket.credit += amt;
+      bucket.entryCount += 1;
     }
   }
   const accounts = Array.from(accountSet).sort();
 
-  // 未払費用：vendor_name 別に計上額／支払額を集計
-  // vendor 未登録分は空扱いの「(取引先未登録)」へまとめ、別途強調する
-  const UNREGISTERED = '(取引先未登録)';
-  const payableByVendor: Record<string, { accrued: number; paid: number; entryCount: number }> = {};
-  for (const e of entries) {
-    const amt = e.amount ?? 0;
-    const vRaw = (e.vendor_name ?? '').trim();
-    const v = vRaw || UNREGISTERED;
-    if (e.credit_account === '未払費用') {
-      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0, entryCount: 0 };
-      payableByVendor[v].accrued += amt;
-      payableByVendor[v].entryCount += 1;
-    }
-    if (e.debit_account === '未払費用') {
-      if (!payableByVendor[v]) payableByVendor[v] = { accrued: 0, paid: 0, entryCount: 0 };
-      payableByVendor[v].paid += amt;
-      payableByVendor[v].entryCount += 1;
-    }
-  }
-  const vendorRows = Object.entries(payableByVendor)
-    .map(([vendor, v]) => ({
+  // 科目→vendor別残高行（ソート: 残高絶対値の大きい順、未登録は末尾に寄せる）
+  const vendorBreakdownByAccount: Record<string, VendorBreakdownRow[]> = {};
+  for (const acc of accounts) {
+    const vendorMap = vendorByAccount[acc] ?? {};
+    const rows: VendorBreakdownRow[] = Object.entries(vendorMap).map(([vendor, v]) => ({
       vendor,
-      accrued: v.accrued,
-      paid: v.paid,
-      balance: v.accrued - v.paid,
+      debit: v.debit,
+      credit: v.credit,
       entryCount: v.entryCount,
-      isUnregistered: vendor === UNREGISTERED,
-    }))
-    .sort((a, b) => b.balance - a.balance);
+      isUnregistered: vendor === UNREGISTERED_VENDOR,
+    }));
+    rows.sort((a, b) => {
+      if (a.isUnregistered !== b.isUnregistered) return a.isUnregistered ? 1 : -1;
+      return Math.abs(b.debit - b.credit) - Math.abs(a.debit - a.credit);
+    });
+    vendorBreakdownByAccount[acc] = rows;
+  }
 
-  return { accounts, accountBalances, vendorRows };
+  return { accounts, accountBalances, vendorBreakdownByAccount };
 }
 
 // ─── 未照合入出金ビュー（一括選択 + 一括適用） ─────────────────────────────
@@ -4567,6 +4586,42 @@ function LedgerView({
 }) {
   const [closingInput, setClosingInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // パフォーマンス対策: 仕訳が大量にあると一度に全件描画すると重い
+  // 期間フィルタ・件数制限で絞ってから DOM に落とす
+  const [ledgerStartDate, setLedgerStartDate] = useState<string>(''); // YYYY-MM-DD
+  const [ledgerEndDate, setLedgerEndDate] = useState<string>('');
+  const [displayLimit, setDisplayLimit] = useState<number>(500);
+
+  // 期間プリセット
+  const setLedgerPeriod = (preset: 'all' | 'thisMonth' | 'lastMonth' | 'thisFiscal') => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    if (preset === 'all') { setLedgerStartDate(''); setLedgerEndDate(''); return; }
+    if (preset === 'thisMonth') {
+      const y = now.getFullYear(), m = now.getMonth();
+      const last = new Date(y, m + 1, 0).getDate();
+      setLedgerStartDate(`${y}-${pad(m + 1)}-01`);
+      setLedgerEndDate(`${y}-${pad(m + 1)}-${pad(last)}`);
+      return;
+    }
+    if (preset === 'lastMonth') {
+      const y = now.getFullYear(), m = now.getMonth() - 1;
+      const d = new Date(y, m, 1);
+      const yy = d.getFullYear(), mm = d.getMonth();
+      const last = new Date(yy, mm + 1, 0).getDate();
+      setLedgerStartDate(`${yy}-${pad(mm + 1)}-01`);
+      setLedgerEndDate(`${yy}-${pad(mm + 1)}-${pad(last)}`);
+      return;
+    }
+    if (preset === 'thisFiscal') {
+      const y = now.getFullYear(), m = now.getMonth();
+      const fyStart = m >= 3 ? y : y - 1;
+      setLedgerStartDate(`${fyStart}-04-01`);
+      setLedgerEndDate(`${fyStart + 1}-03-31`);
+      return;
+    }
+  };
 
   // ─── CSV インポートモーダル State ───────────────────────────
   const [importOpen, setImportOpen] = useState(false);
@@ -5012,11 +5067,23 @@ function LedgerView({
   }
   const accounts = Array.from(accountSet).sort();
 
-  const filtered = accountFilter
-    ? entries.filter((e) => e.debit_account === accountFilter || e.credit_account === accountFilter)
-    : entries;
+  const startYmd = ledgerStartDate ? ledgerStartDate.replace(/-/g, '') : '';
+  const endYmd = ledgerEndDate ? ledgerEndDate.replace(/-/g, '') : '';
+  const filtered = entries.filter((e) => {
+    if (accountFilter && e.debit_account !== accountFilter && e.credit_account !== accountFilter) return false;
+    if (startYmd || endYmd) {
+      const d = e.entry_date;
+      if (!d || d.length !== 8) return false; // 期間絞り込み中は日付不明を除外
+      if (startYmd && d < startYmd) return false;
+      if (endYmd && d > endYmd) return false;
+    }
+    return true;
+  });
+  // 表示件数制限：DOM 量を抑えてレンダリング負荷を下げる
+  const displayed = filtered.slice(0, displayLimit);
+  const hasMore = filtered.length > displayed.length;
 
-  const editableFiltered = filtered.filter((e) => !e.locked);
+  const editableFiltered = displayed.filter((e) => !e.locked);
   const allSelected = editableFiltered.length > 0 && editableFiltered.every((e) => selectedIds.has(e.id));
   const toggleAll = () => {
     setSelectedIds((prev) => {
@@ -5052,7 +5119,7 @@ function LedgerView({
             仕訳日記帳 {clientName && <span className="text-sky-500">· {clientName}</span>}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            全 {entries.length} 件 · {filtered.length} 件表示
+            全 {entries.length} 件 · 該当 {filtered.length} 件 · 表示 {displayed.length} 件
             {selectedIds.size > 0 && <span className="ml-2 text-sky-600">· {selectedIds.size} 件選択中</span>}
             {closedUntil && (
               <span className="ml-2 text-amber-600">
@@ -5104,6 +5171,64 @@ function LedgerView({
           >
             再読み込み
           </button>
+        </div>
+      </div>
+
+      {/* 期間フィルタ + 表示件数 */}
+      <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+        <div className="flex flex-wrap items-end gap-3 justify-between">
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">期間（開始）</p>
+              <input
+                type="date"
+                value={ledgerStartDate}
+                onChange={(e) => { setLedgerStartDate(e.target.value); setDisplayLimit(500); }}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400"
+              />
+            </div>
+            <span className="text-slate-300 pb-2">〜</span>
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-1">期間（終了）</p>
+              <input
+                type="date"
+                value={ledgerEndDate}
+                onChange={(e) => { setLedgerEndDate(e.target.value); setDisplayLimit(500); }}
+                className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-400"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5 ml-2">
+              {([
+                { key: 'all', label: '全期間' },
+                { key: 'thisMonth', label: '今月' },
+                { key: 'lastMonth', label: '先月' },
+                { key: 'thisFiscal', label: '今年度' },
+              ] as const).map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => { setLedgerPeriod(p.key); setDisplayLimit(500); }}
+                  className="text-[11px] font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-600 transition-colors"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">表示件数</p>
+            <select
+              value={displayLimit}
+              onChange={(e) => setDisplayLimit(Number(e.target.value))}
+              className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-sky-400"
+            >
+              <option value={200}>200 件</option>
+              <option value={500}>500 件</option>
+              <option value={1000}>1000 件</option>
+              <option value={5000}>5000 件</option>
+              <option value={999999}>全件</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -5198,11 +5323,11 @@ function LedgerView({
               const groupRowSlots: Array<{ entry: LedgerEntry; groupKey: string; isFirstInGroup: boolean; isLastInGroup: boolean; bandIdx: number }> = [];
               let prevGroup = '';
               let bandIdx = 0;
-              for (let i = 0; i < filtered.length; i++) {
-                const e = filtered[i];
+              for (let i = 0; i < displayed.length; i++) {
+                const e = displayed[i];
                 const groupKey = e.voucher_group_id || `__single_${e.id}`;
                 const isFirstInGroup = groupKey !== prevGroup;
-                const next = filtered[i + 1];
+                const next = displayed[i + 1];
                 const nextGroup = next ? (next.voucher_group_id || `__single_${next.id}`) : '';
                 const isLastInGroup = groupKey !== nextGroup;
                 if (isFirstInGroup) bandIdx++;
@@ -5229,6 +5354,29 @@ function LedgerView({
             })()}
           </tbody>
         </table>
+        {hasMore && (
+          <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between text-xs">
+            <p className="text-slate-500">
+              残り <span className="font-semibold text-slate-700">{(filtered.length - displayed.length).toLocaleString()}</span> 件あります
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDisplayLimit((n) => n + 500)}
+                className="text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded-lg px-3 py-1.5 font-semibold"
+              >
+                +500 件 表示
+              </button>
+              <button
+                type="button"
+                onClick={() => setDisplayLimit(filtered.length)}
+                className="text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1.5 font-semibold"
+              >
+                すべて表示（{filtered.length.toLocaleString()} 件）
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -5646,7 +5794,7 @@ function BalanceView({
   clientId: string | null;
   onRefresh: () => void;
   accountsList: AccountOption[];
-  onOpenGeneralLedger: (account: string) => void;
+  onOpenGeneralLedger: (account: string, vendor?: string | null) => void;
   unmatchedTransactions: TransactionInput[];
   consumedUnmatchedIdx: Set<number>;
   onConsumeUnmatched: (idx: number) => void;
@@ -5654,6 +5802,9 @@ function BalanceView({
   // 期間フィルタ: YYYY-MM-DD（空=全期間）
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+
+  // TB各行の取引先別ドリルダウン展開状態
+  const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());
 
   // 固定資産
   const [fixedAssets, setFixedAssets] = useState<FixedAssetRow[]>([]);
@@ -5887,7 +6038,15 @@ function BalanceView({
     return true;
   });
 
-  const { accounts, accountBalances, vendorRows } = computeBalances(filteredEntries);
+  const { accounts, accountBalances, vendorBreakdownByAccount } = computeBalances(filteredEntries);
+
+  const toggleExpand = (acc: string) => {
+    setExpandedAccounts((prev) => {
+      const next = new Set(prev);
+      if (next.has(acc)) next.delete(acc); else next.add(acc);
+      return next;
+    });
+  };
 
   const periodLabel =
     startDate && endDate ? `${startDate} 〜 ${endDate}`
@@ -5950,74 +6109,6 @@ function BalanceView({
           <p className="text-sm text-slate-400">指定期間に該当する仕訳はありません</p>
         </div>
       )}
-
-      {/* 未払費用 取引先別残高 */}
-      {vendorRows.length > 0 && (() => {
-        const totalAccrued = vendorRows.reduce((s, r) => s + r.accrued, 0);
-        const totalPaid = vendorRows.reduce((s, r) => s + r.paid, 0);
-        const totalBalance = totalAccrued - totalPaid;
-        const unregisteredRow = vendorRows.find((r) => r.isUnregistered);
-        return (
-          <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
-              <p className="text-sm font-semibold text-sky-700 tracking-tight">
-                未払費用 取引先別残高 {clientName && <span className="text-sky-400">· {clientName}</span>}
-              </p>
-              <p className="text-[10px] text-sky-500/70 mt-0.5">貸方計上 − 借方消込 = 未払残高</p>
-            </div>
-            {unregisteredRow && unregisteredRow.entryCount > 0 && (
-              <div className="px-5 py-3 bg-amber-50/60 border-b border-amber-100 text-xs text-amber-700">
-                <span className="font-semibold">{unregisteredRow.entryCount} 件</span> の未払費用仕訳に取引先が登録されていません。
-                <button
-                  type="button"
-                  onClick={() => onOpenGeneralLedger('未払費用')}
-                  className="ml-2 underline hover:text-amber-900"
-                >
-                  「未払費用」の総勘定元帳を開く →
-                </button>
-              </div>
-            )}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[640px]">
-                <thead>
-                  <tr className="border-b border-slate-50">
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">件数</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">計上額</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">支払済</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">残高</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {vendorRows.map((row) => (
-                    <tr key={row.vendor} className={row.isUnregistered ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-sky-50/30'}>
-                      <td className={`px-4 py-3 text-xs font-medium ${row.isUnregistered ? 'text-amber-700' : 'text-slate-700'}`}>
-                        {row.vendor}
-                        {row.isUnregistered && <span className="ml-1 text-[9px] text-amber-500">⚠</span>}
-                      </td>
-                      <td className="px-4 py-3 text-right text-xs text-slate-400 tabular-nums">{row.entryCount}</td>
-                      <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{row.accrued.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{row.paid.toLocaleString()}</td>
-                      <td className={`px-4 py-3 text-right text-sm font-semibold tabular-nums ${row.balance > 0 ? 'text-amber-600' : row.balance < 0 ? 'text-red-500' : 'text-slate-400'}`}>
-                        ¥{row.balance.toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                  <tr className="bg-slate-50/60 border-t-2 border-slate-200">
-                    <td className="px-4 py-2 text-xs font-bold text-slate-700">合計</td>
-                    <td className="px-4 py-2"></td>
-                    <td className="px-4 py-2 text-right text-xs font-semibold text-slate-700 tabular-nums">¥{totalAccrued.toLocaleString()}</td>
-                    <td className="px-4 py-2 text-right text-xs font-semibold text-slate-700 tabular-nums">¥{totalPaid.toLocaleString()}</td>
-                    <td className={`px-4 py-2 text-right text-sm font-bold tabular-nums ${totalBalance > 0 ? 'text-amber-700' : totalBalance < 0 ? 'text-red-600' : 'text-slate-500'}`}>
-                      ¥{totalBalance.toLocaleString()}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ─── 固定資産・減価償却（折りたたみ：BS償却関連は分離して見やすく） ─── */}
       <details className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
@@ -6344,17 +6435,18 @@ function BalanceView({
             <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40 flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold text-slate-700 tracking-tight">勘定科目別 集計</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">資産→負債→純資産→収益→費用 の順に表示。科目名クリックで総勘定元帳を開きます</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">行クリックで取引先別残高を展開。各行の「元帳」で総勘定元帳を新タブで開きます</p>
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[640px]">
+              <table className="w-full text-sm min-w-[720px]">
                 <thead>
                   <tr className="border-b border-slate-50">
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">勘定科目</th>
+                    <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">勘定科目 / 取引先</th>
                     <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方合計</th>
                     <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方合計</th>
                     <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">差額（借−貸）</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-20">元帳</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -6375,6 +6467,7 @@ function BalanceView({
                             <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">¥{t.debit.toLocaleString()}</td>
                             <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">¥{t.credit.toLocaleString()}</td>
                             <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">¥{tDiff.toLocaleString()}</td>
+                            <td className="px-4 py-2"></td>
                           </tr>
                         );
                         prevCategory = cat;
@@ -6383,7 +6476,7 @@ function BalanceView({
                       if (r.sub && r.sub !== prevSub) {
                         elements.push(
                           <tr key={`sub-${cat}-${r.sub}`} className="bg-slate-50/40">
-                            <td colSpan={4} className="px-6 py-1.5 text-[10px] font-semibold text-slate-500">
+                            <td colSpan={5} className="px-6 py-1.5 text-[10px] font-semibold text-slate-500">
                               {r.sub}
                             </td>
                           </tr>
@@ -6391,16 +6484,23 @@ function BalanceView({
                         prevSub = r.sub;
                       }
                       const diff = r.debit - r.credit;
+                      const expanded = expandedAccounts.has(r.name);
+                      const vendorRowsForAcc = vendorBreakdownByAccount[r.name] ?? [];
+                      const hasVendorBreakdown = vendorRowsForAcc.length > 0;
                       elements.push(
-                        <tr key={`acc-${r.name}`} className="hover:bg-slate-50/40 border-b border-slate-50">
+                        <tr key={`acc-${r.name}`} className={`${expanded ? 'bg-sky-50/30' : 'hover:bg-slate-50/40'} border-b border-slate-50`}>
                           <td className="px-4 py-3">
                             <button
                               type="button"
-                              onClick={() => onOpenGeneralLedger(r.name)}
-                              className="text-xs text-slate-700 font-medium hover:text-sky-600 hover:underline cursor-pointer text-left"
-                              title={`${r.name} の総勘定元帳を新しいタブで開く`}
+                              onClick={() => toggleExpand(r.name)}
+                              className="text-xs text-slate-700 font-medium hover:text-sky-600 cursor-pointer text-left flex items-center gap-1.5 group"
+                              title={hasVendorBreakdown ? `取引先別残高を${expanded ? '閉じる' : '開く'}` : '取引先別データなし'}
                             >
-                              {r.name}
+                              <span className={`text-slate-300 group-hover:text-sky-400 text-[10px] transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
+                              <span className={expanded ? 'text-sky-700' : ''}>{r.name}</span>
+                              {hasVendorBreakdown && (
+                                <span className="text-[9px] text-slate-300 font-normal">({vendorRowsForAcc.length}先)</span>
+                              )}
                             </button>
                           </td>
                           <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{r.debit.toLocaleString()}</td>
@@ -6408,8 +6508,55 @@ function BalanceView({
                           <td className={`px-4 py-3 text-right text-xs font-semibold tabular-nums ${diff > 0 ? 'text-sky-600' : diff < 0 ? 'text-lime-600' : 'text-slate-400'}`}>
                             ¥{diff.toLocaleString()}
                           </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onOpenGeneralLedger(r.name); }}
+                              className="text-[10px] text-sky-600 hover:text-sky-800 hover:underline"
+                              title={`${r.name} 全体の総勘定元帳を新しいタブで開く`}
+                            >
+                              開く →
+                            </button>
+                          </td>
                         </tr>
                       );
+                      if (expanded && hasVendorBreakdown) {
+                        elements.push(
+                          <tr key={`acc-${r.name}-vendor-header`} className="bg-slate-50/40 border-b border-slate-50">
+                            <td colSpan={5} className="px-10 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-widest">
+                              取引先別内訳
+                            </td>
+                          </tr>
+                        );
+                        for (const vr of vendorRowsForAcc) {
+                          const vDiff = vr.debit - vr.credit;
+                          const vendorParam = vr.isUnregistered ? '__unregistered__' : vr.vendor;
+                          elements.push(
+                            <tr key={`acc-${r.name}-v-${vr.vendor}`} className={vr.isUnregistered ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-sky-50/30'}>
+                              <td className={`px-10 py-2 text-[11px] ${vr.isUnregistered ? 'text-amber-700' : 'text-slate-600'}`}>
+                                ↳ {vr.vendor}
+                                {vr.isUnregistered && <span className="ml-1 text-[9px] text-amber-500">⚠</span>}
+                                <span className="ml-2 text-[9px] text-slate-300">{vr.entryCount}件</span>
+                              </td>
+                              <td className="px-4 py-2 text-right text-[11px] text-slate-500 tabular-nums">¥{vr.debit.toLocaleString()}</td>
+                              <td className="px-4 py-2 text-right text-[11px] text-slate-500 tabular-nums">¥{vr.credit.toLocaleString()}</td>
+                              <td className={`px-4 py-2 text-right text-[11px] font-semibold tabular-nums ${vDiff > 0 ? 'text-sky-600' : vDiff < 0 ? 'text-lime-600' : 'text-slate-400'}`}>
+                                ¥{vDiff.toLocaleString()}
+                              </td>
+                              <td className="px-4 py-2 text-right">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onOpenGeneralLedger(r.name, vendorParam); }}
+                                  className="text-[10px] text-sky-600 hover:text-sky-800 hover:underline"
+                                  title={`${r.name} × ${vr.vendor} の総勘定元帳を新しいタブで開く`}
+                                >
+                                  開く →
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        }
+                      }
                     }
                     return elements;
                   })()}

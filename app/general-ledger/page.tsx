@@ -37,6 +37,7 @@ function GeneralLedgerInner() {
   const initialAccount = sp.get('account') || '';
   const initialFrom = sp.get('from') || '';
   const initialTo = sp.get('to') || '';
+  const initialVendor = sp.get('vendor') || '';
 
   const [clientId, setClientId] = useState<string>(initialClientId);
   const [account, setAccount] = useState<string>(initialAccount);
@@ -48,8 +49,10 @@ function GeneralLedgerInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 取引先絞り込み
+  // 取引先絞り込み（フリー入力＝部分一致 + URL由来＝完全一致 or 未登録）
   const [vendorFilter, setVendorFilter] = useState<string>('');
+  // '__unregistered__' は vendor_name が空のもの。空文字 '' は完全一致フィルタ無効。
+  const [vendorExact, setVendorExact] = useState<string>(initialVendor);
 
   useEffect(() => {
     (async () => {
@@ -104,6 +107,14 @@ function GeneralLedgerInner() {
         if (fromYmd && d < fromYmd) return false;
         if (toYmd && d > toYmd) return false;
         if (vendorFilter && !(e.vendor_name || '').toLowerCase().includes(vendorFilter.toLowerCase())) return false;
+        if (vendorExact) {
+          const vn = (e.vendor_name || '').trim();
+          if (vendorExact === '__unregistered__') {
+            if (vn) return false;
+          } else if (vn !== vendorExact) {
+            return false;
+          }
+        }
         return true;
       })
       .sort((a, b) => {
@@ -121,7 +132,7 @@ function GeneralLedgerInner() {
       bal += debit - credit;
       return { entry: e, side, counter, debit, credit, balance: bal };
     });
-  }, [entries, account, fromYmd, toYmd, vendorFilter]);
+  }, [entries, account, fromYmd, toYmd, vendorFilter, vendorExact]);
 
   const totalDebit = ledgerLines.reduce((s, l) => s + l.debit, 0);
   const totalCredit = ledgerLines.reduce((s, l) => s + l.credit, 0);
@@ -139,6 +150,17 @@ function GeneralLedgerInner() {
               <h1 className="text-lg font-semibold text-slate-900 tracking-tight">総勘定元帳</h1>
               <p className="text-xs text-slate-400 mt-0.5">
                 {account ? `${account} の取引明細` : '勘定科目を選択してください'} · {clientName}
+                {vendorExact && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-[11px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">
+                    取引先: {vendorExact === '__unregistered__' ? '(未登録)' : vendorExact}
+                    <button
+                      type="button"
+                      onClick={() => setVendorExact('')}
+                      className="text-sky-400 hover:text-sky-700 ml-0.5"
+                      title="取引先フィルタを解除"
+                    >×</button>
+                  </span>
+                )}
               </p>
             </div>
             <Link
