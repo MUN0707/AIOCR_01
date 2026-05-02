@@ -76,7 +76,7 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // 認証不要の公開ページ（/login, /auth/*, /subscribe, /tokusho, /denied）
+  // 認証不要の公開ページ
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/auth') ||
@@ -84,7 +84,9 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/tokusho') ||
     pathname.startsWith('/denied') ||
     pathname.startsWith('/lp') ||
-    pathname.startsWith('/pricing')
+    pathname.startsWith('/pricing') ||
+    pathname.startsWith('/api/subscribe') ||
+    pathname.startsWith('/api/auth/signout')
   ) {
     return supabaseResponse;
   }
@@ -115,8 +117,9 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(homeUrl);
   }
 
-  // /pricing はサブスクチェック対象外（リダイレクトループ防止）
-  if (pathname.startsWith('/pricing')) {
+  // /pricing と /mypage はサブスクチェック対象外
+  // （pricing はリダイレクトループ防止、mypage は契約状態を見る画面そのもの）
+  if (pathname.startsWith('/pricing') || pathname.startsWith('/mypage')) {
     return supabaseResponse;
   }
 

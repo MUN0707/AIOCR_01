@@ -22,11 +22,12 @@ export default function InvoiceLpPage() {
           <nav className="flex items-center gap-6 text-sm text-sky-600 font-medium">
             <Link href="/pricing" className="hover:text-sky-800 transition-colors">料金</Link>
             <Link href="/faq" className="hover:text-sky-800 transition-colors">FAQ</Link>
+            <Link href="/mypage" className="hover:text-sky-800 transition-colors">マイページ</Link>
             <Link
-              href="/"
+              href="/subscribe?service=aiocr"
               className="bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-full font-bold transition-colors text-xs"
             >
-              無料で試す
+              申込み
             </Link>
           </nav>
         </div>
