@@ -26,7 +26,7 @@ export default async function MyPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login?next=/mypage');
 
-  const [{ data: subscription }, { data: firm }] = await Promise.all([
+  const [{ data: subscription }, { data: firm }, { data: invoices }] = await Promise.all([
     supabase
       .from('subscriptions')
       .select('plan, status, trial_end_at, payment_method, notes, updated_at')
@@ -37,6 +37,11 @@ export default async function MyPage() {
       .select('name, contact_name, member_count, plan, monthly_fee, status, payment_method, updated_at')
       .eq('user_id', user.id)
       .maybeSingle(),
+    supabase
+      .from('invoices')
+      .select('id, invoice_no, service, amount_incl_tax, status, issued_at, due_at')
+      .eq('user_id', user.id)
+      .order('issued_at', { ascending: false }),
   ]);
 
   const aiocrActive = !!subscription;
@@ -196,6 +201,61 @@ export default async function MyPage() {
             </div>
           </div>
         </section>
+
+        {/* 請求書一覧 */}
+        {invoices && invoices.length > 0 && (
+          <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
+              <span className="text-2xl">🧾</span>
+              <div>
+                <p className="font-bold text-slate-900">請求書</p>
+                <p className="text-xs text-slate-500">発行済みの請求書をダウンロードできます</p>
+              </div>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {invoices.map((inv) => {
+                const issued = new Date(inv.issued_at);
+                const due = new Date(inv.due_at);
+                const fmt = (d: Date) =>
+                  `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+                const serviceLabel = inv.service === 'aiocr' ? 'Invoice OCR' : '育成メルマガ';
+                const statusLabel =
+                  inv.status === 'paid' ? '入金済' : inv.status === 'cancelled' ? 'キャンセル' : '未入金';
+                const statusClass =
+                  inv.status === 'paid'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : inv.status === 'cancelled'
+                      ? 'bg-slate-100 text-slate-600'
+                      : 'bg-amber-100 text-amber-800';
+                return (
+                  <div key={inv.id} className="px-6 py-4 flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-mono text-xs text-slate-500">{inv.invoice_no}</p>
+                      <p className="font-medium text-slate-900 text-sm">
+                        {serviceLabel}（初月分）
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        発行 {fmt(issued)} / 支払期日 {fmt(due)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-slate-900">¥{inv.amount_incl_tax.toLocaleString()}</p>
+                      <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${statusClass}`}>
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <a
+                      href={`/api/invoice/${inv.id}/download`}
+                      className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-lg whitespace-nowrap"
+                    >
+                      PDF
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* 追加申込み導線 */}
         {(!aiocrActive || !merumagaActive) && (

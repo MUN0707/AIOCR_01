@@ -1,9 +1,13 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import { createServiceClient } from '@/utils/supabase/service';
 import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
 import { AIOCR_PLANS, MERUMAGA_PLANS, type AiocrPlanId } from '@/lib/services';
+import { generateInvoicePdf, nextInvoiceNo } from '@/lib/invoice-pdf';
+
+export const runtime = 'nodejs'; // pdfkit が node:fs を使うため Edge ではなく Node ランタイム必須
 
 type Payload = {
   // 認証（未ログイン時のみ）
@@ -18,6 +22,85 @@ type Payload = {
   aiocrPlan?: AiocrPlanId;
   withMerumaga: boolean;
 };
+
+// 申込確定時に「初月分の請求書」を1件発行する。
+// PDF を Storage に保存し、invoices 行を作り、Resend で添付メール送信。
+// price は税込価格（LP/特商法表記が税込のため）。1.1 で割って税抜に逆算。
+async function issueAndSendInvoice(params: {
+  userId: string;
+  userEmail: string;
+  service: 'aiocr' | 'merumaga';
+  itemName: string;
+  priceInclTax: number;
+  issuedToName: string;
+  issuedToContact: string;
+}): Promise<void> {
+  const TAX_RATE = 0.10;
+  const subtotal = Math.floor(params.priceInclTax / (1 + TAX_RATE));
+  const tax = params.priceInclTax - subtotal;
+  const issuedAt = new Date();
+  const dueAt = new Date(issuedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  const invoiceNo = await nextInvoiceNo();
+  const invoiceId = randomUUID();
+  const pdfPath = `${params.userId}/${invoiceId}.pdf`;
+
+  const pdfBuffer = await generateInvoicePdf({
+    invoiceNo,
+    issuedAt,
+    dueAt,
+    issuedToName: params.issuedToName,
+    issuedToContact: params.issuedToContact,
+    items: [{ name: params.itemName, quantity: 1, unitPrice: subtotal }],
+    taxRate: TAX_RATE,
+    notes: 'ご入金前から各サービスはすぐにご利用いただけます。配信用メーリスへのメンバー登録は本日から可能です。',
+  });
+
+  const service = createServiceClient();
+  await service.storage.from('invoices').upload(pdfPath, pdfBuffer, {
+    contentType: 'application/pdf',
+    upsert: true,
+  });
+  await service.from('invoices').insert({
+    id: invoiceId,
+    user_id: params.userId,
+    service: params.service,
+    invoice_no: invoiceNo,
+    issued_to_name: params.issuedToName,
+    issued_to_contact: params.issuedToContact,
+    amount_excl_tax: subtotal,
+    tax_rate: TAX_RATE,
+    tax_amount: tax,
+    amount_incl_tax: params.priceInclTax,
+    status: 'issued',
+    pdf_path: pdfPath,
+    issued_at: issuedAt.toISOString(),
+    due_at: dueAt.toISOString(),
+  });
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (apiKey) {
+    const dueStr = dueAt.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: '請求書 <invoice-ocr@taxbestsearch.com>',
+        to: params.userEmail,
+        subject: `【請求書】${params.itemName}（${invoiceNo}）`,
+        html: `<p>${params.issuedToName} 様</p>
+<p>このたびは「${params.itemName}」をお申込みいただきありがとうございます。</p>
+<p>初月分の請求書（<strong>${invoiceNo}</strong>）を本メールに添付しております。<br>
+お支払期日：<strong>${dueStr}</strong></p>
+<p><strong>ご入金前から各サービスはすぐにご利用いただけます。</strong>マイページからメーリスのメンバー登録を進めてください。</p>
+<p>ご不明点は本メールへの返信、もしくは info@taxbestsearch.com までお願いいたします。</p>`,
+        attachments: [
+          { filename: `${invoiceNo}.pdf`, content: pdfBuffer.toString('base64') },
+        ],
+      }),
+    });
+  }
+}
 
 // Resend Audience を自動作成（メルマガ申込時に1事務所＝1メーリス）
 async function createMerumagaAudience(firmName: string): Promise<string | null> {
@@ -160,7 +243,7 @@ export async function POST(request: NextRequest) {
         .from('subscriptions')
         .update({
           plan: aiocrPlan,
-          status: 'pending',
+          status: 'active',
           payment_method: 'bank_transfer',
           notes: aiocrNotes,
           updated_at: new Date().toISOString(),
@@ -171,7 +254,7 @@ export async function POST(request: NextRequest) {
         user_id: userId,
         email: userEmail,
         plan: aiocrPlan,
-        status: 'pending',
+        status: 'active',
         payment_method: 'bank_transfer',
         notes: aiocrNotes,
       });
@@ -202,7 +285,7 @@ export async function POST(request: NextRequest) {
           member_count: 0,
           plan: merumagaPlan.id,
           monthly_fee: merumagaPlan.price,
-          status: 'pending',
+          status: 'active',
           payment_method: 'bank_transfer',
           resend_audience_id: audienceId,
           updated_at: new Date().toISOString(),
@@ -217,11 +300,40 @@ export async function POST(request: NextRequest) {
         member_count: 0,
         plan: merumagaPlan.id,
         monthly_fee: merumagaPlan.price,
-        status: 'pending',
+        status: 'active',
         payment_method: 'bank_transfer',
         resend_audience_id: audienceId,
       });
     }
+  }
+
+  // 請求書 PDF 発行（サービスごとに1通ずつ）。失敗しても申込自体は成功扱い
+  try {
+    if (withAiocr) {
+      const plan = AIOCR_PLANS[aiocrPlan];
+      await issueAndSendInvoice({
+        userId,
+        userEmail,
+        service: 'aiocr',
+        itemName: `Invoice OCR ${plan.name}プラン（初月分）`,
+        priceInclTax: plan.price,
+        issuedToName: companyName,
+        issuedToContact: contactName,
+      });
+    }
+    if (withMerumaga) {
+      await issueAndSendInvoice({
+        userId,
+        userEmail,
+        service: 'merumaga',
+        itemName: `税理士事務所スタッフ育成メルマガ ${merumagaPlan.name}プラン（初月分）`,
+        priceInclTax: merumagaPlan.price,
+        issuedToName: companyName,
+        issuedToContact: contactName,
+      });
+    }
+  } catch (e) {
+    console.error('invoice issue failed:', e);
   }
 
   // 管理者通知（失敗してもサインアップ自体は成功扱い）
@@ -240,7 +352,11 @@ export async function POST(request: NextRequest) {
     console.error('admin notify failed:', e);
   }
 
-  return NextResponse.json({ success: true, redirect: '/mypage' });
+  // メルマガ申込時は配信メーリスの設定画面へ直接誘導（最初にやることが明確になる）
+  const redirectTo = withMerumaga
+    ? 'https://mail.taxbestsearch.com/dashboard/members?welcome=1'
+    : '/mypage';
+  return NextResponse.json({ success: true, redirect: redirectTo });
 }
 
 async function sendAdminNotification(p: {

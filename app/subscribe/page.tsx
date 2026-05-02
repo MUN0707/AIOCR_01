@@ -38,6 +38,9 @@ function SubscribeForm() {
   // ログイン中ユーザーを検出してフォームを簡略化（メール/パスワード入力欄を隠す、会社名等を prefill）
   const [authUser, setAuthUser] = useState<{ id: string; email: string } | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  // 既契約サービス（追加申込時に重複選択をブロックするため）
+  const [hasAiocr, setHasAiocr] = useState(false);
+  const [hasMerumaga, setHasMerumaga] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -48,16 +51,16 @@ function SubscribeForm() {
       if (user?.email) {
         setAuthUser({ id: user.id, email: user.email });
         setEmail(user.email);
-        // 既存の firms / subscriptions があれば会社名・担当者名・電話を prefill
+        // 既存の firms / subscriptions を取得
         const [{ data: firm }, { data: sub }] = await Promise.all([
           supabase
             .from('firms')
-            .select('name, contact_name, phone')
+            .select('name, contact_name, phone, status')
             .eq('user_id', user.id)
             .maybeSingle(),
           supabase
             .from('subscriptions')
-            .select('notes')
+            .select('status')
             .eq('user_id', user.id)
             .maybeSingle(),
         ]);
@@ -68,8 +71,13 @@ function SubscribeForm() {
         if (initCompany) setCompanyName(initCompany);
         if (initContact) setContactName(initContact);
         if (initPhone) setPhone(initPhone);
-        // sub.notes は補助情報。会社名・担当者を notes から拾う必要は今のところない
-        void sub;
+        // 既契約 = cancelled 以外なら追加申込不可
+        const aiocrActive = !!sub && sub.status !== 'cancelled';
+        const merumagaActive = !!firm && firm.status !== 'cancelled';
+        setHasAiocr(aiocrActive);
+        setHasMerumaga(merumagaActive);
+        if (aiocrActive) setWithAiocr(false);
+        if (merumagaActive) setWithMerumaga(false);
       }
       setAuthChecked(true);
     })();
@@ -145,7 +153,9 @@ function SubscribeForm() {
           <ServiceCard
             color="sky"
             checked={withAiocr}
-            onToggle={() => setWithAiocr(!withAiocr)}
+            onToggle={() => !hasAiocr && setWithAiocr(!withAiocr)}
+            disabled={hasAiocr}
+            disabledLabel="契約中"
             title="Invoice OCR（請求書 PDF 分割）"
             subtitle="請求書 PDF を AI が自動解析・分割・命名"
             lpHref="/lp/invoice"
@@ -187,7 +197,9 @@ function SubscribeForm() {
           <ServiceCard
             color="emerald"
             checked={withMerumaga}
-            onToggle={() => setWithMerumaga(!withMerumaga)}
+            onToggle={() => !hasMerumaga && setWithMerumaga(!withMerumaga)}
+            disabled={hasMerumaga}
+            disabledLabel="契約中"
             title="税理士事務所スタッフ育成メルマガ"
             subtitle="週1配信・10分で実務ミスを学べる育成ツール（年52号）"
             lpHref="https://mail.taxbestsearch.com/"
@@ -306,6 +318,8 @@ function ServiceCard({
   subtitle,
   lpHref,
   lpExternal,
+  disabled,
+  disabledLabel,
   children,
 }: {
   color: 'sky' | 'emerald';
@@ -315,6 +329,8 @@ function ServiceCard({
   subtitle: string;
   lpHref: string;
   lpExternal?: boolean;
+  disabled?: boolean;
+  disabledLabel?: string;
   children: React.ReactNode;
 }) {
   const accent =
@@ -322,21 +338,26 @@ function ServiceCard({
       ? { bar: 'bg-sky-500', tint: 'bg-sky-50/60', border: 'border-sky-200', tag: 'text-sky-700' }
       : { bar: 'bg-emerald-500', tint: 'bg-emerald-50/60', border: 'border-emerald-200', tag: 'text-emerald-700' };
   return (
-    <div className={`bg-white rounded-2xl border-2 ${checked ? accent.border : 'border-slate-200'} overflow-hidden transition`}>
+    <div className={`bg-white rounded-2xl border-2 ${checked ? accent.border : 'border-slate-200'} overflow-hidden transition ${disabled ? 'opacity-60' : ''}`}>
       <button
         type="button"
         onClick={onToggle}
+        disabled={disabled}
         className={`w-full flex items-center gap-3 p-4 text-left transition ${
-          checked ? accent.tint : 'bg-white hover:bg-slate-50'
+          disabled ? 'bg-slate-50 cursor-not-allowed' : checked ? accent.tint : 'bg-white hover:bg-slate-50'
         }`}
       >
         <span
           className={`w-6 h-6 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition ${
-            checked ? `${accent.bar} border-transparent` : 'border-slate-300 bg-white'
+            disabled
+              ? 'bg-slate-200 border-slate-300'
+              : checked
+                ? `${accent.bar} border-transparent`
+                : 'border-slate-300 bg-white'
           }`}
         >
-          {checked && (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          {(checked || disabled) && (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={disabled ? '#94a3b8' : 'white'} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           )}
@@ -345,6 +366,11 @@ function ServiceCard({
           <p className="font-bold text-slate-900">{title}</p>
           <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>
         </div>
+        {disabled && disabledLabel && (
+          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 whitespace-nowrap`}>
+            {disabledLabel}
+          </span>
+        )}
         <a
           href={lpHref}
           target={lpExternal ? '_blank' : undefined}
@@ -355,7 +381,7 @@ function ServiceCard({
           詳細 →
         </a>
       </button>
-      {checked && <div className={`p-5 border-t ${accent.border}`}>{children}</div>}
+      {checked && !disabled && <div className={`p-5 border-t ${accent.border}`}>{children}</div>}
     </div>
   );
 }
