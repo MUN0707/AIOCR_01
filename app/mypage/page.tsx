@@ -8,6 +8,7 @@ import {
   type MerumagaPlanId,
   MERUMAGA_DASHBOARD_URL,
 } from '@/lib/services';
+import AccountSection from './AccountSection';
 
 const STATUS_LABEL: Record<string, { label: string; bg: string; fg: string }> = {
   pending: { label: 'ご入金確認中', bg: 'bg-amber-100', fg: 'text-amber-800' },
@@ -75,6 +76,8 @@ export default async function MyPage() {
           <h1 className="text-2xl font-bold text-slate-900 mb-2">ご契約中のサービス</h1>
           <p className="text-sm text-slate-600">追加申込みは下部の「サービスを追加する」からお申込みください。</p>
         </div>
+
+        <AccountSection currentEmail={user.email ?? ''} />
 
         {/* Invoice OCR */}
         <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">

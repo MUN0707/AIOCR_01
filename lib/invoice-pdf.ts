@@ -15,6 +15,7 @@
 
 import PDFDocument from 'pdfkit';
 import path from 'node:path';
+import fs from 'node:fs';
 
 export type InvoiceLineItem = {
   name: string;
@@ -33,7 +34,20 @@ export type InvoiceData = {
   notes?: string;
 };
 
-const FONT_PATH = path.join(process.cwd(), 'public', 'fonts', 'NotoSansJP-Regular.otf');
+// フォントは lib/fonts/ に置き、Next.js のサーバー関数バンドルに自動 trace される。
+// 本番（serverless）では process.cwd() が /var/task になるが、
+// outputFileTracingIncludes で含めるか、__dirname 経由で解決すれば確実に読める。
+function resolveFontPath(): string {
+  const candidates = [
+    path.join(process.cwd(), 'lib', 'fonts', 'NotoSansJP-Regular.otf'),
+    path.join(process.cwd(), '.next', 'server', 'lib', 'fonts', 'NotoSansJP-Regular.otf'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return candidates[0]; // 最終的に存在しなくても pdfkit に投げる（エラーで原因特定）
+}
+const FONT_PATH = resolveFontPath();
 
 function fmtYen(n: number): string {
   return `¥${n.toLocaleString('ja-JP')}`;
