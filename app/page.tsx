@@ -10,6 +10,12 @@ import type { MatchResult, MatchSummary, VoucherInput, TransactionInput } from '
 import { CSV_PRESETS, parseCsvWithPreset, type NormalizedJournalRow } from '@/lib/csv-import-presets';
 import { splitPdfIfNeeded, type PdfChunk } from '@/lib/pdf-split';
 import { findSimilarPairs, type SimilarPair } from '@/lib/similarity';
+import {
+  isFixedAssetAccountName,
+  isSmallAssetAmount,
+  SMALL_ASSET_ADVICE_SHORT,
+  SMALL_ASSET_ADVICE_DETAIL,
+} from '@/lib/small-asset-advice';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
@@ -5806,6 +5812,24 @@ function EditableRow({
           onCreate={addAccountLocal}
           dense
         />
+        {(() => {
+          const meta = accountsList.find((a) => a.name === debitAccount);
+          const debitAmtNum = debitAmount === '' ? null : Number(debitAmount);
+          if (
+            isFixedAssetAccountName(debitAccount, meta?.sub_category) &&
+            isSmallAssetAmount(debitAmtNum)
+          ) {
+            return (
+              <p
+                className="mt-0.5 text-[9px] text-amber-600 leading-tight"
+                title={SMALL_ASSET_ADVICE_DETAIL}
+              >
+                {SMALL_ASSET_ADVICE_SHORT}
+              </p>
+            );
+          }
+          return null;
+        })()}
       </td>
       <td className="px-2 py-1.5">
         {hasDebit ? (
@@ -5847,6 +5871,24 @@ function EditableRow({
           onCreate={addAccountLocal}
           dense
         />
+        {(() => {
+          const meta = accountsList.find((a) => a.name === creditAccount);
+          const creditAmtNum = creditAmount === '' ? null : Number(creditAmount);
+          if (
+            isFixedAssetAccountName(creditAccount, meta?.sub_category) &&
+            isSmallAssetAmount(creditAmtNum)
+          ) {
+            return (
+              <p
+                className="mt-0.5 text-[9px] text-amber-600 leading-tight"
+                title={SMALL_ASSET_ADVICE_DETAIL}
+              >
+                {SMALL_ASSET_ADVICE_SHORT}
+              </p>
+            );
+          }
+          return null;
+        })()}
       </td>
       <td className="px-2 py-1.5">
         {hasCredit ? (
@@ -6023,6 +6065,38 @@ function BalanceView({
   const [balanceData, setBalanceData] = useState<BalanceApiResponse | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
+
+  // 会計期間（期首残高を「期間内増減」と組み合わせて期首→期末の流れを表示するため）
+  interface FiscalPeriodLite {
+    id: string;
+    name: string;
+    start_date: string;
+    end_date: string;
+    opening_balances: Record<string, number> | null;
+  }
+  const [periods, setPeriods] = useState<FiscalPeriodLite[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (clientId) params.set('clientId', clientId);
+        const res = await fetch(`/api/fiscal-periods?${params.toString()}`);
+        if (res.ok) {
+          const json = await res.json();
+          setPeriods(json.periods ?? []);
+        }
+      } catch {
+        // 期首残高は補助情報なので失敗しても残高画面は機能させる
+      }
+    })();
+  }, [clientId]);
+  // 指定期間が会計期と完全一致したら、その期の opening_balances を期首残高として使う
+  const matchingPeriod = useMemo(
+    () => periods.find((p) => p.start_date === startDate && p.end_date === endDate) ?? null,
+    [periods, startDate, endDate]
+  );
+  const openingBalances: Record<string, number> = matchingPeriod?.opening_balances ?? {};
+  const hasOpeningBalances = matchingPeriod !== null;
 
   const fetchBalance = useCallback(async () => {
     setBalanceLoading(true);
@@ -6322,7 +6396,26 @@ function BalanceView({
               />
             </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {periods.length > 0 && (
+              <select
+                value={matchingPeriod?.id ?? ''}
+                onChange={(e) => {
+                  const p = periods.find((x) => x.id === e.target.value);
+                  if (p) {
+                    setStartDate(p.start_date);
+                    setEndDate(p.end_date);
+                  }
+                }}
+                className="text-[11px] font-semibold px-2 py-1.5 rounded-lg border border-sky-200 text-sky-700 bg-sky-50/40 hover:border-sky-300 focus:outline-none focus:border-sky-400"
+                title="会計期を選ぶと期首→期末の残高推移が見られます"
+              >
+                <option value="">会計期から選択 ▾</option>
+                {periods.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
             {([
               { key: 'all', label: '全期間' },
               { key: 'thisMonth', label: '今月' },
@@ -6634,23 +6727,47 @@ function BalanceView({
         </div>
       </details>
 
-      {/* 勘定科目別 集計（カテゴリ→サブカテゴリ→display_order でグループ順に整列） */}
+      {/* 勘定科目別 集計
+          - BS科目: 期首残高 → 期間内増減 → 期末残高
+          - PL科目: 期間内発生額（自然符号で正＝自然増加方向）
+          - カテゴリ・サブカテゴリ内では「期間内増減の絶対額が大きい順」に整列
+            （ユーザーが「動いた科目」をすぐ見つけて取引先別に深掘りできるように） */}
       {(() => {
+        // BS=B/S科目, PL=P/L科目 の判定
+        const isBs = (cat: string) => cat === 'asset' || cat === 'liability' || cat === 'equity';
+        // 「自然符号」での期間内増減: その科目で正の値が「自然増加方向」になるよう符号調整
+        //  資産・費用 = 借方残高が自然 → debit - credit
+        //  負債・純資産・収益 = 貸方残高が自然 → credit - debit
+        const naturalNet = (cat: string, d: number, c: number) =>
+          cat === 'liability' || cat === 'equity' || cat === 'revenue' ? c - d : d - c;
+        const fmtSigned = (n: number) => (n >= 0 ? '¥' : '−¥') + Math.abs(n).toLocaleString();
+        const colorByNet = (n: number) =>
+          n > 0 ? 'text-sky-600' : n < 0 ? 'text-lime-600' : 'text-slate-400';
+
         // accountsList から name → meta を引く
         const metaByName = new Map<string, AccountOption>();
         for (const a of accountsList) metaByName.set(a.name, a);
 
-        type AccRow = { name: string; category: string; sub: string; order: number; debit: number; credit: number };
+        type AccRow = {
+          name: string; category: string; sub: string; order: number;
+          debit: number; credit: number;
+          opening: number; netChange: number; ending: number;
+        };
         const rows: AccRow[] = accounts.map((acc) => {
           const meta = metaByName.get(acc);
           const b = accountBalances[acc] ?? { debit: 0, credit: 0 };
+          const cat = meta?.category ?? '';
+          const opening = isBs(cat) ? (openingBalances[acc] ?? 0) : 0;
+          const netChange = naturalNet(cat, b.debit, b.credit);
           return {
             name: acc,
-            category: meta?.category ?? '',
+            category: cat,
             sub: meta?.sub_category ?? '',
             order: meta?.display_order ?? 0,
-            debit: b.debit,
-            credit: b.credit,
+            debit: b.debit, credit: b.credit,
+            opening,
+            netChange,
+            ending: opening + netChange,
           };
         });
         rows.sort((a, b) => {
@@ -6660,35 +6777,53 @@ function BalanceView({
           const sa = SUB_CATEGORY_ORDER[a.sub] ?? 99;
           const sb = SUB_CATEGORY_ORDER[b.sub] ?? 99;
           if (sa !== sb) return sa - sb;
+          // 期間内増減の絶対額が大きい順（カテゴリ・サブ内）
+          const absDiff = Math.abs(b.netChange) - Math.abs(a.netChange);
+          if (absDiff !== 0) return absDiff;
           if (a.order !== b.order) return a.order - b.order;
           return a.name.localeCompare(b.name, 'ja');
         });
 
         // category 単位の小計
-        const categoryTotals: Record<string, { debit: number; credit: number }> = {};
+        const categoryTotals: Record<string, { opening: number; netChange: number; ending: number }> = {};
         for (const r of rows) {
           const key = r.category || 'unknown';
-          if (!categoryTotals[key]) categoryTotals[key] = { debit: 0, credit: 0 };
-          categoryTotals[key].debit += r.debit;
-          categoryTotals[key].credit += r.credit;
+          if (!categoryTotals[key]) categoryTotals[key] = { opening: 0, netChange: 0, ending: 0 };
+          categoryTotals[key].opening += r.opening;
+          categoryTotals[key].netChange += r.netChange;
+          categoryTotals[key].ending += r.ending;
         }
 
         return (
           <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-700 tracking-tight">勘定科目別 集計</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">行クリックで取引先別残高を展開。各行の「元帳」で総勘定元帳を新タブで開きます</p>
+            <div className="px-5 py-4 border-b border-slate-100 bg-sky-50/40">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700 tracking-tight">勘定科目別 集計</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    💡 <span className="font-semibold text-sky-700">大きく動いた科目から順に並んでいます</span>。気になる科目の行をクリックすると <span className="font-semibold text-sky-700">どの取引先で動いたか</span>（取引先別の増減）が見られます。
+                  </p>
+                </div>
               </div>
+              {!hasOpeningBalances && periods.length > 0 && (
+                <p className="text-[10px] text-amber-600 mt-2">
+                  ※ 期首残高を表示するには上の「会計期から選択」で期を選んでください（期首→期末の流れが見えます）
+                </p>
+              )}
+              {!hasOpeningBalances && periods.length === 0 && (
+                <p className="text-[10px] text-slate-400 mt-2">
+                  ※ 会計期と期首残高を「決算書」タブで登録すると、期首→期末の流れも表示されます
+                </p>
+              )}
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[720px]">
+              <table className="w-full text-sm min-w-[760px]">
                 <thead>
                   <tr className="border-b border-slate-50">
                     <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">勘定科目 / 取引先</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">借方合計</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方合計</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">差額（借−貸）</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">期首残高</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">期間内増減</th>
+                    <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">期末残高</th>
                     <th className="px-4 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest w-20">元帳</th>
                   </tr>
                 </thead>
@@ -6699,17 +6834,23 @@ function BalanceView({
                     let prevSub = '__init__';
                     for (const r of rows) {
                       const cat = r.category || 'unknown';
+                      const catIsBs = isBs(cat);
                       if (cat !== prevCategory) {
-                        const t = categoryTotals[cat] ?? { debit: 0, credit: 0 };
-                        const tDiff = t.debit - t.credit;
+                        const t = categoryTotals[cat] ?? { opening: 0, netChange: 0, ending: 0 };
                         elements.push(
                           <tr key={`cat-${cat}`} className="bg-sky-50/60 border-y border-sky-100">
                             <td className="px-4 py-2 text-[11px] font-bold text-sky-700 uppercase tracking-wider">
                               {CATEGORY_LABEL[cat] ?? '未分類'}
                             </td>
-                            <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">¥{t.debit.toLocaleString()}</td>
-                            <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">¥{t.credit.toLocaleString()}</td>
-                            <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">¥{tDiff.toLocaleString()}</td>
+                            <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">
+                              {catIsBs ? `¥${t.opening.toLocaleString()}` : <span className="text-sky-300">—</span>}
+                            </td>
+                            <td className={`px-4 py-2 text-right text-[11px] font-semibold tabular-nums ${colorByNet(t.netChange)}`}>
+                              {fmtSigned(t.netChange)}
+                            </td>
+                            <td className="px-4 py-2 text-right text-[11px] font-semibold text-sky-700 tabular-nums">
+                              {catIsBs ? `¥${t.ending.toLocaleString()}` : <span className="text-sky-300">—</span>}
+                            </td>
                             <td className="px-4 py-2"></td>
                           </tr>
                         );
@@ -6726,7 +6867,6 @@ function BalanceView({
                         );
                         prevSub = r.sub;
                       }
-                      const diff = r.debit - r.credit;
                       const expanded = expandedAccounts.has(r.name);
                       const vendorRowsForAcc = vendorBreakdownByAccount[r.name] ?? [];
                       const hasVendorBreakdown = vendorRowsForAcc.length > 0;
@@ -6737,7 +6877,7 @@ function BalanceView({
                               type="button"
                               onClick={() => toggleExpand(r.name)}
                               className="text-xs text-slate-700 font-medium hover:text-sky-600 cursor-pointer text-left flex items-center gap-1.5 group"
-                              title={hasVendorBreakdown ? `取引先別残高を${expanded ? '閉じる' : '開く'}` : '取引先別データなし'}
+                              title={hasVendorBreakdown ? `取引先別の増減を${expanded ? '閉じる' : '開く'}` : '取引先別データなし'}
                             >
                               <span className={`text-slate-300 group-hover:text-sky-400 text-[10px] transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
                               <span className={expanded ? 'text-sky-700' : ''}>{r.name}</span>
@@ -6746,10 +6886,16 @@ function BalanceView({
                               )}
                             </button>
                           </td>
-                          <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{r.debit.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">¥{r.credit.toLocaleString()}</td>
-                          <td className={`px-4 py-3 text-right text-xs font-semibold tabular-nums ${diff > 0 ? 'text-sky-600' : diff < 0 ? 'text-lime-600' : 'text-slate-400'}`}>
-                            ¥{diff.toLocaleString()}
+                          <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">
+                            {catIsBs ? `¥${r.opening.toLocaleString()}` : <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className={`px-4 py-3 text-right text-xs font-semibold tabular-nums ${colorByNet(r.netChange)}`}
+                            title={`借方合計 ¥${r.debit.toLocaleString()} / 貸方合計 ¥${r.credit.toLocaleString()}`}
+                          >
+                            {fmtSigned(r.netChange)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs text-slate-500 tabular-nums">
+                            {catIsBs ? `¥${r.ending.toLocaleString()}` : <span className="text-slate-300">—</span>}
                           </td>
                           <td className="px-4 py-3 text-right">
                             <button
@@ -6767,12 +6913,13 @@ function BalanceView({
                         elements.push(
                           <tr key={`acc-${r.name}-vendor-header`} className="bg-slate-50/40 border-b border-slate-50">
                             <td colSpan={5} className="px-10 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-widest">
-                              取引先別内訳
+                              取引先別の期間内増減（大きい順）
                             </td>
                           </tr>
                         );
                         for (const vr of vendorRowsForAcc) {
-                          const vDiff = vr.debit - vr.credit;
+                          // 取引先別も科目の自然符号に揃える（科目とカテゴリが同じ）
+                          const vNet = naturalNet(cat, vr.debit, vr.credit);
                           const vendorParam = vr.isUnregistered ? '__unregistered__' : vr.vendor;
                           elements.push(
                             <tr key={`acc-${r.name}-v-${vr.vendor}`} className={vr.isUnregistered ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-sky-50/30'}>
@@ -6781,11 +6928,13 @@ function BalanceView({
                                 {vr.isUnregistered && <span className="ml-1 text-[9px] text-amber-500">⚠</span>}
                                 <span className="ml-2 text-[9px] text-slate-300">{vr.entryCount}件</span>
                               </td>
-                              <td className="px-4 py-2 text-right text-[11px] text-slate-500 tabular-nums">¥{vr.debit.toLocaleString()}</td>
-                              <td className="px-4 py-2 text-right text-[11px] text-slate-500 tabular-nums">¥{vr.credit.toLocaleString()}</td>
-                              <td className={`px-4 py-2 text-right text-[11px] font-semibold tabular-nums ${vDiff > 0 ? 'text-sky-600' : vDiff < 0 ? 'text-lime-600' : 'text-slate-400'}`}>
-                                ¥{vDiff.toLocaleString()}
+                              <td className="px-4 py-2 text-right text-[11px] text-slate-300 tabular-nums">—</td>
+                              <td className={`px-4 py-2 text-right text-[11px] font-semibold tabular-nums ${colorByNet(vNet)}`}
+                                title={`借方合計 ¥${vr.debit.toLocaleString()} / 貸方合計 ¥${vr.credit.toLocaleString()}`}
+                              >
+                                {fmtSigned(vNet)}
                               </td>
+                              <td className="px-4 py-2 text-right text-[11px] text-slate-300 tabular-nums">—</td>
                               <td className="px-4 py-2 text-right">
                                 <button
                                   type="button"
@@ -6975,6 +7124,18 @@ function FixedAssetSection({
               onChange={(e) => setForm({ ...form, acquisition_cost: Number(e.target.value) })}
               className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs tabular-nums focus:outline-none focus:border-lime-400" />
           </div>
+          {form.category !== 'deferred' && isSmallAssetAmount(Number(form.acquisition_cost)) && (
+            <div
+              className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-800 leading-relaxed"
+              title={SMALL_ASSET_ADVICE_DETAIL}
+            >
+              {SMALL_ASSET_ADVICE_SHORT}
+              <br />
+              <span className="text-[10px] text-amber-700/80">
+                ※ 資産計上せず「消耗品費」などで全額費用にできます。固定資産として登録するならこのまま進めてください。
+              </span>
+            </div>
+          )}
           <div className="flex justify-end">
             <button onClick={createNew}
               className="text-xs text-white bg-lime-500 rounded-xl px-4 py-2 font-semibold hover:bg-lime-600">
