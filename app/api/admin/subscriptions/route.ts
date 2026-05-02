@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
 
 async function verifyAdmin() {
   const cookieStore = await cookies();
@@ -13,7 +14,7 @@ async function verifyAdmin() {
         getAll() { return cookieStore.getAll(); },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
+            cookieStore.set(name, value, { ...options, ...AUTH_COOKIE_OPTIONS })
           );
         },
       },

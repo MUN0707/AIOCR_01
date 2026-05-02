@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -12,7 +13,7 @@ export async function GET() {
         getAll() { return cookieStore.getAll(); },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
+            cookieStore.set(name, value, { ...options, ...AUTH_COOKIE_OPTIONS })
           );
         },
       },

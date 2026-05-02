@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useMemo, Suspense } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { createClient } from '@/utils/supabase/client';
 import { AIOCR_PLANS, MERUMAGA_PLANS, type AiocrPlanId } from '@/lib/services';
 
 const AIOCR_PLAN_LIST: AiocrPlanId[] = ['lite', 'standard', 'pro', 'enterprise'];
@@ -34,6 +35,47 @@ function SubscribeForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ログイン中ユーザーを検出してフォームを簡略化（メール/パスワード入力欄を隠す、会社名等を prefill）
+  const [authUser, setAuthUser] = useState<{ id: string; email: string } | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (user?.email) {
+        setAuthUser({ id: user.id, email: user.email });
+        setEmail(user.email);
+        // 既存の firms / subscriptions があれば会社名・担当者名・電話を prefill
+        const [{ data: firm }, { data: sub }] = await Promise.all([
+          supabase
+            .from('firms')
+            .select('name, contact_name, phone')
+            .eq('user_id', user.id)
+            .maybeSingle(),
+          supabase
+            .from('subscriptions')
+            .select('notes')
+            .eq('user_id', user.id)
+            .maybeSingle(),
+        ]);
+        const meta = (user.user_metadata || {}) as { company_name?: string; contact_name?: string };
+        const initCompany = firm?.name || meta.company_name || '';
+        const initContact = firm?.contact_name || meta.contact_name || '';
+        const initPhone = firm?.phone || '';
+        if (initCompany) setCompanyName(initCompany);
+        if (initContact) setContactName(initContact);
+        if (initPhone) setPhone(initPhone);
+        // sub.notes は補助情報。会社名・担当者を notes から拾う必要は今のところない
+        void sub;
+      }
+      setAuthChecked(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const totalFee = useMemo(() => {
     let total = 0;
     if (withAiocr) total += AIOCR_PLANS[aiocrPlan].price;
@@ -54,8 +96,8 @@ function SubscribeForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email,
-          password,
+          email: authUser ? undefined : email,
+          password: authUser ? undefined : password,
           companyName,
           contactName,
           phone,
@@ -180,6 +222,17 @@ function SubscribeForm() {
           <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
             <h2 className="font-bold text-slate-900">お客様情報</h2>
 
+            {authChecked && authUser && (
+              <div className="bg-sky-50 border border-sky-200 rounded-lg px-4 py-3 text-sm text-sky-900 flex items-center justify-between gap-3">
+                <span>
+                  ログイン中: <span className="font-semibold">{authUser.email}</span> として申込
+                </span>
+                <Link href="/api/auth/signout" className="text-xs text-sky-700 hover:underline whitespace-nowrap">
+                  別アカウントで申込 →
+                </Link>
+              </div>
+            )}
+
             <Field label="会社名・事務所名 *">
               <input type="text" required value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="例：山田税理士事務所" className="input-base" />
             </Field>
@@ -189,13 +242,17 @@ function SubscribeForm() {
             <Field label="電話番号">
               <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="03-1234-5678" className="input-base" />
             </Field>
-            <Field label="メールアドレス（マイページログイン用）*">
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@office.jp" className="input-base" />
-            </Field>
-            <Field label="パスワード（8文字以上）*">
-              <input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} className="input-base" />
-              <p className="text-xs text-slate-500 mt-1">マイページにログインしてサービスを管理するためのパスワードです。</p>
-            </Field>
+            {!authUser && (
+              <>
+                <Field label="メールアドレス（マイページログイン用）*">
+                  <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@office.jp" className="input-base" />
+                </Field>
+                <Field label="パスワード（8文字以上）*">
+                  <input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} className="input-base" />
+                  <p className="text-xs text-slate-500 mt-1">マイページにログインしてサービスを管理するためのパスワードです。</p>
+                </Field>
+              </>
+            )}
           </div>
 
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900 space-y-1">
@@ -212,12 +269,14 @@ function SubscribeForm() {
             {loading ? '送信中...' : '申込みを確定する'}
           </button>
 
-          <p className="text-center text-sm text-slate-500">
-            すでに登録済みの方は{' '}
-            <Link href="/login" className="text-sky-600 hover:underline">
-              ログイン
-            </Link>
-          </p>
+          {!authUser && (
+            <p className="text-center text-sm text-slate-500">
+              すでに登録済みの方は{' '}
+              <Link href="/login" className="text-sky-600 hover:underline">
+                ログイン
+              </Link>
+            </p>
+          )}
         </form>
       </main>
 
