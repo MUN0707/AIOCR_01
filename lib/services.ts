@@ -48,9 +48,9 @@ export const MERUMAGA_PLANS: Record<
   MerumagaPlanId,
   { id: MerumagaPlanId; name: string; range: string; price: number; maxMembers: number | null }
 > = {
-  tier1: { id: 'tier1', name: '〜10人', range: '従業員10人まで', price: 3000, maxMembers: 10 },
-  tier2: { id: 'tier2', name: '〜20人', range: '従業員11〜20人', price: 4000, maxMembers: 20 },
-  tier3: { id: 'tier3', name: '20人超', range: '従業員21人以上', price: 5000, maxMembers: null },
+  tier1: { id: 'tier1', name: '〜10人', range: 'メーリス登録10人まで', price: 1980, maxMembers: 10 },
+  tier2: { id: 'tier2', name: '〜20人', range: 'メーリス登録11〜20人', price: 2980, maxMembers: 20 },
+  tier3: { id: 'tier3', name: '20人超', range: 'メーリス登録21人以上', price: 3980, maxMembers: null },
 };
 
 export function merumagaPlanFromMemberCount(count: number): MerumagaPlanId {

@@ -2,12 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/utils/supabase/service';
-import {
-  AIOCR_PLANS,
-  type AiocrPlanId,
-  merumagaFeeFromMemberCount,
-  merumagaPlanFromMemberCount,
-} from '@/lib/services';
+import { AIOCR_PLANS, MERUMAGA_PLANS, type AiocrPlanId } from '@/lib/services';
 
 type Payload = {
   // 認証（未ログイン時のみ）
@@ -21,8 +16,35 @@ type Payload = {
   withAiocr: boolean;
   aiocrPlan?: AiocrPlanId;
   withMerumaga: boolean;
-  memberCount?: number;
 };
+
+// Resend Audience を自動作成（メルマガ申込時に1事務所＝1メーリス）
+async function createMerumagaAudience(firmName: string): Promise<string | null> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.error('RESEND_API_KEY missing - skip audience creation');
+    return null;
+  }
+  try {
+    const res = await fetch('https://api.resend.com/audiences', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: `merumaga / ${firmName}` }),
+    });
+    if (!res.ok) {
+      console.error('Resend audience create failed:', res.status, await res.text());
+      return null;
+    }
+    const data = (await res.json()) as { id?: string };
+    return data.id ?? null;
+  } catch (e) {
+    console.error('Resend audience create error:', e);
+    return null;
+  }
+}
 
 export async function POST(request: NextRequest) {
   let payload: Payload;
@@ -45,7 +67,8 @@ export async function POST(request: NextRequest) {
     ? (AIOCR_PLANS[payload.aiocrPlan as AiocrPlanId] ? (payload.aiocrPlan as AiocrPlanId) : 'standard')
     : 'lite';
 
-  const memberCount = withMerumaga ? Math.max(1, parseInt(String(payload.memberCount ?? 1), 10) || 1) : 0;
+  // メルマガは tier1 固定スタート。マイページでメーリスにメンバー追加すると自動でプラン昇格
+  const merumagaPlan = MERUMAGA_PLANS.tier1;
 
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -156,13 +179,18 @@ export async function POST(request: NextRequest) {
 
   // メルマガ事務所登録（firms 行を upsert）
   if (withMerumaga) {
-    const merumagaPlan = merumagaPlanFromMemberCount(memberCount);
-    const monthlyFee = merumagaFeeFromMemberCount(memberCount);
     const { data: existingFirm } = await service
       .from('firms')
-      .select('id')
+      .select('id, resend_audience_id')
       .eq('user_id', userId)
       .maybeSingle();
+
+    // Resend Audience（メーリス）を未作成なら自動作成
+    let audienceId = existingFirm?.resend_audience_id ?? null;
+    if (!audienceId) {
+      audienceId = await createMerumagaAudience(companyName);
+    }
+
     if (existingFirm) {
       await service
         .from('firms')
@@ -170,11 +198,12 @@ export async function POST(request: NextRequest) {
           name: companyName,
           contact_name: contactName,
           phone: phone || null,
-          member_count: memberCount,
-          plan: merumagaPlan,
-          monthly_fee: monthlyFee,
+          member_count: 0,
+          plan: merumagaPlan.id,
+          monthly_fee: merumagaPlan.price,
           status: 'pending',
           payment_method: 'bank_transfer',
+          resend_audience_id: audienceId,
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', userId);
@@ -184,11 +213,12 @@ export async function POST(request: NextRequest) {
         name: companyName,
         contact_name: contactName,
         phone: phone || null,
-        member_count: memberCount,
-        plan: merumagaPlan,
-        monthly_fee: monthlyFee,
+        member_count: 0,
+        plan: merumagaPlan.id,
+        monthly_fee: merumagaPlan.price,
         status: 'pending',
         payment_method: 'bank_transfer',
+        resend_audience_id: audienceId,
       });
     }
   }
@@ -203,7 +233,6 @@ export async function POST(request: NextRequest) {
       withAiocr,
       aiocrPlan,
       withMerumaga,
-      memberCount,
       createdNewUser,
     });
   } catch (e) {
@@ -221,7 +250,6 @@ async function sendAdminNotification(p: {
   withAiocr: boolean;
   aiocrPlan: AiocrPlanId;
   withMerumaga: boolean;
-  memberCount: number;
   createdNewUser: boolean;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
@@ -230,8 +258,8 @@ async function sendAdminNotification(p: {
   const services: string[] = [];
   if (p.withAiocr) services.push(`Invoice OCR（${AIOCR_PLANS[p.aiocrPlan].name}・¥${AIOCR_PLANS[p.aiocrPlan].price.toLocaleString()}/月）`);
   if (p.withMerumaga) {
-    const fee = merumagaFeeFromMemberCount(p.memberCount);
-    services.push(`育成メルマガ（${p.memberCount}人・¥${fee.toLocaleString()}/月）`);
+    const initial = MERUMAGA_PLANS.tier1;
+    services.push(`育成メルマガ（${initial.name}スタート・¥${initial.price.toLocaleString()}/月、メーリス追加で自動昇格）`);
   }
   await fetch('https://api.resend.com/emails', {
     method: 'POST',

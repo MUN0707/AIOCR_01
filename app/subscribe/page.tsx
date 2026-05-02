@@ -3,14 +3,13 @@
 import { useState, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import {
-  AIOCR_PLANS,
-  type AiocrPlanId,
-  merumagaFeeFromMemberCount,
-  merumagaPlanFromMemberCount,
-} from '@/lib/services';
+import { AIOCR_PLANS, MERUMAGA_PLANS, type AiocrPlanId } from '@/lib/services';
 
 const AIOCR_PLAN_LIST: AiocrPlanId[] = ['lite', 'standard', 'pro', 'enterprise'];
+
+// メルマガは tier1（〜10人・1980円）固定スタート。
+// マイページでメーリスにメンバー追加すると自動で tier2/tier3 へ昇格する。
+const MERUMAGA_INITIAL_PLAN = MERUMAGA_PLANS.tier1;
 
 function SubscribeForm() {
   const router = useRouter();
@@ -25,7 +24,6 @@ function SubscribeForm() {
   );
 
   const [withMerumaga, setWithMerumaga] = useState(initialService === 'merumaga');
-  const [memberCount, setMemberCount] = useState(5);
 
   const [companyName, setCompanyName] = useState('');
   const [contactName, setContactName] = useState('');
@@ -36,15 +34,12 @@ function SubscribeForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const merumagaPlan = merumagaPlanFromMemberCount(memberCount);
-  const merumagaFee = merumagaFeeFromMemberCount(memberCount);
-
   const totalFee = useMemo(() => {
     let total = 0;
     if (withAiocr) total += AIOCR_PLANS[aiocrPlan].price;
-    if (withMerumaga) total += merumagaFee;
+    if (withMerumaga) total += MERUMAGA_INITIAL_PLAN.price;
     return total;
-  }, [withAiocr, aiocrPlan, withMerumaga, merumagaFee]);
+  }, [withAiocr, aiocrPlan, withMerumaga]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,7 +62,6 @@ function SubscribeForm() {
           withAiocr,
           aiocrPlan: withAiocr ? aiocrPlan : undefined,
           withMerumaga,
-          memberCount: withMerumaga ? memberCount : undefined,
         }),
       });
       const data = await res.json();
@@ -157,25 +151,20 @@ function SubscribeForm() {
             lpHref="https://mail.taxbestsearch.com/"
             lpExternal
           >
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                配信を希望する従業員数
-              </label>
-              <input
-                type="number"
-                min={1}
-                value={memberCount}
-                onChange={(e) => setMemberCount(parseInt(e.target.value) || 1)}
-                className="w-full border border-slate-300 rounded-lg px-4 py-2.5"
-              />
-              <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-baseline justify-between">
+            <div className="space-y-3">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-baseline justify-between">
                 <span className="text-sm text-emerald-800">
-                  プラン：<span className="font-bold">{merumagaPlan === 'tier1' ? '〜10人' : merumagaPlan === 'tier2' ? '〜20人' : '20人超'}</span>
+                  開始プラン：<span className="font-bold">{MERUMAGA_INITIAL_PLAN.name}</span>
                 </span>
                 <span className="text-emerald-700 font-extrabold text-lg">
-                  ¥{merumagaFee.toLocaleString()}<span className="text-xs font-normal">/月</span>
+                  ¥{MERUMAGA_INITIAL_PLAN.price.toLocaleString()}<span className="text-xs font-normal">/月</span>
                 </span>
               </div>
+              <ul className="text-xs text-slate-600 space-y-1 leading-relaxed">
+                <li>• 申込時は <strong>{MERUMAGA_INITIAL_PLAN.name}（メーリス10人まで・¥{MERUMAGA_INITIAL_PLAN.price.toLocaleString()}/月）</strong> でスタート</li>
+                <li>• 配信用メーリス（メーリングリスト）はこちら側で自動作成します</li>
+                <li>• マイページでメーリスにメールアドレスを追加すると、その時点の人数で<strong>翌月から自動でプラン昇格</strong>（11人目→¥2,980 / 21人目→¥3,980）</li>
+              </ul>
             </div>
           </ServiceCard>
 
