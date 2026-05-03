@@ -80,7 +80,9 @@ export async function generateInvoicePdf(data: InvoiceData): Promise<Buffer> {
 
   return new Promise<Buffer>((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      // font: FONT_PATH を渡すことで pdfkit がデフォルト Helvetica.afm を
+      // 読みに行く挙動を抑止する（serverless では afm ファイル不在で ENOENT になりやすい）。
+      const doc = new PDFDocument({ size: 'A4', margin: 50, font: FONT_PATH });
       doc.registerFont('Jp', FONT_PATH);
       doc.font('Jp');
 

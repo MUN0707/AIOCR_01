@@ -6,10 +6,14 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '50mb',
     },
   },
-  // pdfkit が読み込む日本語フォントを serverless 関数のバンドルに含める。
-  // 既定では .otf は trace 対象外なので明示する。
+  // pdfkit 関連のアセットを serverless 関数のバンドルに含める。
+  // - lib/fonts/*.otf : 日本語フォント（registerFont で読み込み）
+  // - pdfkit/js/data/*.afm : pdfkit の標準フォント定義（不在だと PDFDocument 初期化で ENOENT）
   outputFileTracingIncludes: {
-    '/api/subscribe/route': ['./lib/fonts/**/*'],
+    '/api/subscribe/route': [
+      './lib/fonts/**/*',
+      './node_modules/pdfkit/js/data/**/*',
+    ],
   },
 };
 

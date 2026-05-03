@@ -308,6 +308,7 @@ export async function POST(request: NextRequest) {
   }
 
   // 請求書 PDF 発行（サービスごとに1通ずつ）。失敗しても申込自体は成功扱い
+  // 失敗時は ADMIN_EMAIL に詳細を送って気付けるようにする。
   try {
     if (withAiocr) {
       const plan = AIOCR_PLANS[aiocrPlan];
@@ -333,7 +334,34 @@ export async function POST(request: NextRequest) {
       });
     }
   } catch (e) {
-    console.error('invoice issue failed:', e);
+    const detail = e instanceof Error ? `${e.message}\n${e.stack}` : String(e);
+    console.error('invoice issue failed:', detail);
+    // 管理者に通知（自分の運用監視用）
+    const apiKey = process.env.RESEND_API_KEY;
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (apiKey && adminEmail) {
+      try {
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: 'システムエラー <invoice-ocr@taxbestsearch.com>',
+            to: adminEmail,
+            subject: `【要対応】請求書発行失敗: ${userEmail}`,
+            html: `<p>請求書発行に失敗しました。手動対応を検討してください。</p>
+<ul>
+<li>ユーザー: ${userEmail}</li>
+<li>会社名: ${companyName}</li>
+<li>aiocr: ${withAiocr ? aiocrPlan : '-'}</li>
+<li>merumaga: ${withMerumaga ? merumagaPlan.id : '-'}</li>
+</ul>
+<pre style="background:#f5f5f5;padding:8px;font-size:11px;overflow:auto">${detail.replace(/[<>&]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]!))}</pre>`,
+          }),
+        });
+      } catch (notifyErr) {
+        console.error('admin notify (invoice fail) also failed:', notifyErr);
+      }
+    }
   }
 
   // 管理者通知（失敗してもサインアップ自体は成功扱い）
