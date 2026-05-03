@@ -6,6 +6,7 @@ import { createServiceClient } from '@/utils/supabase/service';
 import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
 import { AIOCR_PLANS, MERUMAGA_PLANS, type AiocrPlanId } from '@/lib/services';
 import { generateInvoicePdf, nextInvoiceNo } from '@/lib/invoice-pdf';
+import { resendCall, resendSendEmail } from '@/lib/resend-helper';
 
 export const runtime = 'nodejs'; // pdfkit が node:fs を使うため Edge ではなく Node ランタイム必須
 
@@ -78,52 +79,42 @@ async function issueAndSendInvoice(params: {
     due_at: dueAt.toISOString(),
   });
 
-  const apiKey = process.env.RESEND_API_KEY;
-  if (apiKey) {
-    const dueStr = dueAt.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: '請求書 <info@taxbestsearch.com>',
-        to: params.userEmail,
-        subject: `【請求書】${params.itemName}（${invoiceNo}）`,
-        html: `<p>${params.issuedToName} 様</p>
+  const dueStr = dueAt.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
+  const sendResult = await resendSendEmail({
+    from: '請求書 <info@taxbestsearch.com>',
+    to: params.userEmail,
+    subject: `【請求書】${params.itemName}（${invoiceNo}）`,
+    html: `<p>${params.issuedToName} 様</p>
 <p>このたびは「${params.itemName}」をお申込みいただきありがとうございます。</p>
 <p>初月分の請求書（<strong>${invoiceNo}</strong>）を本メールに添付しております。<br>
 お支払期日：<strong>${dueStr}</strong></p>
 <p><strong>ご入金前から各サービスはすぐにご利用いただけます。</strong>マイページからメーリスのメンバー登録を進めてください。</p>
 <p>ご不明点は本メールへの返信、もしくは info@taxbestsearch.com までお願いいたします。</p>`,
-        attachments: [
-          { filename: `${invoiceNo}.pdf`, content: pdfBuffer.toString('base64') },
-        ],
-      }),
-    });
+    attachments: [
+      { filename: `${invoiceNo}.pdf`, content: pdfBuffer.toString('base64') },
+    ],
+  });
+  if (!sendResult.ok) {
+    throw new Error(`Resend invoice email failed: ${sendResult.error}`);
+  }
+  if (sendResult.usedBackup) {
+    console.warn('[resend] invoice email sent via BACKUP key');
   }
 }
 
-// Resend Audience を自動作成（メルマガ申込時に1事務所＝1メーリス）
+// Resend Audience を自動作成（メルマガ申込時に1事務所＝1メーリス）。
+// primary キー失敗時は backup キーへ自動フェイルオーバー。
 async function createMerumagaAudience(firmName: string): Promise<string | null> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.error('RESEND_API_KEY missing - skip audience creation');
-    return null;
-  }
   try {
-    const res = await fetch('https://api.resend.com/audiences', {
+    const r = await resendCall('/audiences', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ name: `merumaga / ${firmName}` }),
+      body: { name: `merumaga / ${firmName}` },
     });
-    if (!res.ok) {
-      console.error('Resend audience create failed:', res.status, await res.text());
+    if (!r.ok) {
+      console.error('Resend audience create failed:', r.status, JSON.stringify(r.data));
       return null;
     }
-    const data = (await res.json()) as { id?: string };
-    return data.id ?? null;
+    return (r.data as { id?: string } | null)?.id ?? null;
   } catch (e) {
     console.error('Resend audience create error:', e);
     return null;
@@ -336,28 +327,25 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     const detail = e instanceof Error ? `${e.message}\n${e.stack}` : String(e);
     console.error('invoice issue failed:', detail);
-    // 管理者に通知（自分の運用監視用）
-    const apiKey = process.env.RESEND_API_KEY;
+    // 管理者に通知（primary が落ちていても backup で送る）
     const adminEmail = process.env.ADMIN_EMAIL;
-    if (apiKey && adminEmail) {
+    if (adminEmail) {
       try {
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: 'システムエラー <info@taxbestsearch.com>',
-            to: adminEmail,
-            subject: `【要対応】請求書発行失敗: ${userEmail}`,
-            html: `<p>請求書発行に失敗しました。手動対応を検討してください。</p>
+        const r = await resendSendEmail({
+          from: 'システムエラー <info@taxbestsearch.com>',
+          to: adminEmail,
+          subject: `【要対応】請求書発行失敗: ${userEmail}`,
+          html: `<p>請求書発行に失敗しました。手動対応を検討してください。</p>
 <ul>
 <li>ユーザー: ${userEmail}</li>
 <li>会社名: ${companyName}</li>
 <li>aiocr: ${withAiocr ? aiocrPlan : '-'}</li>
 <li>merumaga: ${withMerumaga ? merumagaPlan.id : '-'}</li>
+<li>backup key 使用: ${'?'} (詳細はログ参照)</li>
 </ul>
 <pre style="background:#f5f5f5;padding:8px;font-size:11px;overflow:auto">${detail.replace(/[<>&]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]!))}</pre>`,
-          }),
         });
+        if (!r.ok) console.error('admin notify (invoice fail) returned not-ok:', r.error);
       } catch (notifyErr) {
         console.error('admin notify (invoice fail) also failed:', notifyErr);
       }
@@ -397,35 +385,29 @@ async function sendAdminNotification(p: {
   withMerumaga: boolean;
   createdNewUser: boolean;
 }) {
-  const apiKey = process.env.RESEND_API_KEY;
   const adminEmail = process.env.ADMIN_EMAIL;
-  if (!apiKey || !adminEmail) return;
+  if (!adminEmail) return;
   const services: string[] = [];
   if (p.withAiocr) services.push(`Invoice OCR（${AIOCR_PLANS[p.aiocrPlan].name}・¥${AIOCR_PLANS[p.aiocrPlan].price.toLocaleString()}/月）`);
   if (p.withMerumaga) {
     const initial = MERUMAGA_PLANS.tier1;
     services.push(`育成メルマガ（${initial.name}スタート・¥${initial.price.toLocaleString()}/月、メーリス追加で自動昇格）`);
   }
-  await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: '申込通知 <info@taxbestsearch.com>',
-      to: adminEmail,
-      subject: `【申込】${p.companyName}（${services.length}サービス・${p.createdNewUser ? '新規' : '既存'}）`,
-      html: `<p>申込が入りました（${p.createdNewUser ? '新規ユーザー' : '既存ユーザー追加申込'}）。</p>
-        <ul>
-          <li>会社名: ${p.companyName}</li>
-          <li>担当者: ${p.contactName}</li>
-          <li>電話: ${p.phone || '-'}</li>
-          <li>メール: ${p.email}</li>
-        </ul>
-        <p>サービス:</p>
-        <ul>${services.map((s) => `<li>${s}</li>`).join('')}</ul>
-        <p>振込確認後、各サービスの管理画面で status を active に更新してください。</p>`,
-    }),
+  const r = await resendSendEmail({
+    from: '申込通知 <info@taxbestsearch.com>',
+    to: adminEmail,
+    subject: `【申込】${p.companyName}（${services.length}サービス・${p.createdNewUser ? '新規' : '既存'}）`,
+    html: `<p>申込が入りました（${p.createdNewUser ? '新規ユーザー' : '既存ユーザー追加申込'}）。</p>
+      <ul>
+        <li>会社名: ${p.companyName}</li>
+        <li>担当者: ${p.contactName}</li>
+        <li>電話: ${p.phone || '-'}</li>
+        <li>メール: ${p.email}</li>
+      </ul>
+      <p>サービス:</p>
+      <ul>${services.map((s) => `<li>${s}</li>`).join('')}</ul>
+      <p>振込確認後、各サービスの管理画面で status を active に更新してください。</p>`,
   });
+  if (!r.ok) console.error('admin notify failed:', r.error);
+  if (r.usedBackup) console.warn('[resend] admin notify sent via BACKUP key');
 }
