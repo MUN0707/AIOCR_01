@@ -117,9 +117,17 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(homeUrl);
   }
 
-  // /pricing と /mypage はサブスクチェック対象外
-  // （pricing はリダイレクトループ防止、mypage は契約状態を見る画面そのもの）
-  if (pathname.startsWith('/pricing') || pathname.startsWith('/mypage')) {
+  // 以下は aiocr サブスクチェック対象外:
+  // - /pricing : リダイレクトループ防止
+  // - /mypage : 契約状態を見る画面そのもの
+  // - /api/invoice : 請求書 DL（メルマガのみ契約のユーザーも自分の請求書を取得する必要がある）
+  // - /api/auth : 認証系（ログアウト等）
+  if (
+    pathname.startsWith('/pricing') ||
+    pathname.startsWith('/mypage') ||
+    pathname.startsWith('/api/invoice') ||
+    pathname.startsWith('/api/auth')
+  ) {
     return supabaseResponse;
   }
 
