@@ -34,18 +34,18 @@ export type InvoiceData = {
   notes?: string;
 };
 
-// フォントは lib/fonts/ に置き、Next.js のサーバー関数バンドルに自動 trace される。
-// 本番（serverless）では process.cwd() が /var/task になるが、
-// outputFileTracingIncludes で含めるか、__dirname 経由で解決すれば確実に読める。
+// フォントは IPAex Gothic（TrueType outline = TTF）。
+// pdfkit は CFF/PostScript outline の OTF を読めないので、必ず TTF を使う。
+// （以前 NotoSansJP-Regular.otf を使って Unknown font format で落ちた経緯あり）
 function resolveFontPath(): string {
   const candidates = [
-    path.join(process.cwd(), 'lib', 'fonts', 'NotoSansJP-Regular.otf'),
-    path.join(process.cwd(), '.next', 'server', 'lib', 'fonts', 'NotoSansJP-Regular.otf'),
+    path.join(process.cwd(), 'lib', 'fonts', 'ipaexg.ttf'),
+    path.join(process.cwd(), '.next', 'server', 'lib', 'fonts', 'ipaexg.ttf'),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
-  return candidates[0]; // 最終的に存在しなくても pdfkit に投げる（エラーで原因特定）
+  return candidates[0];
 }
 const FONT_PATH = resolveFontPath();
 

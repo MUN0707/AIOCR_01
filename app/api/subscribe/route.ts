@@ -325,9 +325,24 @@ export async function POST(request: NextRequest) {
       });
     }
   } catch (e) {
-    const detail = e instanceof Error ? `${e.message}\n${e.stack}` : String(e);
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const errStack = e instanceof Error ? e.stack ?? null : null;
+    const detail = `${errMsg}\n${errStack ?? ''}`;
     console.error('invoice issue failed:', detail);
-    // 管理者に通知（primary が落ちていても backup で送る）
+    // 1) DB に記録（メールが届かなくても後から原因特定できる）
+    try {
+      await service.from('invoice_errors').insert({
+        user_id: userId,
+        user_email: userEmail,
+        company_name: companyName,
+        service: withMerumaga ? 'merumaga' : 'aiocr',
+        error_message: errMsg,
+        stack: errStack,
+      });
+    } catch (dbErr) {
+      console.error('invoice_errors insert failed:', dbErr);
+    }
+    // 2) 管理者に通知（primary が落ちていても backup で送る）
     const adminEmail = process.env.ADMIN_EMAIL;
     if (adminEmail) {
       try {
