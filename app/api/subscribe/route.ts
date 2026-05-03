@@ -85,7 +85,7 @@ async function issueAndSendInvoice(params: {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: '請求書 <invoice-ocr@taxbestsearch.com>',
+        from: '請求書 <info@taxbestsearch.com>',
         to: params.userEmail,
         subject: `【請求書】${params.itemName}（${invoiceNo}）`,
         html: `<p>${params.issuedToName} 様</p>
@@ -345,7 +345,7 @@ export async function POST(request: NextRequest) {
           method: 'POST',
           headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from: 'システムエラー <invoice-ocr@taxbestsearch.com>',
+            from: 'システムエラー <info@taxbestsearch.com>',
             to: adminEmail,
             subject: `【要対応】請求書発行失敗: ${userEmail}`,
             html: `<p>請求書発行に失敗しました。手動対応を検討してください。</p>
@@ -413,7 +413,7 @@ async function sendAdminNotification(p: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: '申込通知 <invoice-ocr@taxbestsearch.com>',
+      from: '申込通知 <info@taxbestsearch.com>',
       to: adminEmail,
       subject: `【申込】${p.companyName}（${services.length}サービス・${p.createdNewUser ? '新規' : '既存'}）`,
       html: `<p>申込が入りました（${p.createdNewUser ? '新規ユーザー' : '既存ユーザー追加申込'}）。</p>
