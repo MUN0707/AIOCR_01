@@ -5239,6 +5239,14 @@ function LedgerView({
           >
             CSVエクスポート
           </button>
+          <a
+            href={`/tax-summary${selectedClientId ? `?clientId=${selectedClientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2 font-semibold hover:bg-sky-100 transition-all"
+          >
+            消費税集計
+          </a>
           <button
             onClick={fetchEntries}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
