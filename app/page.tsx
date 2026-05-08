@@ -93,6 +93,7 @@ interface LedgerEntry {
   description: string;
   tax_type: string;
   tax_category?: string | null;
+  department_id?: string | null;
   vendor_name: string;
   match_status: string;
   created_at: string;
@@ -967,6 +968,19 @@ export default function Home() {
     return data.vendor;
   }, []);
 
+  // ─── 部門マスタ State ───────────────────────────────────────────────────────
+  interface DepartmentItem { id: string; name: string; code: string | null; client_id: string | null }
+  const [departmentsList, setDepartmentsList] = useState<DepartmentItem[]>([]);
+
+  const fetchDepartments = useCallback(async () => {
+    try {
+      const res = await fetch('/api/departments');
+      if (!res.ok) return;
+      const data = await res.json();
+      setDepartmentsList(data.departments ?? []);
+    } catch {}
+  }, []);
+
   // ─── 仕訳日記帳サブビュー State ────────────────────────────────────────────
   const [journalSubView, setJournalSubView] = useState<'execute' | 'unmatched' | 'ledger' | 'balance' | 'master' | 'bank-tx'>('execute');
   const [ledgerAccountFilter, setLedgerAccountFilter] = useState<string>('');
@@ -1236,6 +1250,7 @@ export default function Home() {
         // 勘定科目・取引先マスタ・ルールを起動時に1回ロード
         fetchAccounts();
         fetchVendors();
+        fetchDepartments();
         fetchRules();
       }
     });
@@ -2735,6 +2750,7 @@ export default function Home() {
                 vendorsList={vendorsList}
                 addVendorLocal={addVendorLocal}
                 onAddRule={addRule}
+                departmentsList={departmentsList}
               />
             ) : journalSubView === 'balance' ? (
               <BalanceView
@@ -4579,6 +4595,7 @@ function LedgerView({
   vendorsList,
   addVendorLocal,
   onAddRule,
+  departmentsList,
 }: {
   refreshKey: number;
   accountFilter: string;
@@ -4594,6 +4611,7 @@ function LedgerView({
   vendorsList: AccountOption[];
   addVendorLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
   onAddRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
+  departmentsList: { id: string; name: string; code: string | null }[];
 }) {
   const [closingInput, setClosingInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -5311,6 +5329,14 @@ function LedgerView({
           >
             電子帳票
           </a>
+          <a
+            href={`/departments${clientId ? `?clientId=${clientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2 font-semibold hover:bg-indigo-100 transition-all"
+          >
+            部門管理
+          </a>
           <button
             onClick={fetchEntries}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
@@ -5459,6 +5485,7 @@ function LedgerView({
             <col style={{ width: '110px' }} />  {/* 貸方金額 */}
             <col style={{ width: '160px' }} />  {/* 取引先 */}
             <col style={{ width: '90px' }} />   {/* 消費税区分 */}
+            <col style={{ width: '90px' }} />   {/* 部門 */}
             <col />                              {/* 摘要（残り） */}
           </colgroup>
           <thead className="bg-white">
@@ -5480,6 +5507,7 @@ function LedgerView({
               <th className="px-2 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方金額</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">消費税区分</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">部門</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
             </tr>
             {/* カラム別 検索行（部分一致） */}
@@ -5553,6 +5581,7 @@ function LedgerView({
               </th>
               <th className="px-1 py-1.5"></th>
               <th className="px-1 py-1.5"></th>
+              <th className="px-1 py-1.5"></th>
               <th className="px-1 py-1.5">
                 <input
                   type="text"
@@ -5620,6 +5649,7 @@ function LedgerView({
                   vendorsList={vendorsList}
                   addVendorLocal={addVendorLocal}
                   onAddRule={onAddRule}
+                  departmentsList={departmentsList}
                 />
                 );
               });
@@ -5677,6 +5707,7 @@ function EditableRow({
   vendorsList,
   addVendorLocal,
   onAddRule,
+  departmentsList,
 }: {
   entry: LedgerEntry;
   isFirstInGroup: boolean;
@@ -5691,6 +5722,7 @@ function EditableRow({
   vendorsList: AccountOption[];
   addVendorLocal: (name: string, reading?: string) => Promise<AccountOption | null>;
   onAddRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
+  departmentsList: { id: string; name: string; code: string | null }[];
 }) {
   const [date, setDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
   const [debitAccount, setDebitAccount] = useState(entry.debit_account);
@@ -5703,6 +5735,7 @@ function EditableRow({
   const [vendorName, setVendorName] = useState(entry.vendor_name);
   const [description, setDescription] = useState(entry.description);
   const [taxCategory, setTaxCategory] = useState(entry.tax_category ?? '');
+  const [departmentId, setDepartmentId] = useState(entry.department_id ?? '');
   const isVoucherSplit = !!entry.voucher_group_id && (entry.voucher_total_lines ?? 1) > 1;
 
   const dateInputValue = date.length === 8
@@ -5740,7 +5773,7 @@ function EditableRow({
   // 「片方しか入っていない」サブ行（仮払消費税など）を見ても群全体で貸借一致していることが分かるようにする
   const voucherBadge = (isFirstInGroup && groupSummary) ? (
     <tr className={`${groupBandBg} ${groupSideBorder} border-b border-b-slate-100`}>
-      <td colSpan={10} className="px-3 py-1.5">
+      <td colSpan={11} className="px-3 py-1.5">
         <div className="flex items-center gap-3 text-[10px] text-slate-500 flex-wrap">
           <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 font-semibold tracking-wide">
             多明細仕訳 {groupSummary.lines}行
@@ -5828,6 +5861,9 @@ function EditableRow({
               {TAX_CATEGORY_LABELS[entry.tax_category] ?? entry.tax_category}
             </span>
           ) : <span className="text-slate-200 text-[10px]">—</span>}
+        </td>
+        <td className="px-2 py-2 text-xs text-slate-500 truncate">
+          {entry.department_id ? (departmentsList.find(d => d.id === entry.department_id)?.name ?? '—') : <span className="text-slate-200 text-[10px]">—</span>}
         </td>
         <td className="px-2 py-2 text-xs text-slate-500 truncate" title={`${entry.description}${taxLabel ? ' / ' + taxLabel : ''}`}>
           {entry.description}
@@ -6072,6 +6108,23 @@ function EditableRow({
           <option value="tax_exempt_sales">非課税売上</option>
           <option value="taxable_purchase">課税仕入</option>
           <option value="non_taxable">免税・不課税</option>
+        </select>
+      </td>
+      <td className="px-2 py-1.5">
+        <select
+          value={departmentId}
+          onChange={(e) => {
+            const v = e.target.value;
+            setDepartmentId(v);
+            saveIfChanged({ department_id: v || null } as Partial<LedgerEntry>);
+          }}
+          disabled={entry.locked}
+          className="w-full text-[10px] border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1 py-1 focus:outline-none bg-transparent cursor-pointer"
+        >
+          <option value="">—</option>
+          {departmentsList.map(d => (
+            <option key={d.id} value={d.id}>{d.code ? `${d.code} ` : ''}{d.name}</option>
+          ))}
         </select>
       </td>
       <td className="px-2 py-1.5">
