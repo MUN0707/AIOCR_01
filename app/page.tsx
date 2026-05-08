@@ -5337,6 +5337,14 @@ function LedgerView({
           >
             部門管理
           </a>
+          <a
+            href={`/budget${clientId ? `?clientId=${clientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded-xl px-4 py-2 font-semibold hover:bg-teal-100 transition-all"
+          >
+            予算管理
+          </a>
           <button
             onClick={fetchEntries}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
