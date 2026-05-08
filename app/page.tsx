@@ -91,6 +91,7 @@ interface LedgerEntry {
   is_internal_tax?: boolean | null;
   description: string;
   tax_type: string;
+  tax_category?: string | null;
   vendor_name: string;
   match_status: string;
   created_at: string;
@@ -103,6 +104,20 @@ interface LedgerEntry {
   voucher_total_lines?: number | null;
   meta?: Record<string, string> | null;
 }
+
+const TAX_CATEGORY_LABELS: Record<string, string> = {
+  taxable_sales: '課税売上',
+  tax_exempt_sales: '非課税売上',
+  taxable_purchase: '課税仕入',
+  non_taxable: '免税・不課税',
+};
+
+const TAX_CATEGORY_COLORS: Record<string, string> = {
+  taxable_sales: 'bg-sky-100 text-sky-700',
+  tax_exempt_sales: 'bg-slate-100 text-slate-600',
+  taxable_purchase: 'bg-lime-100 text-lime-700',
+  non_taxable: 'bg-amber-100 text-amber-700',
+};
 
 async function openJournalPdf(entryId: string, source: 'invoice' | 'bank' = 'invoice'): Promise<void> {
   try {
@@ -5211,7 +5226,9 @@ function LedgerView({
                 const rows = allEntries.map((e) => [
                   e.entry_date, e.debit_account, e.credit_account,
                   e.amount != null ? String(e.amount) : '',
-                  e.description, e.tax_type, e.vendor_name,
+                  e.description,
+                  e.tax_category ? (TAX_CATEGORY_LABELS[e.tax_category] ?? e.tax_category) : (e.tax_type ?? ''),
+                  e.vendor_name,
                 ]);
                 downloadCsv([header, ...rows], `仕訳日記帳${clientName ? '_' + clientName : ''}.csv`);
               } catch (e) {
@@ -5369,6 +5386,7 @@ function LedgerView({
             <col style={{ width: '150px' }} />  {/* 貸方 */}
             <col style={{ width: '110px' }} />  {/* 貸方金額 */}
             <col style={{ width: '160px' }} />  {/* 取引先 */}
+            <col style={{ width: '90px' }} />   {/* 消費税区分 */}
             <col />                              {/* 摘要（残り） */}
           </colgroup>
           <thead className="bg-white">
@@ -5389,6 +5407,7 @@ function LedgerView({
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方</th>
               <th className="px-2 py-3 text-right text-[10px] font-semibold text-slate-300 uppercase tracking-widest">貸方金額</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
+              <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">消費税区分</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
             </tr>
             {/* カラム別 検索行（部分一致） */}
@@ -5460,6 +5479,7 @@ function LedgerView({
                   </button>
                 ) : null}
               </th>
+              <th className="px-1 py-1.5"></th>
               <th className="px-1 py-1.5"></th>
               <th className="px-1 py-1.5">
                 <input
@@ -5610,6 +5630,7 @@ function EditableRow({
   const [creditAmount, setCreditAmount] = useState(initialCreditAmt != null ? String(initialCreditAmt) : '');
   const [vendorName, setVendorName] = useState(entry.vendor_name);
   const [description, setDescription] = useState(entry.description);
+  const [taxCategory, setTaxCategory] = useState(entry.tax_category ?? '');
   const isVoucherSplit = !!entry.voucher_group_id && (entry.voucher_total_lines ?? 1) > 1;
 
   const dateInputValue = date.length === 8
@@ -5729,6 +5750,13 @@ function EditableRow({
           {hasCredit && initialCreditAmt != null ? `¥${Number(initialCreditAmt).toLocaleString()}` : <span className="text-slate-300">—</span>}
         </td>
         <td className="px-2 py-2 text-xs text-slate-600 truncate" title={entry.vendor_name}>{entry.vendor_name}</td>
+        <td className="px-2 py-2">
+          {entry.tax_category ? (
+            <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${TAX_CATEGORY_COLORS[entry.tax_category] ?? 'bg-slate-100 text-slate-500'}`}>
+              {TAX_CATEGORY_LABELS[entry.tax_category] ?? entry.tax_category}
+            </span>
+          ) : <span className="text-slate-200 text-[10px]">—</span>}
+        </td>
         <td className="px-2 py-2 text-xs text-slate-500 truncate" title={`${entry.description}${taxLabel ? ' / ' + taxLabel : ''}`}>
           {entry.description}
           {taxLabel && <span className="ml-1 text-[9px] text-slate-400">[{taxLabel}]</span>}
@@ -5955,6 +5983,24 @@ function EditableRow({
           onCreate={addVendorLocal}
           dense
         />
+      </td>
+      <td className="px-2 py-1.5">
+        <select
+          value={taxCategory}
+          onChange={(e) => {
+            const v = e.target.value;
+            setTaxCategory(v);
+            saveIfChanged({ tax_category: v || null } as Partial<LedgerEntry>);
+          }}
+          disabled={entry.locked}
+          className="w-full text-[10px] border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1 py-1 focus:outline-none bg-transparent cursor-pointer"
+        >
+          <option value="">—</option>
+          <option value="taxable_sales">課税売上</option>
+          <option value="tax_exempt_sales">非課税売上</option>
+          <option value="taxable_purchase">課税仕入</option>
+          <option value="non_taxable">免税・不課税</option>
+        </select>
       </td>
       <td className="px-2 py-1.5">
         <div className="flex items-center gap-1 min-w-0">
