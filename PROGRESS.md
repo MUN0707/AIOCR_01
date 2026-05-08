@@ -63,16 +63,52 @@
     - 「契約・請求書」「お問い合わせ」「法人名」はsm以上でのみ表示
 
 ## 2026-05-08 （新セッション）
-- やったこと: 🔴5 キャッシュフロー計算書を実装 → commit 533b827
-  - GET /api/cash-flow 新設（間接法）
-    - 当期純利益 + 減価償却加算 + 流動資産負債の増減 = 営業CF
-    - 固定資産の取得/売却 = 投資CF（「累計額」科目は除外）
-    - 固定負債・純資産（繰越除く）の増減 = 財務CF
-  - 決算書生成時に financial-statement と cash-flow を並列フェッチ
-  - DecisionReportPaper に CashFlowPage（第6ページ）を追加。cfResult が取得できた場合のみ印刷ページに追加
-  - 既存 TS エラー2件を修正（edocuments 型キャスト、LedgerView の selectedClientId → clientId）
+- やったこと: 🔴5〜🟡8 を一気に実装
+  - 🔴5 キャッシュフロー計算書 → commit 533b827
+    - GET /api/cash-flow（間接法）、DecisionReportPaper に第6ページ追加
+  - 🟡6 売掛金・買掛金の消込管理 → commit 9af6fd2
+    - ar_ap_records / ar_ap_payments テーブル追加（Supabase マイグレーション）
+    - GET/POST /api/ar-ap、PATCH/DELETE /api/ar-ap/[id]、POST/DELETE /api/ar-ap/[id]/payments
+    - /ar-ap ページ: タブ切替・消込・部分消込・支払期日超過赤字警告
+  - 🟡7 補助科目 → commit 971dcaf
+    - accounts.parent_account_id 追加（自己参照FK）
+    - 科目マスタに階層表示・「補助+」ボタン・補助科目インライン追加フォーム
+  - 🟡8 仕訳テンプレート・繰り返し仕訳 → commit fc60b55
+    - journal_templates テーブル追加（Supabase マイグレーション）
+    - GET/POST /api/journal-templates、DELETE/POST /api/journal-templates/[id]
+    - /templates ページ: テンプレート管理・起票UI
+    - 日記帳操作バーに「テンプレート」リンク追加（amber色）
 
 - 次にやること:
-  - 🟡6: 売掛金・買掛金の消込管理
-  - 🟡7: 補助科目
+  - 🟡10: 全銀データ出力 → commit d2e5f13（実装済み）
+    - company_settings テーブル、vendors に銀行情報カラム追加
+    - GET/PUT /api/company-settings、GET /api/zengin-export（Shift-JIS 全銀フォーマット）
+    - /zengin ページ（自社銀行設定・取引先銀行情報・ファイルDL）
+    - 買掛金管理ページに「全銀出力」ボタン
+  - 🟢11: 部門管理（次セッション以降）
   （以降ロードマップ順）
+
+## 2026-05-08 （新セッション・続き）
+- やったこと: 🟢11 部門管理を実装 → commit 54869de
+  - departments テーブル追加（Supabaseマイグレーション適用済み）
+  - journal_entries に department_id カラム追加
+  - GET/POST /api/departments、PATCH/DELETE /api/departments/[id]
+  - GET /api/department-report（部門別損益: revenue/expense/profit 集計）
+  - /departments ページ: 部門一覧管理 + 期間指定の部門別損益レポート
+  - 日記帳テーブルに「部門」列追加（インライン select で仕訳から直接設定可）
+  - 日記帳操作バーに「部門管理」リンク追加（indigo色）
+
+- 次にやること:
+  - 🟢12: 予算管理（予算 vs 実績比較レポート）→ commit 10c79f1（完了）
+  - 🟢13: 資金繰り表
+  - 🟢14〜17: 以降ロードマップ順
+
+## 2026-05-08 （続き）
+- やったこと: 🟢12 予算管理を実装 → commit 10c79f1
+  - budgets テーブル追加（Supabaseマイグレーション適用済み）
+  - GET/POST /api/budgets（重複時は既存行をUPDATE）、DELETE /api/budgets/[id]
+  - GET /api/budget-report（科目別・月別の予算 vs 実績・達成率）
+  - /budget ページ: 予算入力（月別+年間一括12等分）+ 実績比較（月指定/年合計）
+  - 日記帳操作バーに「予算管理」リンク追加（teal色）
+- 次にやること:
+  - 🟢13: 資金繰り表（月次資金繰り予測）

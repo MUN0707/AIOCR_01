@@ -105,6 +105,7 @@ interface LedgerEntry {
   voucher_seq?: number | null;
   voucher_total_lines?: number | null;
   meta?: Record<string, string> | null;
+  approval_status?: string | null;
 }
 
 const TAX_CATEGORY_LABELS: Record<string, string> = {
@@ -5353,6 +5354,30 @@ function LedgerView({
           >
             資金繰り
           </a>
+          <a
+            href={`/audit-log${clientId ? `?clientId=${clientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-violet-700 bg-violet-50 border border-violet-200 rounded-xl px-4 py-2 font-semibold hover:bg-violet-100 transition-all"
+          >
+            監査証跡
+          </a>
+          <a
+            href={`/user-roles${clientId ? `?clientId=${clientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-2 font-semibold hover:bg-rose-100 transition-all"
+          >
+            ユーザー管理
+          </a>
+          <a
+            href={`/api/export?format=freee${clientId ? `&clientId=${clientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-xl px-4 py-2 font-semibold hover:bg-orange-100 transition-all"
+          >
+            CSV出力
+          </a>
           <button
             onClick={fetchEntries}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
@@ -5502,6 +5527,7 @@ function LedgerView({
             <col style={{ width: '160px' }} />  {/* 取引先 */}
             <col style={{ width: '90px' }} />   {/* 消費税区分 */}
             <col style={{ width: '90px' }} />   {/* 部門 */}
+            <col style={{ width: '70px' }} />   {/* 承認 */}
             <col />                              {/* 摘要（残り） */}
           </colgroup>
           <thead className="bg-white">
@@ -5524,6 +5550,7 @@ function LedgerView({
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">取引先</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">消費税区分</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">部門</th>
+              <th className="px-2 py-3 text-center text-[10px] font-semibold text-slate-300 uppercase tracking-widest">承認</th>
               <th className="px-2 py-3 text-left text-[10px] font-semibold text-slate-300 uppercase tracking-widest">摘要</th>
             </tr>
             {/* カラム別 検索行（部分一致） */}
@@ -5595,6 +5622,7 @@ function LedgerView({
                   </button>
                 ) : null}
               </th>
+              <th className="px-1 py-1.5"></th>
               <th className="px-1 py-1.5"></th>
               <th className="px-1 py-1.5"></th>
               <th className="px-1 py-1.5"></th>
@@ -5707,6 +5735,65 @@ function LedgerView({
   );
 }
 
+// ─── 承認ステータス表示コンポーネント ───────────────────────────────────────
+const APPROVAL_LABELS: Record<string, string> = {
+  approved: '承認済', rejected: '却下', pending: '承認待', draft: '草稿',
+};
+const APPROVAL_COLORS: Record<string, string> = {
+  approved: 'bg-lime-100 text-lime-700',
+  rejected: 'bg-red-100 text-red-600',
+  pending: 'bg-amber-100 text-amber-700',
+  draft: 'bg-slate-100 text-slate-500',
+};
+
+function ApprovalBadge({ status }: { status?: string | null }) {
+  if (!status || status === 'approved') return null;
+  return (
+    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${APPROVAL_COLORS[status] ?? 'bg-slate-100 text-slate-500'}`}>
+      {APPROVAL_LABELS[status] ?? status}
+    </span>
+  );
+}
+
+function ApprovalCell({
+  status, onApprove, onReject, onReset,
+}: {
+  status?: string | null;
+  onApprove: () => void;
+  onReject: () => void;
+  onReset: () => void;
+}) {
+  const s = status ?? 'approved';
+  if (s === 'approved') {
+    return (
+      <button onClick={onReset} title="承認済み（クリックで承認待ちに戻す）"
+        className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold bg-lime-100 text-lime-700 hover:bg-lime-200 transition-colors">
+        承認済
+      </button>
+    );
+  }
+  if (s === 'rejected') {
+    return (
+      <button onClick={onReset} title="却下（クリックで承認待ちに戻す）"
+        className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold bg-red-100 text-red-600 hover:bg-red-200 transition-colors">
+        却下
+      </button>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-0.5 items-center">
+      <button onClick={onApprove} title="承認する"
+        className="text-[8px] px-1.5 py-0.5 rounded bg-lime-50 text-lime-700 border border-lime-200 hover:bg-lime-100 transition-colors leading-tight w-full">
+        ✓ 承認
+      </button>
+      <button onClick={onReject} title="却下する"
+        className="text-[8px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors leading-tight w-full">
+        ✕ 却下
+      </button>
+    </div>
+  );
+}
+
 // ─── インライン編集行 ──────────────────────────────────────────────────────
 
 function EditableRow({
@@ -5789,7 +5876,7 @@ function EditableRow({
   // 「片方しか入っていない」サブ行（仮払消費税など）を見ても群全体で貸借一致していることが分かるようにする
   const voucherBadge = (isFirstInGroup && groupSummary) ? (
     <tr className={`${groupBandBg} ${groupSideBorder} border-b border-b-slate-100`}>
-      <td colSpan={11} className="px-3 py-1.5">
+      <td colSpan={12} className="px-3 py-1.5">
         <div className="flex items-center gap-3 text-[10px] text-slate-500 flex-wrap">
           <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 font-semibold tracking-wide">
             多明細仕訳 {groupSummary.lines}行
@@ -5880,6 +5967,9 @@ function EditableRow({
         </td>
         <td className="px-2 py-2 text-xs text-slate-500 truncate">
           {entry.department_id ? (departmentsList.find(d => d.id === entry.department_id)?.name ?? '—') : <span className="text-slate-200 text-[10px]">—</span>}
+        </td>
+        <td className="px-2 py-2 text-center">
+          <ApprovalBadge status={entry.approval_status} />
         </td>
         <td className="px-2 py-2 text-xs text-slate-500 truncate" title={`${entry.description}${taxLabel ? ' / ' + taxLabel : ''}`}>
           {entry.description}
@@ -6142,6 +6232,14 @@ function EditableRow({
             <option key={d.id} value={d.id}>{d.code ? `${d.code} ` : ''}{d.name}</option>
           ))}
         </select>
+      </td>
+      <td className="px-2 py-1.5 text-center">
+        <ApprovalCell
+          status={entry.approval_status}
+          onApprove={() => saveIfChanged({ approval_status: 'approved' })}
+          onReject={() => saveIfChanged({ approval_status: 'rejected' })}
+          onReset={() => saveIfChanged({ approval_status: 'pending' })}
+        />
       </td>
       <td className="px-2 py-1.5">
         <div className="flex items-center gap-1 min-w-0">

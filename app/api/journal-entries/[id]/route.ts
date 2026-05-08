@@ -68,7 +68,7 @@ export async function PATCH(
     'entry_date', 'debit_account', 'credit_account', 'amount',
     'debit_amount', 'credit_amount',
     'description', 'tax_type', 'tax_category', 'vendor_name',
-    'ocr_upload_id', 'bank_ocr_upload_id', 'department_id',
+    'ocr_upload_id', 'bank_ocr_upload_id', 'department_id', 'approval_status',
   ] as const;
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of allowed) {
@@ -84,6 +84,21 @@ export async function PATCH(
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+
+  // 監査ログ（変更前後のスナップショット）。失敗しても本処理は成功扱い
+  void service.from('journal_audit_logs').insert({
+    user_id: user.id,
+    entry_id: id,
+    client_id: existing.client_id,
+    action: 'updated',
+    before_data: Object.fromEntries(
+      Object.keys(update).filter(k => k !== 'updated_at').map(k => [k, (existing as Record<string, unknown>)[k] ?? null])
+    ),
+    after_data: Object.fromEntries(
+      Object.keys(update).filter(k => k !== 'updated_at').map(k => [k, update[k]])
+    ),
+  });
+
   return NextResponse.json({ success: true });
 }
 
@@ -99,7 +114,7 @@ export async function DELETE(
 
   const { data: existing, error: fetchError } = await service
     .from('journal_entries')
-    .select('client_id, entry_date')
+    .select('client_id, entry_date, debit_account, credit_account, amount, description')
     .eq('id', id)
     .eq('user_id', user.id)
     .single();
@@ -122,5 +137,15 @@ export async function DELETE(
   if (deleteError) {
     return NextResponse.json({ error: deleteError.message }, { status: 500 });
   }
+
+  void service.from('journal_audit_logs').insert({
+    user_id: user.id,
+    entry_id: id,
+    client_id: existing.client_id,
+    action: 'deleted',
+    before_data: { debit_account: existing.debit_account, credit_account: existing.credit_account, amount: existing.amount, description: existing.description, entry_date: existing.entry_date },
+    after_data: null,
+  });
+
   return NextResponse.json({ success: true });
 }
