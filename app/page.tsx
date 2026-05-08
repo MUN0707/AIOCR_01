@@ -5282,6 +5282,14 @@ function LedgerView({
             消込管理
           </a>
           <a
+            href={`/templates${clientId ? `?clientId=${clientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 font-semibold hover:bg-amber-100 transition-all"
+          >
+            テンプレート
+          </a>
+          <a
             href={`/edocuments${clientId ? `?clientId=${clientId}` : ''}`}
             target="_blank"
             rel="noopener noreferrer"
