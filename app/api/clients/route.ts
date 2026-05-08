@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 
-const SELECT_COLS = 'id, name, client_type, industry, company_code, legal_name, short_name, created_at';
+const SELECT_COLS = 'id, name, client_type, industry, company_code, legal_name, short_name, invoice_registration_number, created_at';
 
 // GET /api/clients — ログインユーザーのクライアント一覧
 export async function GET() {
@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
   const company_code = (body.company_code || '').trim() || null;
   const legal_name = (body.legal_name || '').trim() || null;
   const short_name = (body.short_name || '').trim() || null;
+  const invoice_registration_number = (body.invoice_registration_number || '').trim() || null;
 
   if (!name) {
     return NextResponse.json({ error: 'クライアント名は必須です' }, { status: 400 });
@@ -44,10 +45,13 @@ export async function POST(request: NextRequest) {
   if (company_code && !/^[A-Za-z0-9]{1,8}$/.test(company_code)) {
     return NextResponse.json({ error: '会社番号は英数字8文字以内で入力してください' }, { status: 400 });
   }
+  if (invoice_registration_number && !/^T\d{13}$/.test(invoice_registration_number)) {
+    return NextResponse.json({ error: '登録番号は T + 13桁の数字で入力してください（例: T1234567890123）' }, { status: 400 });
+  }
 
   const { data, error } = await supabase
     .from('clients')
-    .insert({ user_id: user.id, name, company_code, legal_name, short_name })
+    .insert({ user_id: user.id, name, company_code, legal_name, short_name, invoice_registration_number })
     .select(SELECT_COLS)
     .single();
 
@@ -89,6 +93,13 @@ export async function PATCH(request: NextRequest) {
   }
   if (body.legal_name !== undefined) patch.legal_name = String(body.legal_name).trim() || null;
   if (body.short_name !== undefined) patch.short_name = String(body.short_name).trim() || null;
+  if (body.invoice_registration_number !== undefined) {
+    const v = String(body.invoice_registration_number).trim();
+    if (v && !/^T\d{13}$/.test(v)) {
+      return NextResponse.json({ error: '登録番号は T + 13桁の数字で入力してください（例: T1234567890123）' }, { status: 400 });
+    }
+    patch.invoice_registration_number = v || null;
+  }
 
   const { data, error } = await supabase
     .from('clients')

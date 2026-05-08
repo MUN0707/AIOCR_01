@@ -27,6 +27,7 @@ interface ClientItem {
   company_code: string | null;
   legal_name: string | null;
   short_name: string | null;
+  invoice_registration_number: string | null;
   created_at: string;
 }
 
@@ -548,10 +549,10 @@ export default function Home() {
   const [clients, setClients] = useState<ClientItem[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [showClientModal, setShowClientModal] = useState(false);
-  const [newClientForm, setNewClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '' });
+  const [newClientForm, setNewClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '', invoice_registration_number: '' });
   const [clientSaving, setClientSaving] = useState(false);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
-  const [editingClientForm, setEditingClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '' });
+  const [editingClientForm, setEditingClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '', invoice_registration_number: '' });
   const [clientError, setClientError] = useState<string | null>(null);
 
   // ─── 自動仕訳モード専用 State ─────────────────────────────────────────────
@@ -2040,12 +2041,13 @@ export default function Home() {
           company_code: newClientForm.company_code.trim(),
           legal_name: newClientForm.legal_name.trim(),
           short_name: newClientForm.short_name.trim(),
+          invoice_registration_number: newClientForm.invoice_registration_number.trim(),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '追加失敗');
       setClients((prev) => [...prev, data.client]);
-      setNewClientForm({ company_code: '', name: '', legal_name: '', short_name: '' });
+      setNewClientForm({ company_code: '', name: '', legal_name: '', short_name: '', invoice_registration_number: '' });
       if (!selectedClientId) setSelectedClientId(data.client.id);
     } catch (e) {
       setClientError(e instanceof Error ? e.message : '追加に失敗しました');
@@ -2061,6 +2063,7 @@ export default function Home() {
       name: c.name,
       legal_name: c.legal_name ?? '',
       short_name: c.short_name ?? '',
+      invoice_registration_number: c.invoice_registration_number ?? '',
     });
     setClientError(null);
   };
@@ -2078,6 +2081,7 @@ export default function Home() {
           company_code: editingClientForm.company_code.trim(),
           legal_name: editingClientForm.legal_name.trim(),
           short_name: editingClientForm.short_name.trim(),
+          invoice_registration_number: editingClientForm.invoice_registration_number.trim(),
         }),
       });
       const data = await res.json();
@@ -2380,6 +2384,17 @@ export default function Home() {
                       className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400"
                     />
                   </div>
+                  <div className="col-span-2">
+                    <label className="text-[10px] text-slate-400 block mb-1">適格請求書登録番号（T + 13桁）</label>
+                    <input
+                      type="text"
+                      value={newClientForm.invoice_registration_number}
+                      onChange={(e) => setNewClientForm({ ...newClientForm, invoice_registration_number: e.target.value })}
+                      placeholder="T1234567890123"
+                      maxLength={14}
+                      className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-sky-400 font-mono"
+                    />
+                  </div>
                 </div>
                 <button
                   onClick={handleAddClient}
@@ -2433,6 +2448,14 @@ export default function Home() {
                           placeholder="正式名"
                           className="text-xs border border-slate-200 rounded px-2 py-1.5 col-span-2"
                         />
+                        <input
+                          type="text"
+                          value={editingClientForm.invoice_registration_number}
+                          onChange={(e) => setEditingClientForm({ ...editingClientForm, invoice_registration_number: e.target.value })}
+                          placeholder="T + 13桁（例: T1234567890123）"
+                          maxLength={14}
+                          className="text-xs border border-slate-200 rounded px-2 py-1.5 col-span-2 font-mono"
+                        />
                       </div>
                       <div className="flex gap-2">
                         <button onClick={handleSaveEditClient} disabled={clientSaving}
@@ -2449,6 +2472,9 @@ export default function Home() {
                       <div className="flex-1 min-w-0">
                         <div className="text-sm text-slate-700 font-medium tabular-nums">{clientDisplayLabel(c)}</div>
                         {c.legal_name && <div className="text-[10px] text-slate-400 truncate">{c.legal_name}</div>}
+                        {c.invoice_registration_number && (
+                          <div className="text-[9px] text-sky-600 font-mono">{c.invoice_registration_number}</div>
+                        )}
                       </div>
                       <button onClick={() => handleStartEditClient(c)}
                         className="text-[11px] text-sky-500 border border-sky-200 rounded-lg px-2.5 py-1 hover:bg-sky-50 mr-2 opacity-0 group-hover:opacity-100 transition-opacity">編集</button>
