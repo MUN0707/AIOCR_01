@@ -5265,6 +5265,20 @@ function LedgerView({
           >
             CSVエクスポート
           </button>
+          <button
+            onClick={() => {
+              const p2 = new URLSearchParams();
+              p2.set('type', 'general-ledger');
+              if (clientId) p2.set('clientId', clientId);
+              if (ledgerStartDate) p2.set('startDate', ledgerStartDate.replace(/-/g, ''));
+              if (ledgerEndDate) p2.set('endDate', ledgerEndDate.replace(/-/g, ''));
+              if (accountFilter) p2.set('account', accountFilter);
+              window.location.href = `/api/excel-export?${p2.toString()}`;
+            }}
+            className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 font-semibold hover:bg-emerald-100 transition-all"
+          >
+            Excelエクスポート
+          </button>
           <a
             href={`/tax-summary${clientId ? `?clientId=${clientId}` : ''}`}
             target="_blank"
@@ -6935,6 +6949,13 @@ function BalanceView({
                     💡 <span className="font-semibold text-sky-700">大きく動いた科目から順に並んでいます</span>。気になる科目の行をクリックすると <span className="font-semibold text-sky-700">どの取引先で動いたか</span>（取引先別の増減）が見られます。
                   </p>
                 </div>
+                <a
+                  href={`/api/excel-export?type=trial-balance${clientId ? `&clientId=${clientId}` : ''}${startDate ? `&startDate=${startDate.replace(/-/g, '')}` : ''}${endDate ? `&endDate=${endDate.replace(/-/g, '')}` : ''}`}
+                  className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 font-semibold hover:bg-emerald-100 transition-all whitespace-nowrap"
+                  download
+                >
+                  Excel出力
+                </a>
               </div>
               {!hasOpeningBalances && periods.length > 0 && (
                 <p className="text-[10px] text-amber-600 mt-2">
@@ -7222,15 +7243,24 @@ function FixedAssetSection({
 
   return (
     <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 bg-lime-50/40 flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-slate-100 bg-lime-50/40 flex items-center justify-between gap-2 flex-wrap">
         <div>
           <p className="text-sm font-semibold text-lime-700 tracking-tight">固定資産</p>
           <p className="text-[10px] text-lime-600/70 mt-0.5">3区分ごとに取得価額・簿価・当期償却を表示</p>
         </div>
-        <button onClick={() => setCreating(!creating)}
-          className="text-[11px] text-lime-700 border border-lime-300 bg-white rounded-lg px-3 py-1.5 hover:bg-lime-50">
-          {creating ? '閉じる' : '+ 新規登録（仕訳に出ないもの）'}
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href={`/api/excel-export?type=fixed-assets${clientId ? `&clientId=${clientId}` : ''}`}
+            className="text-[11px] text-emerald-700 border border-emerald-300 bg-white rounded-lg px-3 py-1.5 hover:bg-emerald-50 font-semibold"
+            download
+          >
+            台帳Excel
+          </a>
+          <button onClick={() => setCreating(!creating)}
+            className="text-[11px] text-lime-700 border border-lime-300 bg-white rounded-lg px-3 py-1.5 hover:bg-lime-50">
+            {creating ? '閉じる' : '+ 新規登録（仕訳に出ないもの）'}
+          </button>
+        </div>
       </div>
       {creating && (
         <div className="px-5 py-4 border-b border-slate-100 bg-lime-50/20 space-y-3">
