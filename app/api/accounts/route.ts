@@ -48,7 +48,7 @@ async function ensureDefaults(service: ReturnType<typeof createServiceClient>, u
     .insert(DEFAULT_ACCOUNTS.map((a) => ({ ...a, user_id: userId })));
 }
 
-const SELECT_COLS = 'id, name, reading, category, sub_category, display_order, client_id, auto_registered, confirmed';
+const SELECT_COLS = 'id, name, reading, category, sub_category, display_order, client_id, auto_registered, confirmed, parent_account_id';
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -88,14 +88,29 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const name: string = (body.name ?? '').trim();
   const reading: string = (body.reading ?? '').trim().toLowerCase();
-  const category: string = (body.category ?? '').trim();
-  const sub_category: string = (body.sub_category ?? '').trim();
+  let category: string = (body.category ?? '').trim();
+  let sub_category: string = (body.sub_category ?? '').trim();
   const client_id: string | null = body.client_id ?? null;
+  const parent_account_id: string | null = body.parent_account_id ?? null;
 
   if (!name) return NextResponse.json({ error: '科目名を入力してください' }, { status: 400 });
   if (name.length > 60) return NextResponse.json({ error: '科目名が長すぎます' }, { status: 400 });
 
   const service = createServiceClient();
+
+  // 補助科目の場合、親から category/sub_category を継承する
+  if (parent_account_id && (!category || !sub_category)) {
+    const { data: parent } = await service
+      .from('accounts')
+      .select('category, sub_category, client_id')
+      .eq('id', parent_account_id)
+      .single();
+    if (parent) {
+      if (!category) category = parent.category ?? '';
+      if (!sub_category) sub_category = parent.sub_category ?? '';
+    }
+  }
+
   const { data, error } = await service
     .from('accounts')
     .insert({
@@ -105,6 +120,7 @@ export async function POST(request: NextRequest) {
       reading,
       category,
       sub_category: sub_category || null,
+      parent_account_id: parent_account_id || null,
       auto_registered: false,
       confirmed: true,
     })

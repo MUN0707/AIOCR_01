@@ -7434,7 +7434,7 @@ function FixedAssetSection({
 
 // ─── 勘定科目コンボボックス（補完つきインライン入力） ────────────────────────
 
-interface AccountOption { id?: string; name: string; reading?: string; category?: string; sub_category?: string | null; display_order?: number | null; client_id?: string | null; auto_registered?: boolean; confirmed?: boolean }
+interface AccountOption { id?: string; name: string; reading?: string; category?: string; sub_category?: string | null; display_order?: number | null; client_id?: string | null; auto_registered?: boolean; confirmed?: boolean; parent_account_id?: string | null }
 
 function AccountCombobox({
   value,
@@ -7773,6 +7773,8 @@ function MasterView({
   const [newVen, setNewVen] = useState({ name: '', reading: '' });
   const [accSearch, setAccSearch] = useState('');
   const [venSearch, setVenSearch] = useState('');
+  const [addingSubFor, setAddingSubFor] = useState<string | null>(null);
+  const [subAccName, setSubAccName] = useState('');
 
   const sortedAccounts = useMemo(() => {
     const order = new Map(SUB_CATEGORY_OPTIONS.map((o, i) => [o.value, i]));
@@ -7837,6 +7839,36 @@ function MasterView({
     });
   }, [vendorsList, venSearch, scopeClientId]);
 
+  // 補助科目を含む階層リスト（親 → 子の順に並べる）
+  const hierarchicalAccounts = useMemo(() => {
+    const idMap = new Map(accountsList.map((a) => [a.id, a]));
+    const result: { account: AccountOption; isChild: boolean; parentName?: string }[] = [];
+    // filtered から親だけを抽出し、その直後に子を追加
+    const filteredIds = new Set(filteredAccounts.map((a) => a.id));
+    const handled = new Set<string | undefined>();
+    for (const a of filteredAccounts) {
+      if (a.parent_account_id) continue; // 子は後で処理
+      handled.add(a.id);
+      result.push({ account: a, isChild: false });
+      // この親の子を追加
+      for (const child of filteredAccounts) {
+        if (child.parent_account_id === a.id) {
+          handled.add(child.id);
+          result.push({ account: child, isChild: true, parentName: a.name });
+        }
+      }
+    }
+    // 親がフィルター外でも子だけ表示されるケースを処理
+    for (const a of filteredAccounts) {
+      if (handled.has(a.id)) continue;
+      if (a.parent_account_id && !filteredIds.has(a.parent_account_id)) {
+        const parent = idMap.get(a.parent_account_id);
+        result.push({ account: a, isChild: true, parentName: parent?.name });
+      }
+    }
+    return result;
+  }, [filteredAccounts, accountsList]);
+
   const patchAccount = async (id: string, patch: Partial<AccountOption>) => {
     const res = await fetch(`/api/accounts/${id}`, {
       method: 'PATCH',
@@ -7859,6 +7891,26 @@ function MasterView({
       alert(data.error || '削除失敗');
       return;
     }
+    onReloadAccounts();
+  };
+
+  const handleAddSubAccount = async (parentId: string) => {
+    if (!subAccName.trim()) return;
+    const parent = accountsList.find((a) => a.id === parentId);
+    const res = await fetch('/api/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: subAccName.trim(),
+        parent_account_id: parentId,
+        sub_category: parent?.sub_category ?? '',
+        category: parent?.category ?? '',
+        client_id: parent?.client_id ?? null,
+      }),
+    });
+    if (!res.ok) { const j = await res.json(); alert(j.error || '追加失敗'); return; }
+    setSubAccName('');
+    setAddingSubFor(null);
     onReloadAccounts();
   };
 
@@ -8019,18 +8071,42 @@ function MasterView({
         <div className="max-h-[500px] overflow-y-auto">
           <table className="w-full text-sm">
             <tbody className="divide-y divide-slate-50">
-              {filteredAccounts.map((a) => (
-                <MasterRow
-                  key={a.id}
-                  item={a}
-                  onSave={(patch) => patchAccount(a.id!, patch)}
-                  onDelete={() => deleteAccount(a.id!)}
-                  showSubCategory
-                  duplicate={accDupNames.has(a.name.trim().toLowerCase())}
-                  clients={clients}
-                />
+              {hierarchicalAccounts.map(({ account: a, isChild, parentName }) => (
+                <>
+                  <MasterRow
+                    key={a.id}
+                    item={a}
+                    onSave={(patch) => patchAccount(a.id!, patch)}
+                    onDelete={() => deleteAccount(a.id!)}
+                    onAddSub={!isChild ? () => { setAddingSubFor(a.id!); setSubAccName(''); } : undefined}
+                    showSubCategory
+                    duplicate={accDupNames.has(a.name.trim().toLowerCase())}
+                    clients={clients}
+                    isSubAccount={isChild}
+                    parentName={parentName}
+                  />
+                  {addingSubFor === a.id && (
+                    <tr key={`sub-form-${a.id}`} className="bg-violet-50/40">
+                      <td colSpan={5} className="px-4 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-violet-500 shrink-0">└ 補助科目</span>
+                          <input
+                            autoFocus
+                            value={subAccName}
+                            onChange={(e) => setSubAccName(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubAccount(a.id!); if (e.key === 'Escape') setAddingSubFor(null); }}
+                            placeholder={`${a.name} の補助科目名`}
+                            className="flex-1 text-xs border border-violet-300 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-500"
+                          />
+                          <button onClick={() => handleAddSubAccount(a.id!)} className="text-[10px] px-3 py-1.5 bg-violet-500 text-white rounded-lg hover:bg-violet-600 font-semibold">追加</button>
+                          <button onClick={() => setAddingSubFor(null)} className="text-[10px] px-2 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">×</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               ))}
-              {filteredAccounts.length === 0 && (
+              {hierarchicalAccounts.length === 0 && (
                 <tr><td className="px-4 py-6 text-center text-xs text-slate-400">
                   {accSearch ? '該当する科目がありません' : '勘定科目がありません'}
                 </td></tr>
@@ -8291,16 +8367,22 @@ function MasterRow({
   item,
   onSave,
   onDelete,
+  onAddSub,
   showSubCategory = false,
   duplicate = false,
   clients = [],
+  isSubAccount = false,
+  parentName,
 }: {
   item: AccountOption;
   onSave: (patch: Partial<AccountOption>) => void;
   onDelete: () => void;
+  onAddSub?: () => void;
   showSubCategory?: boolean;
   duplicate?: boolean;
   clients?: ClientItem[];
+  isSubAccount?: boolean;
+  parentName?: string;
 }) {
   const [name, setName] = useState(item.name);
   const [reading, setReading] = useState(item.reading ?? '');
@@ -8319,15 +8401,19 @@ function MasterRow({
   };
 
   return (
-    <tr className={`hover:bg-slate-50/30 ${duplicate ? 'bg-red-50/40' : ''} ${isUnconfirmed ? 'bg-amber-50/40' : ''}`}>
+    <tr className={`hover:bg-slate-50/30 ${duplicate ? 'bg-red-50/40' : ''} ${isUnconfirmed ? 'bg-amber-50/40' : ''} ${isSubAccount ? 'bg-violet-50/20' : ''}`}>
       <td className="px-4 py-2">
         <div className="flex items-center gap-1.5 flex-wrap">
+          {isSubAccount && <span className="text-[10px] text-violet-400 shrink-0 select-none">└</span>}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={() => { if (name !== item.name) onSave({ name }); }}
             className="flex-1 min-w-[80px] text-xs border border-transparent hover:border-slate-200 focus:border-sky-400 rounded px-1.5 py-1 focus:outline-none bg-transparent"
           />
+          {isSubAccount && parentName && (
+            <span className="text-[9px] text-violet-500 bg-violet-50 border border-violet-200 rounded px-1 py-0.5 shrink-0">補助: {parentName}</span>
+          )}
           {duplicate && (
             <span className="text-[9px] text-red-600 bg-red-100 rounded px-1 py-0.5 font-semibold shrink-0">重複</span>
           )}
@@ -8389,7 +8475,7 @@ function MasterRow({
           </select>
         </td>
       )}
-      <td className="px-2 py-2 text-right" style={{ width: '110px' }}>
+      <td className="px-2 py-2 text-right" style={{ width: '140px' }}>
         <div className="flex items-center justify-end gap-1">
           {isUnconfirmed && (
             <button
@@ -8398,6 +8484,15 @@ function MasterRow({
               title="区分を確認した（このバッジを消します）"
             >
               確認
+            </button>
+          )}
+          {!isSubAccount && onAddSub && (
+            <button
+              onClick={onAddSub}
+              className="text-[10px] text-violet-600 border border-violet-200 rounded-md px-2 py-1 hover:bg-violet-50"
+              title="この科目の補助科目を追加"
+            >
+              補助+
             </button>
           )}
           <button
