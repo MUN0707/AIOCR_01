@@ -5273,6 +5273,14 @@ function LedgerView({
           >
             消費税集計
           </a>
+          <a
+            href={`/edocuments${selectedClientId ? `?clientId=${selectedClientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 font-semibold hover:bg-slate-100 transition-all"
+          >
+            電子帳票
+          </a>
           <button
             onClick={fetchEntries}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
