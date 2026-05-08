@@ -44,12 +44,15 @@ export async function GET(request: NextRequest) {
     q = q.or('receipt_date.is.null,transaction_amount.is.null,counterparty.is.null');
   }
 
-  const { data, error } = await q;
+  const { data: rawData, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  type DocRow = { id: string; file_name: string; mode: string; created_at: string; client_id: string | null; doc_category: string | null; receipt_date: string | null; transaction_amount: number | null; counterparty: string | null; edoc_notes: string | null };
+  const data = (rawData ?? []) as unknown as DocRow[];
+
   // 入力完了数・未完了数の統計
-  const total = data?.length ?? 0;
-  const complete = (data ?? []).filter(
+  const total = data.length;
+  const complete = data.filter(
     (d) => d.receipt_date && d.transaction_amount != null && d.counterparty
   ).length;
 

@@ -5266,7 +5266,7 @@ function LedgerView({
             CSVエクスポート
           </button>
           <a
-            href={`/tax-summary${selectedClientId ? `?clientId=${selectedClientId}` : ''}`}
+            href={`/tax-summary${clientId ? `?clientId=${clientId}` : ''}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2 font-semibold hover:bg-sky-100 transition-all"
@@ -5274,7 +5274,7 @@ function LedgerView({
             消費税集計
           </a>
           <a
-            href={`/edocuments${selectedClientId ? `?clientId=${selectedClientId}` : ''}`}
+            href={`/edocuments${clientId ? `?clientId=${clientId}` : ''}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 font-semibold hover:bg-slate-100 transition-all"
@@ -8458,6 +8458,16 @@ interface FsResult {
   invalidOpeningBalances: FsBreakdown[];
 }
 
+interface CfItem { label: string; amount: number }
+interface CfSection { items: CfItem[]; subtotal: number }
+interface CfResult {
+  period: { start: string; end: string };
+  operating: CfSection;
+  investing: CfSection;
+  financing: CfSection;
+  net: number;
+}
+
 function formatYen(n: number): string {
   const v = Math.round(n);
   if (v === 0) return '0';
@@ -8497,6 +8507,7 @@ function FinancialStatementView({
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<FsResult | null>(null);
+  const [cfResult, setCfResult] = useState<CfResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
 
@@ -8562,6 +8573,7 @@ function FinancialStatementView({
     setLoading(true);
     setError(null);
     setResult(null);
+    setCfResult(null);
     try {
       const params = new URLSearchParams({
         start: selectedPeriod.start_date,
@@ -8569,10 +8581,14 @@ function FinancialStatementView({
         periodId: selectedPeriod.id,
       });
       if (selectedClientId) params.set('clientId', selectedClientId);
-      const res = await fetch(`/api/financial-statement?${params}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '集計失敗');
+      const [fsRes, cfRes] = await Promise.all([
+        fetch(`/api/financial-statement?${params}`),
+        fetch(`/api/cash-flow?${params}`),
+      ]);
+      const data = await fsRes.json();
+      if (!fsRes.ok) throw new Error(data.error || '集計失敗');
       setResult(data);
+      if (cfRes.ok) setCfResult(await cfRes.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : '集計に失敗しました');
     } finally {
@@ -9018,10 +9034,10 @@ function FinancialStatementView({
         </div>
       )}
 
-      {/* 決算書本体（5ページ） */}
+      {/* 決算書本体（5+1ページ） */}
       {result && (
         <div className="fs-print-area">
-          <DecisionReportPaper result={result} period={selectedPeriod ?? null} />
+          <DecisionReportPaper result={result} period={selectedPeriod ?? null} cfResult={cfResult} />
         </div>
       )}
 
@@ -9073,7 +9089,7 @@ function FinancialStatementView({
 
 // ─── 5ページ印刷レイアウト ─────────────────────────────────────────────────
 
-function DecisionReportPaper({ result, period }: { result: FsResult; period: FiscalPeriod | null }) {
+function DecisionReportPaper({ result, period, cfResult }: { result: FsResult; period: FiscalPeriod | null; cfResult: CfResult | null }) {
   // 決算書には「正式名」のみを使用する。未設定なら警告表示にフォールバック。
   const legalName = result.client?.legal_name?.trim() || '（正式名未設定 — クライアント管理から設定してください）';
   const periodNo = period ? periodNumber(period.name) : '';
@@ -9085,6 +9101,7 @@ function DecisionReportPaper({ result, period }: { result: FsResult; period: Fis
       <PlPage result={result} legalName={legalName} />
       <SgaPage result={result} legalName={legalName} />
       <EquityPage result={result} legalName={legalName} />
+      {cfResult && <CashFlowPage cf={cfResult} legalName={legalName} />}
     </>
   );
 }
@@ -9371,6 +9388,70 @@ function EquityRowBlock({ row }: { row: FsEquityRow }) {
         <td colSpan={2} className="fs-num"><strong>{formatYen(row.ending)}</strong></td>
       </tr>
     </>
+  );
+}
+
+function CashFlowPage({ cf, legalName }: { cf: CfResult; legalName: string }) {
+  const sections: { title: string; roman: string; section: CfSection }[] = [
+    { title: '営業活動によるキャッシュフロー', roman: 'Ⅰ', section: cf.operating },
+    { title: '投資活動によるキャッシュフロー', roman: 'Ⅱ', section: cf.investing },
+    { title: '財務活動によるキャッシュフロー', roman: 'Ⅲ', section: cf.financing },
+  ];
+  const subtotalLabels = [
+    '営業活動によるキャッシュフロー合計',
+    '投資活動によるキャッシュフロー合計',
+    '財務活動によるキャッシュフロー合計',
+  ];
+
+  return (
+    <div className="fs-page">
+      <PaperHeader
+        title="キャッシュフロー計算書"
+        legalName={legalName}
+        dateLine={`自　${formatJpDate(cf.period.start)}　　至　${formatJpDate(cf.period.end)}`}
+        rightNote="（間接法・単位：円）"
+      />
+      <table className="fs-table">
+        <thead>
+          <tr>
+            <th style={{ width: '60%' }}>科　　　目</th>
+            <th style={{ width: '40%' }}>金　　額</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sections.map(({ title, roman, section }, si) => (
+            <>
+              <tr key={`sec-${si}`}>
+                <td colSpan={2}><strong>{roman}　{title}</strong></td>
+              </tr>
+              {section.items.map((item, ii) => (
+                <tr key={`item-${si}-${ii}`}>
+                  <td className="fs-indent">{item.label}</td>
+                  <td className="fs-num">{formatYen(item.amount)}</td>
+                </tr>
+              ))}
+              {section.items.length === 0 && (
+                <tr key={`empty-${si}`}>
+                  <td className="fs-indent" style={{ color: '#aaa' }}>（該当なし）</td>
+                  <td className="fs-num">0</td>
+                </tr>
+              )}
+              <tr key={`sub-${si}`}>
+                <td><strong>{subtotalLabels[si]}</strong></td>
+                <td className="fs-num"><strong>{formatYen(section.subtotal)}</strong></td>
+              </tr>
+            </>
+          ))}
+          <tr>
+            <td><strong>現金及び現金同等物の増減額</strong></td>
+            <td className="fs-num"><strong>{formatYen(cf.net)}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={{ fontSize: '8.5pt', color: '#555', marginTop: '6mm' }}>
+        ※ 間接法による参考表示です。現金科目（現金・普通預金等）の期中増減と一致しない場合は、科目の中区分設定をご確認ください。
+      </p>
+    </div>
   );
 }
 
