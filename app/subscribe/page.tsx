@@ -271,6 +271,7 @@ function SubscribeForm() {
             <p>• お申込み後、銀行振込先口座をメールでご案内します</p>
             <p>• 適格請求書（インボイス）を発行いたします</p>
             <p>• 入金確認後、各サービスを順次有効化します</p>
+            <p>• いつでもプランのアップグレードは可能です</p>
           </div>
 
           <button
@@ -373,8 +374,8 @@ function ServiceCard({
         )}
         <a
           href={lpHref}
-          target={lpExternal ? '_blank' : undefined}
-          rel={lpExternal ? 'noopener noreferrer' : undefined}
+          target="_blank"
+          rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
           className={`text-xs font-medium ${accent.tag} hover:underline whitespace-nowrap`}
         >

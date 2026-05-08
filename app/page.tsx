@@ -4576,21 +4576,20 @@ function LedgerView({
   const [totalCount, setTotalCount] = useState(0);
   const [closedUntil, setClosedUntil] = useState<string | null>(null);
 
-  // 検索系入力は debounce（フィルタは即時 / 検索文字列は 350ms）
+  // 検索は Enter キー押下時のみ確定（自動検索なし）
   const [debouncedSearchDebit, setDebouncedSearchDebit] = useState('');
   const [debouncedSearchCredit, setDebouncedSearchCredit] = useState('');
   const [debouncedSearchAmount, setDebouncedSearchAmount] = useState('');
   const [debouncedSearchDate, setDebouncedSearchDate] = useState('');
   const [debouncedSearchDescription, setDebouncedSearchDescription] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedSearchDebit(searchDebit);
-      setDebouncedSearchCredit(searchCredit);
-      setDebouncedSearchAmount(searchAmount);
-      setDebouncedSearchDate(searchDate);
-      setDebouncedSearchDescription(searchDescription);
-    }, 350);
-    return () => clearTimeout(t);
+
+  const commitSearch = useCallback(() => {
+    setDebouncedSearchDebit(searchDebit);
+    setDebouncedSearchCredit(searchCredit);
+    setDebouncedSearchAmount(searchAmount);
+    setDebouncedSearchDate(searchDate);
+    setDebouncedSearchDescription(searchDescription);
+    setDisplayLimit(50);
   }, [searchDebit, searchCredit, searchAmount, searchDate, searchDescription]);
 
   // フィルタ/検索条件が変わったら表示件数を 50 にリセット
@@ -5381,8 +5380,9 @@ function LedgerView({
                 <input
                   type="text"
                   value={searchDate}
-                  onChange={(e) => { setSearchDate(e.target.value); setDisplayLimit(50); }}
-                  placeholder="例 20251001"
+                  onChange={(e) => setSearchDate(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && commitSearch()}
+                  placeholder="例 20251001 ↵"
                   className="w-full text-[11px] font-mono border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
                 />
               </th>
@@ -5392,8 +5392,9 @@ function LedgerView({
                 <input
                   type="text"
                   value={searchDebit}
-                  onChange={(e) => { setSearchDebit(e.target.value); setDisplayLimit(50); }}
-                  placeholder="借方科目で絞込"
+                  onChange={(e) => setSearchDebit(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && commitSearch()}
+                  placeholder="借方科目 ↵"
                   className="w-full text-[11px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
                 />
               </th>
@@ -5401,8 +5402,9 @@ function LedgerView({
                 <input
                   type="text"
                   value={searchAmount}
-                  onChange={(e) => { setSearchAmount(e.target.value); setDisplayLimit(50); }}
-                  placeholder="金額"
+                  onChange={(e) => setSearchAmount(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && commitSearch()}
+                  placeholder="金額 ↵"
                   inputMode="numeric"
                   className="w-full text-[11px] text-right tabular-nums border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
                 />
@@ -5411,13 +5413,14 @@ function LedgerView({
                 <input
                   type="text"
                   value={searchCredit}
-                  onChange={(e) => { setSearchCredit(e.target.value); setDisplayLimit(50); }}
-                  placeholder="貸方科目で絞込"
+                  onChange={(e) => setSearchCredit(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && commitSearch()}
+                  placeholder="貸方科目 ↵"
                   className="w-full text-[11px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
                 />
               </th>
               <th className="px-1 py-1.5">
-                {(searchDebit || searchCredit || searchAmount || searchDate || searchDescription) ? (
+                {(searchDebit || searchCredit || searchAmount || searchDate || searchDescription || debouncedSearchDebit || debouncedSearchCredit || debouncedSearchAmount || debouncedSearchDate || debouncedSearchDescription) ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -5426,6 +5429,11 @@ function LedgerView({
                       setSearchAmount('');
                       setSearchDate('');
                       setSearchDescription('');
+                      setDebouncedSearchDebit('');
+                      setDebouncedSearchCredit('');
+                      setDebouncedSearchAmount('');
+                      setDebouncedSearchDate('');
+                      setDebouncedSearchDescription('');
                       setDisplayLimit(50);
                     }}
                     className="w-full text-[10px] text-slate-500 border border-slate-200 hover:bg-slate-50 rounded px-1.5 py-1"
@@ -5439,8 +5447,9 @@ function LedgerView({
                 <input
                   type="text"
                   value={searchDescription}
-                  onChange={(e) => { setSearchDescription(e.target.value); setDisplayLimit(50); }}
-                  placeholder="摘要キーワード"
+                  onChange={(e) => setSearchDescription(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && commitSearch()}
+                  placeholder="摘要キーワード ↵"
                   className="w-full text-[11px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white"
                 />
               </th>
