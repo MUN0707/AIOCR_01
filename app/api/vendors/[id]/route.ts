@@ -26,6 +26,11 @@ export async function PATCH(
     update.reading = body.reading.trim().toLowerCase();
   }
   if ('client_id' in body) update.client_id = body.client_id ?? null;
+  if ('bank_code' in body) update.bank_code = body.bank_code ?? null;
+  if ('branch_code' in body) update.branch_code = body.branch_code ?? null;
+  if ('account_type' in body) update.account_type = body.account_type ?? '1';
+  if ('account_number' in body) update.account_number = body.account_number ?? null;
+  if ('account_name_kana' in body) update.account_name_kana = body.account_name_kana ?? null;
 
   const service = createServiceClient();
   const { data, error } = await service
@@ -33,7 +38,7 @@ export async function PATCH(
     .update(update)
     .eq('id', id)
     .eq('user_id', user.id)
-    .select('id, name, normalized_key, reading, client_id')
+    .select('id, name, normalized_key, reading, client_id, bank_code, branch_code, account_type, account_number, account_name_kana')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

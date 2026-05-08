@@ -225,6 +225,14 @@ function ArApInner() {
               {loading ? '検索中…' : '検索'}
             </button>
             <span className="flex-1" />
+            {!isAr && (
+              <Link
+                href={`/zengin${clientId ? `?clientId=${clientId}` : ''}`}
+                className="text-xs px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-semibold transition-colors"
+              >
+                全銀出力
+              </Link>
+            )}
             <button onClick={() => setShowAdd(!showAdd)}
               className="text-xs px-4 py-1.5 bg-violet-500 hover:bg-violet-600 text-white rounded-xl font-semibold transition-colors">
               {showAdd ? 'キャンセル' : `+ ${isAr ? '売掛金' : '買掛金'}を追加`}

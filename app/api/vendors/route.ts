@@ -5,7 +5,7 @@ import { normalizeVendorKey } from '@/lib/vendor-normalize';
 
 export const maxDuration = 15;
 
-const SELECT_COLS = 'id, name, normalized_key, reading, client_id';
+const SELECT_COLS = 'id, name, normalized_key, reading, client_id, bank_code, branch_code, account_type, account_number, account_name_kana';
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
