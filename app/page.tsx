@@ -5345,6 +5345,14 @@ function LedgerView({
           >
             予算管理
           </a>
+          <a
+            href={`/cash-projection${clientId ? `?clientId=${clientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 font-semibold hover:bg-emerald-100 transition-all"
+          >
+            資金繰り
+          </a>
           <button
             onClick={fetchEntries}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
