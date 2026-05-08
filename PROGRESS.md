@@ -112,3 +112,36 @@
   - 日記帳操作バーに「予算管理」リンク追加（teal色）
 - 次にやること:
   - 🟢13: 資金繰り表（月次資金繰り予測）
+
+## 2026-05-08 （続き）
+- やったこと: 🟢13 資金繰り表 → commit e3aaede
+  - GET /api/cash-projection（現金科目を名前パターンで自動検出・月別収支明細）
+  - /cash-projection ページ: サマリーカード・月別テーブル・内訳展開・残高マイナス赤表示
+  - 日記帳操作バーに「資金繰り」リンク追加（emerald色）
+
+## 2026-05-08 （続き2）
+- やったこと: 🟢14〜17 承認フロー・監査証跡・CSVエクスポート・ユーザーロール管理 → commit 1062781
+  - 🟢14 仕訳承認フロー:
+    - journal_entries.approval_status カラム追加（マイグレーション適用済み）
+    - journal_audit_logs テーブル追加（PATCH/DELETE 時に before/after スナップショット記録）
+    - client_members テーブル追加
+    - PATCH/DELETE API に void service.from('journal_audit_logs').insert(...) でログ追加
+    - POST /api/journal-entries/[id]/approve（action: approved/rejected/draft/pending）
+    - LedgerEntry インターフェースに approval_status 追加
+    - 仕訳テーブルに「承認」列追加（ApprovalBadge/ApprovalCellコンポーネント）
+    - 承認済: lime色バッジ、承認待・草稿: 承認/却下ボタン表示
+  - 🟢15 監査証跡:
+    - GET /api/audit-log（clientId/entryId/limit フィルタ）
+    - /audit-log ページ: DataDiff（before→after差分表示）・作成/変更/削除バッジ
+  - 🟢16 ユーザーロール:
+    - GET/POST/DELETE /api/client-members（approver/entry/viewer ロール管理）
+    - /user-roles ページ: 顧問先別メンバー追加・削除・ロール説明
+  - 🟢17 CSVエクスポート:
+    - GET /api/export?format=freee|yayoi|mf（BOM付きCSV・日付範囲・顧問先フィルタ）
+  - アクションバーに「監査証跡」（violet）「CSV出力」（orange）「ユーザー管理」（rose）追加
+  - colSpan 11→12（承認列追加分）
+  - TypeScript エラー修正（then().catch() → void）
+
+- 次にやること:
+  - ロードマップ全17項目が完了（🔴1-5, 🟡6-10, 🟢11-17）
+  - 残課題: OCR命名ルール改善・確定申告OCR精度・減価償却定率法精度
