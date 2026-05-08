@@ -5337,8 +5337,26 @@ function LedgerView({
 
       {/* 仕訳明細 */}
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-x-auto">
-        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40">
+        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/40 flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm font-semibold text-slate-700 tracking-tight">仕訳明細</p>
+          {/* 借方 or 貸方に科目フィルタが入っているとき → その科目の総勘定元帳ショートカット */}
+          {(debouncedSearchDebit || debouncedSearchCredit) && (
+            <button
+              type="button"
+              onClick={() => {
+                const acct = debouncedSearchDebit || debouncedSearchCredit;
+                const params = new URLSearchParams();
+                if (clientId) params.set('clientId', clientId);
+                params.set('account', acct);
+                if (ledgerStartDate) params.set('from', ledgerStartDate);
+                if (ledgerEndDate) params.set('to', ledgerEndDate);
+                window.open(`/general-ledger?${params.toString()}`, '_blank');
+              }}
+              className="text-[11px] text-sky-600 border border-sky-200 bg-sky-50 rounded-lg px-3 py-1.5 hover:bg-sky-100 transition-all whitespace-nowrap"
+            >
+              「{debouncedSearchDebit || debouncedSearchCredit}」の総勘定元帳を開く →
+            </button>
+          )}
         </div>
         <table className="w-full text-sm table-fixed" style={{ minWidth: '1260px' }}>
           <colgroup>

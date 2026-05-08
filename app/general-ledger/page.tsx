@@ -67,13 +67,35 @@ function GeneralLedgerInner() {
     })();
   }, []);
 
+  // 科目一覧は journal-balance から取得（全エントリを引かずに済む）
+  const [accountOptions, setAccountOptions] = useState<string[]>([]);
   useEffect(() => {
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (clientId) params.set('clientId', clientId);
+        const res = await fetch(`/api/journal-balance?${params}`);
+        const json = await res.json();
+        if (res.ok) {
+          setAccountOptions((json.accounts ?? []).slice().sort((a: string, b: string) => a.localeCompare(b, 'ja')));
+        }
+      } catch {}
+    })();
+  }, [clientId]);
+
+  // 科目が選択されたときだけ全件取得（account + 日付フィルタを API に渡す）
+  useEffect(() => {
+    if (!account) { setEntries([]); return; }
     (async () => {
       setLoading(true);
       setError(null);
       try {
         const params = new URLSearchParams();
         if (clientId) params.set('clientId', clientId);
+        params.set('account', account);
+        params.set('limit', '100000');
+        if (from) params.set('startDate', from.replace(/-/g, ''));
+        if (to) params.set('endDate', to.replace(/-/g, ''));
         const res = await fetch(`/api/journal-ledger?${params}`);
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || '読み込みに失敗しました');
@@ -84,16 +106,7 @@ function GeneralLedgerInner() {
         setLoading(false);
       }
     })();
-  }, [clientId]);
-
-  const accountOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of entries) {
-      if (e.debit_account && e.debit_account !== '不明') set.add(e.debit_account);
-      if (e.credit_account && e.credit_account !== '不明') set.add(e.credit_account);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ja'));
-  }, [entries]);
+  }, [clientId, account, from, to]);
 
   const fromYmd = from ? from.replace(/-/g, '') : '';
   const toYmd = to ? to.replace(/-/g, '') : '';
