@@ -5274,6 +5274,14 @@ function LedgerView({
             消費税集計
           </a>
           <a
+            href={`/ar-ap${clientId ? `?clientId=${clientId}` : ''}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-violet-700 bg-violet-50 border border-violet-200 rounded-xl px-4 py-2 font-semibold hover:bg-violet-100 transition-all"
+          >
+            消込管理
+          </a>
+          <a
             href={`/edocuments${clientId ? `?clientId=${clientId}` : ''}`}
             target="_blank"
             rel="noopener noreferrer"
