@@ -172,3 +172,56 @@
 - 次にやること:
   - 次セッションでまず🔴1（共通レイアウト導入）から着手
   - その前に「マルチユーザ視点レビュー（タスク9）」を先にやるかはユーザー確認
+
+## 2026-05-14 マルチユーザ視点レビュー + 販売・差別化レビュー
+
+- やったこと: 前セッション予約のタスク9（マルチユーザレビュー）とタスク10（販売・差別化レビュー）を一気に実施。TaskHub に 19 件登録（[MU🔴1〜5] [MU🟡6〜11] [MU🟢12〜14] [SALES⚡A〜E]）
+- 背景: 次セッションで UI 改善（共通レイアウト等）に着手する前に、構造的問題（マルチテナント・販売戦略）を棚卸ししておく必要があった
+
+### マルチユーザレビューの主要発見
+- 🔴 重大: RLS が `journal_entries` / `accounts` / `vendors` / `clients` / `budgets` / `departments` / `edocuments` / `journal_audit_logs` / `client_members` / `ar_ap_records` / `journal_templates` で**未設定**。authenticated キーで直接 SQL を投げれば全件参照・改ざんが可能。マルチユーザ展開のブロッカー
+- 🔴 client_members テーブルは作成済みだが招待メールフロー無し・API は全 `eq('user_id', user.id)` でオーナー縛り → 招待された member ユーザーは何も見られない「飾り状態」
+- 🔴 journal_audit_logs への insert が `void` 呼び出しでエラー欠落リスク
+- 🔴 client_id = NULL（共通マスタ）が複数ユーザー間で相互汚染しうる設計
+- 🔴 ADMIN 権限が ENV メール 1 個のハードコード比較のみ
+- 🟡 process-pdf の clientId 無検証 / bulk-delete の client_id 一貫性チェック無し / accounts 科目名変更の N+1 / journal-ledger limit 100,000 / PLAN_LIMITS ハードコード / ゲスト fingerprint 使い回し対策薄
+
+### 販売・差別化レビューの結論
+- ポジション: **「OCR起点の税理士向けクラウド会計」** — freee/MF/弥生にはない体験順序の逆転
+- 売り文句6点: ①AI OCR精度（Claude）②PDF束分割というユニークペイン解決 ③TKCの1/10価格 ④電帳法・インボイス・消費税区分 標準装備 ⑤監査証跡・承認フロー ⑥CSV出力でロックインしない
+- **避けるべき訴求**: 銀行API連携・e-Tax・人事労務・経費精算（freee/MFの最強領域、敵の土俵）
+- 1行訴求案: 「OCRスタートで作られた、税理士事務所のための小回りクラウド会計。電帳法・インボイス・監査証跡まで標準装備で、月¥3,980」
+- 売る前に埋めるべき弱み 5 件（[SALES⚡A〜E]）: 通帳OCR再パッケージ / e-Tax非対応の説明線引き / モバイル対応 / 1事例獲得 / サポート即応化
+
+### 関連
+- memory に「銀行API連携訴求を避ける理由」を保存（`memory/project_sales_avoid_bank_api.md`）
+- TaskHub 全 19 件登録（priority 1: 5件 / priority 2: 11件 / priority 3: 3件）
+
+- 次にやること:
+  - ユーザーがレビュー結果を確認 → 着手順序を決定
+  - 優先候補: [MU🔴1] RLS 導入（マルチユーザ展開のブロッカーかつ単独で完結可）／🔴1 UI改善（共通レイアウト）／[SALES⚡A] 通帳OCR訴求の LP 改修
+
+## 2026-05-14 [MU🔴1] RLS 一括導入 → 完了
+
+- やったこと: マルチユーザレビューで最優先課題だった RLS（Row Level Security）導入を完了 → commit b5136eb / push 済み
+  - **実態調査結果**: レビュー時の想定は「全コアテーブル未設定」だったが、実際に RLS 完全無効だったのは 4 テーブル（departments / budgets / journal_audit_logs / client_members）のみ。その他は RLS 有効だがポリシー未定義で service role 経由でしか動かない状態
+  - **対応範囲（15 テーブル）**:
+    - RLS 有効化 + owner ポリシー追加: departments / budgets / journal_audit_logs / client_members
+    - 多層防御 owner ポリシー追加（RLS は既に有効）: journal_entries / accounts / vendors / ar_ap_records / ar_ap_payments / journal_templates / company_settings / journal_closings / journal_match_logs
+    - 危険な qual=true 公開ポリシーを置換: ocr_uploads / ocr_corrections
+  - **マイグレーション**: `supabase/migrations/20260514_enable_rls_and_owner_policies.sql`（Supabase MCP の apply_migration で適用済み）
+  - **全ポリシー仕様**: `roles=authenticated`, `auth.uid()=user_id`（client_members のみ `owner_user_id`）。`FOR ALL` で SELECT/INSERT/UPDATE/DELETE 一括
+  - **検証**: tsc EXIT=0、Supabase Advisor 上の 15 テーブル分の警告 0 件、pg_policies で 15 ポリシー作成確認
+  - **API への影響なし**: API ハンドラは `createServiceClient` 経由でアクセスしており、service role は PostgreSQL の RLS bypass 仕様により全ポリシーをスキップする
+
+- 背景:
+  - service role 経由前提なので「攻撃者が anon キーで直接 Supabase に SQL を投げる」シナリオが主たる脅威
+  - 4 テーブルだけは RLS 無効だったため、anon キーから budgets/departments/journal_audit_logs/client_members の全件参照・改ざんが可能だった（重大）
+  - 他のテーブルはポリシー無しのため anon からは触れないが、service role が漏れた瞬間に防御層がなくなる構造だったので、多層防御として owner ポリシーを追加した
+  - レビュー時の想定誤り（範囲）は memory ではなく Progress.md にだけ残す（恒久的な事実ではないため）
+
+- 次にやること:
+  - [MU🔴2] client_members を実権限化（招待トークン + メンバーが参加 client_id にアクセスできるポリシー）— 招待フローと共通権限ヘルパーをセットで実装
+  - or 当初予定の UI 改善（共通レイアウト / チップ整理 / /guide 更新 / モバイル対応）
+  - or [SALES⚡A] 通帳 OCR 訴求の LP 改修
+
