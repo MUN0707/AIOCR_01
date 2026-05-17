@@ -311,3 +311,27 @@
 - 次にやること:
   - TaskHub 該当タスクの completed 化
   - 本番（Vercel auto-deploy）で動作確認
+
+## 2026-05-17 [仕訳日記帳の操作バー整理 / サイドナビ新設] → 完了
+
+- やったこと:
+  - 新規 `components/JournalSidebarNav.tsx` を追加（仕訳・帳簿 / レポート / マスタ管理 / その他 の4カテゴリ・220px幅・sticky・md+ のみ表示）
+  - `app/page.tsx` の LedgerView ヘッダ操作バーから 11 個のチップ（消費税集計/消込管理/テンプレート/電子帳票/部門管理/予算管理/資金繰り/監査証跡/ユーザー管理/freee CSV/その他別ページ系）をサイドナビへ移譲
+  - 残ヘッダ操作バーを 3 グループ（主アクション/書き出し/ユーティリティ）に整理し、ブランド 2 色（sky 塗り＋lime 枠線）と slate ユーティリティに削減。グループ間は `w-px h-5 bg-slate-200` で縦線区切り
+  - LedgerView の return を flex 2 カラム化（左=Sidebar / 右=既存コンテンツ）
+
+- 背景:
+  - 5/14 のマルチユーザレビュー「操作バーのチップ15個を整理」（🟡 重要）
+  - 多色チップ（sky/violet/amber/slate/indigo/teal/emerald/violet/rose/orange/lime）が並んで視認性低下
+  - 「共通レイアウト導入後にサイドナビへ移譲」方針（ユーザー判断）
+
+- 検証:
+  - `npx tsc --noEmit` EXIT=0
+  - `npx eslint app/page.tsx components/JournalSidebarNav.tsx` 既存警告のみ、新規 error/warning ゼロ
+  - dev server (`npm run dev`) Ready in 3s / `curl /` HTTP 200（SSR エラーなし）
+  - Playwright 目視は既存ブラウザ占有でスキップ。本番 preview で要確認
+
+- 次にやること:
+  - TaskHub 該当タスクの completed 化
+  - 本番（Vercel auto-deploy）で目視確認: 仕訳日記帳の左サイドナビ / 操作バーの色味
+  - 他ページ（/tax-summary, /ar-ap, /budget 等）への SidebarNav 横展開（次タスク）

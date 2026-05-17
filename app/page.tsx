@@ -16,6 +16,7 @@ import {
   SMALL_ASSET_ADVICE_SHORT,
   SMALL_ASSET_ADVICE_DETAIL,
 } from '@/lib/small-asset-advice';
+import { JournalSidebarNav } from '@/components/JournalSidebarNav';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
@@ -5490,7 +5491,9 @@ function LedgerView({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="flex gap-5 items-start">
+      <JournalSidebarNav clientId={clientId} active="ledger" />
+      <div className="flex-1 min-w-0 space-y-5">
       {/* ヘッダ */}
       <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -5531,6 +5534,7 @@ function LedgerView({
           >
             CSVインポート
           </button>
+          <div className="w-px h-5 bg-slate-200" aria-hidden />
           <button
             onClick={async () => {
               try {
@@ -5566,90 +5570,11 @@ function LedgerView({
               if (accountFilter) p2.set('account', accountFilter);
               window.location.href = `/api/excel-export?${p2.toString()}`;
             }}
-            className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 font-semibold hover:bg-emerald-100 transition-all"
+            className="text-xs text-lime-700 bg-lime-50 border border-lime-200 rounded-xl px-4 py-2 font-semibold hover:bg-lime-100 transition-all"
           >
             Excelエクスポート
           </button>
-          <a
-            href={`/tax-summary${clientId ? `?clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2 font-semibold hover:bg-sky-100 transition-all"
-          >
-            消費税集計
-          </a>
-          <a
-            href={`/ar-ap${clientId ? `?clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-violet-700 bg-violet-50 border border-violet-200 rounded-xl px-4 py-2 font-semibold hover:bg-violet-100 transition-all"
-          >
-            消込管理
-          </a>
-          <a
-            href={`/templates${clientId ? `?clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 font-semibold hover:bg-amber-100 transition-all"
-          >
-            テンプレート
-          </a>
-          <a
-            href={`/edocuments${clientId ? `?clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 font-semibold hover:bg-slate-100 transition-all"
-          >
-            電子帳票
-          </a>
-          <a
-            href={`/departments${clientId ? `?clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2 font-semibold hover:bg-indigo-100 transition-all"
-          >
-            部門管理
-          </a>
-          <a
-            href={`/budget${clientId ? `?clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded-xl px-4 py-2 font-semibold hover:bg-teal-100 transition-all"
-          >
-            予算管理
-          </a>
-          <a
-            href={`/cash-projection${clientId ? `?clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 font-semibold hover:bg-emerald-100 transition-all"
-          >
-            資金繰り
-          </a>
-          <a
-            href={`/audit-log${clientId ? `?clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-violet-700 bg-violet-50 border border-violet-200 rounded-xl px-4 py-2 font-semibold hover:bg-violet-100 transition-all"
-          >
-            監査証跡
-          </a>
-          <a
-            href={`/user-roles${clientId ? `?clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-2 font-semibold hover:bg-rose-100 transition-all"
-          >
-            ユーザー管理
-          </a>
-          <a
-            href={`/api/export?format=freee${clientId ? `&clientId=${clientId}` : ''}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-xl px-4 py-2 font-semibold hover:bg-orange-100 transition-all"
-          >
-            CSV出力
-          </a>
+          <div className="w-px h-5 bg-slate-200" aria-hidden />
           <button
             onClick={fetchEntries}
             className="text-xs text-slate-500 border border-slate-200 rounded-xl px-3 py-2 hover:bg-slate-50"
@@ -6002,6 +5927,7 @@ function LedgerView({
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
