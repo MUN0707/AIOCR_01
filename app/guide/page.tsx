@@ -12,7 +12,7 @@ export default function GuidePage() {
       step: '02',
       title: 'モードを選択',
       body: '「請求書モード」または「確定申告モード」を選択します。処理したい書類の種類に合わせてお選びください。',
-      note: 'ヘビープランは両モード対応',
+      note: '全プランで両モード対応',
     },
     {
       step: '03',
@@ -138,7 +138,7 @@ export default function GuidePage() {
               { emoji: '🧾', label: '電子請求書', note: 'PDF形式' },
               { emoji: '📠', label: 'スキャン請求書', note: 'スキャン画像' },
               { emoji: '✍️', label: '手書き請求書', note: 'AIが読み取り' },
-              { emoji: '📋', label: '確定申告書類', note: 'ヘビープランのみ' },
+              { emoji: '📋', label: '確定申告書類', note: '全プラン対応' },
             ].map((item) => (
               <div key={item.label} className="bg-sky-50 rounded-xl p-4 text-center space-y-2">
                 <div className="text-3xl">{item.emoji}</div>
@@ -147,6 +147,66 @@ export default function GuidePage() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* 会計機能 */}
+        <div className="bg-white rounded-2xl shadow-sm border border-sky-100 p-8 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="inline-flex items-center gap-2 bg-lime-100 text-lime-700 text-xs font-bold px-3 py-1 rounded-full">
+              OCR の先、会計業務まで一気通貫
+            </div>
+            <h2 className="text-xl font-bold text-sky-900">OCR と連動する会計機能</h2>
+            <p className="text-sky-500 text-sm max-w-xl mx-auto">
+              読み取った請求書・通帳のデータをそのまま仕訳・元帳・帳票管理に展開できます。
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[
+              {
+                href: '/general-ledger',
+                title: '仕訳・総勘定元帳',
+                body: 'OCR結果から借方・貸方の仕訳を自動生成。勘定科目別・期間別に元帳で参照でき、修正もブラウザ上で完結します。',
+              },
+              {
+                href: '/departments',
+                title: '部門管理',
+                body: '部門コードを登録して仕訳に紐付け。部門ごとの収益・費用・利益を月次で集計し、事業別・店舗別の損益が見えます。',
+              },
+              {
+                href: '/budget',
+                title: '予算管理',
+                body: '勘定科目ごとに年度予算を月次で登録。仕訳実績と自動比較し、達成率・差異を一覧で確認できます。',
+              },
+              {
+                href: '/cash-projection',
+                title: '資金繰り（CF予測）',
+                body: '入金・支出を月次集計し、期首残高から月末残高までを予測。キャッシュ不足の兆候を早めに掴めます。',
+              },
+              {
+                href: '/audit-log',
+                title: '承認フロー・監査証跡',
+                body: '仕訳に「承認・差戻し」のステータスを付与。誰がいつ何を変更したかを監査ログに残し、内部統制に対応します。',
+              },
+              {
+                href: '/edocuments',
+                title: '電子帳票（電帳法対応）',
+                body: '請求書・領収書・契約書を取引日・取引先・金額のメタ情報付きで保管。電子帳簿保存法の検索要件を満たします。',
+              },
+            ].map((f) => (
+              <Link
+                key={f.title}
+                href={f.href}
+                className="block bg-sky-50/60 hover:bg-sky-50 rounded-xl p-5 border border-sky-100 hover:border-sky-200 space-y-2 transition-colors"
+              >
+                <h3 className="font-bold text-sky-900 text-base flex items-center gap-2">
+                  <span className="w-1.5 h-5 bg-lime-500 rounded-full" />
+                  {f.title}
+                </h3>
+                <p className="text-sky-700 text-sm leading-relaxed">{f.body}</p>
+              </Link>
+            ))}
+          </div>
+          <p className="text-center text-sky-400 text-xs">※ご利用にはログインが必要です。プランによって利用できる機能・上限が異なります。</p>
         </div>
 
         {/* CTA */}
