@@ -284,6 +284,12 @@
   - TaskHub 該当タスクの completed 化
   - 本番（Vercel auto-deploy）で動作確認
 
+## 2026-05-17 [手動仕訳の派生タスク追加]
+
+- TaskHub に派生フォローアップ 2 件を登録（作業中に気づいた既存実装との不整合）:
+  - `344bf793-61d4-4b27-b34d-9285c19caf22` PATCH /api/journal-entries/:id の entry_date 形式正規化（priority=3）
+  - `6cbe29cf-2b3a-47eb-ac94-7beb18b46ccd` 手動仕訳モーダルの取引先を vendors マスタへ自動登録（priority=3）
+
 ## 2026-05-17 [手動仕訳入力UI（振替伝票入力）の明示化] → 完了
 
 - やったこと:
