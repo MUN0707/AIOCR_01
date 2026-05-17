@@ -254,3 +254,32 @@
   - [SALES⚡A] 通帳 OCR 訴求の LP 改修 / 共通レイアウトの整理 / モバイル対応 など、UI改善カテゴリの残タスク
 
 - TaskHub 同期: 元プロジェクト `mmqri0ck8q9z1` 内の既存タスク `dd5b4e14-a3ab-4f48-a271-69bf8b74dc67` を `completed=true` に更新。最初に GET の取り回しを誤って「消失した」と誤認し新プロジェクト `62a0ce07-...` を重複作成したが、確認後に重複を DELETE し `.taskhub` を `mmqri0ck8q9z1` に復元済
+
+## 2026-05-17 [初回オンボーディングウィザード /onboarding] → 完了
+
+- やったこと:
+  - 新規ページ `app/onboarding/page.tsx` を新設（commit 00c7288, +848 行）
+  - 5 ステップウィザード:
+    1. 顧問先（会社名 / 正式名称 / 会社番号 / インボイス登録番号）→ POST /api/clients
+    2. 会計期間（期名 / 期首 / 期末。3月決算デフォルト）→ POST /api/fiscal-periods
+    3. 期首残高（現金・普通預金・売掛金・買掛金・資本金・繰越利益剰余金 等 9 科目のプリセット）→ PATCH /api/fiscal-periods/{id} で opening_balances JSONB に保存
+    4. 勘定科目（既存科目一覧 + 追加フォーム）→ POST /api/accounts
+    5. 部門/補助科目（1画面で両方）→ POST /api/departments / POST /api/accounts (parent_account_id)
+  - プログレスバー + ステップインジケータ（sky-500 / lime-500 グラデ）
+  - 自動リダイレクト: `app/page.tsx` 1247 行付近の clients fetch に `localStorage.aiocr_onboarding_done` 判定を追加。clients=0 件 + 未完了なら router.replace('/onboarding')
+  - ヘッダ「あとで設定する →」ボタン + Step2 以降は「スキップ」ボタンで離脱可能
+  - 完了画面 → メイン (/) へ「OCR を始める」/ /guide へのリンク
+
+- 背景:
+  - 5/14 のマルチユーザレビュー「次にやること」UI 改善カテゴリのタスク（中優先度）
+  - 新規ログイン後の手順が分散しており「最初に何をやるか」が不明という指摘
+
+- 検証:
+  - `npx tsc --noEmit` EXIT=0
+  - `npx eslint app/onboarding/page.tsx` EXIT=0
+  - `npx next build` 成功、`/onboarding` が ○ (static) として登録
+  - 既存 `app/page.tsx` の `react-hooks/set-state-in-effect` エラーは事前から存在（line 8595/HEAD）。今回の変更は無関係
+
+- 次にやること:
+  - TaskHub 該当タスクの completed 化
+  - 本番（Vercel auto-deploy）で動作確認
