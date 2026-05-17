@@ -253,4 +253,4 @@
 - 次にやること:
   - [SALES⚡A] 通帳 OCR 訴求の LP 改修 / 共通レイアウトの整理 / モバイル対応 など、UI改善カテゴリの残タスク
 
-- TaskHub 同期: project `mmqri0ck8q9z1` が消失していたため再作成 → 新 id `62a0ce07-5095-45db-93b0-52415a8635fe` で `.taskhub` 更新済。タスク `b3ebc10b-6001-4c4d-9422-efc98f2d60cf` を登録し即 `completed=true` で記録（過去 19 件の再登録は重複や工数面で保留。必要なら別途バックフィル）
+- TaskHub 同期: 元プロジェクト `mmqri0ck8q9z1` 内の既存タスク `dd5b4e14-a3ab-4f48-a271-69bf8b74dc67` を `completed=true` に更新。最初に GET の取り回しを誤って「消失した」と誤認し新プロジェクト `62a0ce07-...` を重複作成したが、確認後に重複を DELETE し `.taskhub` を `mmqri0ck8q9z1` に復元済
