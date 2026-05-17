@@ -283,3 +283,25 @@
 - 次にやること:
   - TaskHub 該当タスクの completed 化
   - 本番（Vercel auto-deploy）で動作確認
+
+## 2026-05-17 [手動仕訳入力UI（振替伝票入力）の明示化] → 完了
+
+- やったこと:
+  - 新規 API `app/api/journal-entries/route.ts`（POST）追加: 手動仕訳1件登録用エンドポイント。`entry_type='manual'` / `match_status='manual'` / `voucher_group_id` 自動生成 / 締め日チェック / 監査ログ記録 (action='created')
+  - `app/page.tsx` ヘッダ部分にフローティング「+ 新規仕訳」ボタンを追加（fixed bottom-6 right-6 z-40・sky-400・全ビュー共通・ログインユーザーのみ表示）
+  - 振替伝票入力モーダル（max-w-lg）: 日付（今日デフォ）/借方科目/貸方科目/金額/摘要/消費税区分/取引先 の7フィールド
+  - 借方/貸方は既存 `AccountCombobox`（科目マスタ連動＋新規追加）、取引先は datalist で `vendorsList` から候補補完
+  - 保存成功時 `bumpLedgerRefresh()` で日記帳ビューを即時リフレッシュ
+
+- 背景:
+  - 5/14 のマルチユーザレビュー「次にやること」UI 改善カテゴリ（🟡 重要）: OCR/CSV/銀行明細経由の登録動線はあるが、純粋な振替伝票入力の入口が見つけづらいという指摘
+  - 「日記帳に + 新規仕訳 ボタン」の元案を全ビュー共通フローティングに格上げ（ユーザー選択）
+
+- 検証:
+  - `npx tsc --noEmit` EXIT=0
+  - `npx next build` 成功、`/api/journal-entries` が新規 ƒ (Dynamic) ルートとして登録
+  - 既存の `react-hooks/set-state-in-effect` エラー（line 8868）は事前から存在、無関係
+
+- 次にやること:
+  - TaskHub 該当タスクの completed 化
+  - 本番（Vercel auto-deploy）で動作確認

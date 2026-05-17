@@ -989,6 +989,85 @@ export default function Home() {
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
   const bumpLedgerRefresh = useCallback(() => setLedgerRefreshKey((k) => k + 1), []);
 
+  // ─── 手動仕訳入力モーダル State ────────────────────────────────────────────
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
+  const [manualEntrySubmitting, setManualEntrySubmitting] = useState(false);
+  const [manualEntryError, setManualEntryError] = useState<string | null>(null);
+  const todayYmd = () => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+  const [manualEntryForm, setManualEntryForm] = useState<{
+    entry_date: string;
+    debit_account: string;
+    credit_account: string;
+    amount: string;
+    description: string;
+    tax_category: string;
+    vendor_name: string;
+  }>({
+    entry_date: todayYmd(),
+    debit_account: '',
+    credit_account: '',
+    amount: '',
+    description: '',
+    tax_category: '',
+    vendor_name: '',
+  });
+
+  const resetManualEntry = () => {
+    setManualEntryForm({
+      entry_date: todayYmd(),
+      debit_account: '',
+      credit_account: '',
+      amount: '',
+      description: '',
+      tax_category: '',
+      vendor_name: '',
+    });
+    setManualEntryError(null);
+  };
+
+  const handleManualEntrySubmit = async () => {
+    if (manualEntrySubmitting) return;
+    setManualEntryError(null);
+
+    const { entry_date, debit_account, credit_account, amount, description, tax_category, vendor_name } = manualEntryForm;
+    if (!entry_date) { setManualEntryError('日付を入力してください'); return; }
+    if (!debit_account.trim()) { setManualEntryError('借方科目を選択してください'); return; }
+    if (!credit_account.trim()) { setManualEntryError('貸方科目を選択してください'); return; }
+    const amt = Number(amount.replace(/,/g, ''));
+    if (!Number.isFinite(amt) || amt <= 0) { setManualEntryError('金額は1以上の数値で入力してください'); return; }
+
+    setManualEntrySubmitting(true);
+    try {
+      const res = await fetch('/api/journal-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entry_date,
+          debit_account: debit_account.trim(),
+          credit_account: credit_account.trim(),
+          amount: amt,
+          description: description.trim(),
+          tax_category: tax_category || null,
+          vendor_name: vendor_name.trim(),
+          client_id: selectedClientId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '登録に失敗しました');
+      setManualEntryOpen(false);
+      resetManualEntry();
+      bumpLedgerRefresh();
+    } catch (e) {
+      setManualEntryError(e instanceof Error ? e.message : '登録に失敗しました');
+    } finally {
+      setManualEntrySubmitting(false);
+    }
+  };
+
   const handleSaveField = async (id: string, patch: Partial<LedgerEntry>) => {
     const res = await fetch(`/api/journal-entries/${id}`, {
       method: 'PATCH',
@@ -4232,6 +4311,189 @@ export default function Home() {
                 className="text-xs text-slate-600 bg-white border border-slate-200 rounded-xl px-4 py-2.5 font-medium hover:bg-slate-50 transition-all"
               >
                 閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── フローティング「+ 新規仕訳」ボタン（ログインユーザー全ビュー共通） ─── */}
+      {!isGuest && user && (
+        <button
+          onClick={() => { resetManualEntry(); setManualEntryOpen(true); }}
+          aria-label="新規仕訳を入力"
+          title="新規仕訳を入力"
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2
+            bg-sky-400 hover:bg-sky-500 active:scale-95 text-white
+            shadow-lg shadow-sky-200/70 rounded-2xl
+            px-5 py-3 text-sm font-semibold tracking-tight
+            transition-all duration-200"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          <span className="hidden sm:inline">新規仕訳</span>
+        </button>
+      )}
+
+      {/* ─── 手動仕訳入力モーダル ───────────────────────────────────────────── */}
+      {manualEntryOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => { if (!manualEntrySubmitting) { setManualEntryOpen(false); resetManualEntry(); } }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div>
+                <p className="text-base font-semibold text-slate-900 tracking-tight">新規仕訳を入力</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">振替伝票として1件登録します</p>
+              </div>
+              <button
+                onClick={() => { if (!manualEntrySubmitting) { setManualEntryOpen(false); resetManualEntry(); } }}
+                className="text-slate-400 hover:text-slate-600 text-2xl leading-none"
+                aria-label="閉じる"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+              {/* 日付 */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                  日付 <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={manualEntryForm.entry_date}
+                  onChange={(e) => setManualEntryForm((p) => ({ ...p, entry_date: e.target.value }))}
+                  className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2
+                    focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300"
+                />
+              </div>
+
+              {/* 借方科目 / 貸方科目 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    借方科目 <span className="text-rose-500">*</span>
+                  </label>
+                  <AccountCombobox
+                    value={manualEntryForm.debit_account}
+                    onChange={(v) => setManualEntryForm((p) => ({ ...p, debit_account: v }))}
+                    accounts={accountsList}
+                    onCreate={addAccountLocal}
+                    placeholder="科目を選択"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                    貸方科目 <span className="text-rose-500">*</span>
+                  </label>
+                  <AccountCombobox
+                    value={manualEntryForm.credit_account}
+                    onChange={(v) => setManualEntryForm((p) => ({ ...p, credit_account: v }))}
+                    accounts={accountsList}
+                    onCreate={addAccountLocal}
+                    placeholder="科目を選択"
+                  />
+                </div>
+              </div>
+
+              {/* 金額 */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                  金額 <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={manualEntryForm.amount}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^\d,]/g, '');
+                    setManualEntryForm((p) => ({ ...p, amount: v }));
+                  }}
+                  placeholder="0"
+                  className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2 text-right tabular-nums
+                    focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300"
+                />
+              </div>
+
+              {/* 摘要 */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">摘要</label>
+                <input
+                  type="text"
+                  value={manualEntryForm.description}
+                  onChange={(e) => setManualEntryForm((p) => ({ ...p, description: e.target.value }))}
+                  placeholder="例: 1月分家賃"
+                  className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2
+                    focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300"
+                />
+              </div>
+
+              {/* 消費税区分 / 取引先 */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">消費税区分</label>
+                  <select
+                    value={manualEntryForm.tax_category}
+                    onChange={(e) => setManualEntryForm((p) => ({ ...p, tax_category: e.target.value }))}
+                    className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white
+                      focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300"
+                  >
+                    <option value="">指定なし</option>
+                    <option value="taxable_sales">課税売上</option>
+                    <option value="tax_exempt_sales">非課税売上</option>
+                    <option value="taxable_purchase">課税仕入</option>
+                    <option value="non_taxable">免税・不課税</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">取引先</label>
+                  <input
+                    type="text"
+                    value={manualEntryForm.vendor_name}
+                    onChange={(e) => setManualEntryForm((p) => ({ ...p, vendor_name: e.target.value }))}
+                    list="manual-entry-vendors"
+                    placeholder="任意"
+                    className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2
+                      focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300"
+                  />
+                  <datalist id="manual-entry-vendors">
+                    {vendorsList.map((v) => (
+                      <option key={v.id ?? v.name} value={v.name} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+
+              {manualEntryError && (
+                <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+                  {manualEntryError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-slate-100">
+              <button
+                onClick={() => { if (!manualEntrySubmitting) { setManualEntryOpen(false); resetManualEntry(); } }}
+                disabled={manualEntrySubmitting}
+                className="text-sm text-slate-600 hover:text-slate-800 px-4 py-2 rounded-xl
+                  disabled:opacity-50 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleManualEntrySubmit}
+                disabled={manualEntrySubmitting}
+                className="text-sm text-white bg-sky-500 hover:bg-sky-600 disabled:opacity-50
+                  rounded-xl px-5 py-2 font-semibold transition-all"
+              >
+                {manualEntrySubmitting ? '登録中…' : '登録'}
               </button>
             </div>
           </div>
