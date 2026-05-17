@@ -331,7 +331,14 @@
   - dev server (`npm run dev`) Ready in 3s / `curl /` HTTP 200（SSR エラーなし）
   - Playwright 目視は既存ブラウザ占有でスキップ。本番 preview で要確認
 
+- TaskHub 同期:
+  - `91c2bcb7` 操作バーのチップ15個を整理 → completed:true（commit 9f3a8ec 紐付け）
+  - `65ed6c17` 共通レイアウト・サイドナビ導入 → working_memo に進捗追記（LedgerView 着手済み・他10ページ展開は bc3d3599 で追跡）
+  - `bc3d3599` SidebarNav を他ページへ横展開（tax-summary/ar-ap/budget等）priority=3 → 新規作成
+
 - 次にやること:
-  - TaskHub 該当タスクの completed 化
   - 本番（Vercel auto-deploy）で目視確認: 仕訳日記帳の左サイドナビ / 操作バーの色味
-  - 他ページ（/tax-summary, /ar-ap, /budget 等）への SidebarNav 横展開（次タスク）
+  - 他ページ（/tax-summary, /ar-ap, /budget 等）への SidebarNav 横展開（TaskHub bc3d3599）
+
+- 学び:
+  - TaskHub API `/api/cli/tasks?project_id=...&completed=false` のフィルタ組合せにバグ。`&completed=false` を付けると別プロジェクトのタスクが返ってきて、本来の生成AIOCRタスクが取得できない。`&completed=false` を外して全件取得 → クライアント側で `project_id` 一致を絞り込むのが正解
