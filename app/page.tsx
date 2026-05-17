@@ -1243,10 +1243,20 @@ export default function Home() {
           .then((r) => r.json())
           .then((d) => { if (d.count != null) setUsageInfo({ count: d.count, limit: d.limit }); })
           .catch(() => {});
-        // クライアント一覧を取得
+        // クライアント一覧を取得（0件かつ未完了なら /onboarding へ誘導）
         fetch('/api/clients')
           .then((r) => r.json())
-          .then((d) => { if (d.clients) setClients(d.clients); })
+          .then((d) => {
+            if (d.clients) setClients(d.clients);
+            try {
+              const done = localStorage.getItem('aiocr_onboarding_done') === '1';
+              if (Array.isArray(d.clients) && d.clients.length === 0 && !done) {
+                router.replace('/onboarding');
+              }
+            } catch {
+              // localStorage 利用不可なら誘導はスキップ
+            }
+          })
           .catch(() => {});
         // 勘定科目・取引先マスタ・ルールを起動時に1回ロード
         fetchAccounts();
