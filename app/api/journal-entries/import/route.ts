@@ -6,6 +6,7 @@ import { createServiceClient } from '@/utils/supabase/service';
 import { CSV_PRESETS, parseCsvWithPreset, type NormalizedJournalRow } from '@/lib/csv-import-presets';
 import { classifyAccount } from '@/lib/account-category-classifier';
 import { normalizeVendorKey } from '@/lib/vendor-normalize';
+import { resolveVendorsBatch } from '@/lib/vendor-resolve';
 
 export const maxDuration = 60;
 
@@ -114,13 +115,17 @@ export async function POST(request: NextRequest) {
       service, user.id, clientId ?? null, result.rows,
     );
 
-    // ── 取引先名を集約して、未登録分を vendors に自動登録 ──
-    const newVendorsCount = await ensureVendorsForRows(
-      service, user.id, clientId ?? null, result.rows,
+    // ── 取引先名を解決（vendors マスタへの id を取得・無ければ新規 insert） ──
+    const resolvedVendors = await resolveVendorsBatch(
+      service, user.id, clientId ?? null,
+      result.rows.map((r) => r.vendor_name ?? ''),
     );
+    const newVendorsCount = resolvedVendors.filter(
+      (v, i) => v.vendorId && v.canonicalName && (result.rows[i].vendor_name ?? '').trim() === v.canonicalName.trim(),
+    ).length;
 
     // ── insert 用に整形 ──
-    const insertRows = result.rows.map((r) => ({
+    const insertRows = result.rows.map((r, i) => ({
       user_id: user.id,
       client_id: clientId || null,
       entry_type: 'manual' as const,
@@ -135,7 +140,8 @@ export async function POST(request: NextRequest) {
       is_internal_tax: r.is_internal_tax,
       description: r.description,
       tax_type: r.tax_type,
-      vendor_name: r.vendor_name,
+      vendor_name: resolvedVendors[i].canonicalName || r.vendor_name,
+      vendor_id: resolvedVendors[i].vendorId,
       voucher_group_id: getVoucherGroupId(r.voucher_no),
       voucher_seq: r.voucher_seq,
       voucher_total_lines: r.voucher_total_lines,

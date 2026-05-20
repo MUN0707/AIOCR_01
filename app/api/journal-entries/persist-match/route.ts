@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveVendorsBatch } from '@/lib/vendor-resolve';
 
 export const maxDuration = 30;
 
@@ -66,10 +67,18 @@ export async function POST(request: NextRequest) {
     }
 
     const service = createServiceClient();
+
+    // 取引先解決（group ごとに 1 件）
+    const resolvedVendors = await resolveVendorsBatch(
+      service, user.id, clientId, groups.map((g) => g.vendor_name ?? ''),
+    );
+
     const rows: Record<string, unknown>[] = [];
-    for (const g of groups) {
+    groups.forEach((g, gi) => {
       const voucherGroupId = crypto.randomUUID();
       const bankUploadId = g.paymentEntry?.bank_ocr_upload_id ?? null;
+      const vendorCanonical = resolvedVendors[gi].canonicalName || g.vendor_name;
+      const vendorId = resolvedVendors[gi].vendorId;
       for (const e of g.accrualEntries) {
         rows.push({
           user_id: user.id,
@@ -82,7 +91,8 @@ export async function POST(request: NextRequest) {
           amount: e.amount,
           description: e.description,
           tax_type: e.tax_type,
-          vendor_name: g.vendor_name,
+          vendor_name: vendorCanonical,
+          vendor_id: vendorId,
           match_status: e.match_status,
           ocr_upload_id: e.ocr_upload_id ?? null,
           bank_ocr_upload_id: bankUploadId,
@@ -101,7 +111,8 @@ export async function POST(request: NextRequest) {
           amount: p.amount,
           description: p.description,
           tax_type: p.tax_type,
-          vendor_name: g.vendor_name,
+          vendor_name: vendorCanonical,
+          vendor_id: vendorId,
           match_status: p.match_status,
           ocr_upload_id: p.ocr_upload_id ?? null,
           bank_ocr_upload_id: bankUploadId,
@@ -120,13 +131,14 @@ export async function POST(request: NextRequest) {
           amount: p.amount,
           description: p.description,
           tax_type: p.tax_type,
-          vendor_name: g.vendor_name,
+          vendor_name: vendorCanonical,
+          vendor_id: vendorId,
           match_status: p.match_status,
           ocr_upload_id: p.ocr_upload_id ?? null,
           bank_ocr_upload_id: p.bank_ocr_upload_id ?? null,
         });
       }
-    }
+    });
 
     const { error } = await service.from('journal_entries').insert(rows);
     if (error) {

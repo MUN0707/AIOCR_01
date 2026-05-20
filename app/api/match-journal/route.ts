@@ -11,6 +11,7 @@ import {
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { normalizeVendorKey } from '@/lib/vendor-normalize';
+import { resolveVendorsBatch } from '@/lib/vendor-resolve';
 
 export const maxDuration = 30;
 
@@ -53,45 +54,25 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     const service = createServiceClient();
 
-    // ─── 取引先の名寄せ（既存マスタの canonical name に統一・新規は自動登録） ───
+    // ─── 取引先の名寄せ（resolveVendorsBatch で一括解決・canonical name + vendor_id） ───
     let vouchers: VoucherInput[] = rawVouchers;
     let rules: AccountRule[] = [];
+    // voucher index → resolved vendor の対応（後で journal_entries.vendor_id に使う）
+    const voucherVendorMap = new Map<number, { vendorId: string | null; canonicalName: string }>();
+
     if (user) {
-      const { data: existingVendors } = await service
-        .from('vendors')
-        .select('id, name, normalized_key')
-        .eq('user_id', user.id);
-
-      const keyToName = new Map<string, string>();
-      for (const v of existingVendors ?? []) {
-        keyToName.set(v.normalized_key, v.name);
-      }
-
-      const newVendorRows: { user_id: string; client_id: string | null; name: string; normalized_key: string }[] = [];
-      vouchers = rawVouchers.map((v) => {
-        const raw = v.vendorName?.trim() ?? '';
-        if (!raw) return v;
-        const key = normalizeVendorKey(raw);
-        if (!key) return v;
-        const canonical = keyToName.get(key);
-        if (canonical) {
-          return { ...v, vendorName: canonical };
-        }
-        // 新規取引先として登録（最初に来た表記を canonical にする）
-        keyToName.set(key, raw);
-        newVendorRows.push({ user_id: user.id, client_id: clientId, name: raw, normalized_key: key });
-        return v;
+      const resolved = await resolveVendorsBatch(
+        service,
+        user.id,
+        clientId,
+        rawVouchers.map((v) => v.vendorName ?? ''),
+      );
+      vouchers = rawVouchers.map((v, i) => {
+        const r = resolved[i];
+        voucherVendorMap.set(i, { vendorId: r.vendorId, canonicalName: r.canonicalName });
+        if (!r.canonicalName) return v;
+        return { ...v, vendorName: r.canonicalName };
       });
-
-      // vendors の unique index は COALESCE(client_id::text,'') を含む式インデックスのため
-      // PostgREST の onConflict には渡せない。新規分だけ insert し、race condition で
-      // 万一 23505 (unique_violation) が出ても致命でないため握り潰す。
-      if (newVendorRows.length > 0) {
-        const { error: vendorInsertError } = await service.from('vendors').insert(newVendorRows);
-        if (vendorInsertError && vendorInsertError.code !== '23505') {
-          console.error('vendors insert 失敗:', vendorInsertError);
-        }
-      }
 
       // ─── 勘定科目ルールを取得（相手先・摘要パターン） ───
       const { data: ruleRows } = await service
@@ -312,7 +293,12 @@ export async function POST(request: NextRequest) {
 
     // ─── 仕訳エントリ保存（部分登録モードではスキップ） ───
     if (shouldSave && user) {
-      await saveResultsToJournalEntries(service, user, clientId, logId, vouchers, transactions, results, summary);
+      // canonical vendorName → vendor_id のマップを構築（saveResults 内で参照）
+      const vendorIdByName = new Map<string, string>();
+      for (const v of voucherVendorMap.values()) {
+        if (v.canonicalName && v.vendorId) vendorIdByName.set(v.canonicalName, v.vendorId);
+      }
+      await saveResultsToJournalEntries(service, user, clientId, logId, vouchers, transactions, results, summary, vendorIdByName);
     }
 
     return NextResponse.json({ results, summary, suggestedUnmatchedAccounts, logId });
@@ -335,13 +321,15 @@ async function saveResultsToJournalEntries(
   _vouchers: VoucherInput[],
   _transactions: TransactionInput[],
   results: MatchResult[],
-  _summary: ReturnType<typeof matchVouchersToTransactions>['summary']
+  _summary: ReturnType<typeof matchVouchersToTransactions>['summary'],
+  vendorIdByName: Map<string, string>,
 ) {
   try {
     const rows: Record<string, unknown>[] = [];
     for (const r of results) {
       const firstAccrual = r.accrualEntries[0];
       const vendor = firstAccrual?.voucher?.vendorName ?? '';
+      const vendorId = vendor ? (vendorIdByName.get(vendor) ?? null) : null;
       const voucherGroupId = crypto.randomUUID();
       const linkedBankUploadId: string | null = r.paymentEntry?.transaction.ocrUploadId ?? null;
       for (const e of r.accrualEntries) {
@@ -358,6 +346,7 @@ async function saveResultsToJournalEntries(
           description: e.description,
           tax_type: e.taxType,
           vendor_name: vendor,
+          vendor_id: vendorId,
           match_status: e.matchStatus,
           ocr_upload_id: e.voucher.ocrUploadId ?? null,
           bank_ocr_upload_id: linkedBankUploadId,
@@ -377,6 +366,7 @@ async function saveResultsToJournalEntries(
           description: r.paymentEntry.description,
           tax_type: r.paymentEntry.taxType,
           vendor_name: vendor,
+          vendor_id: vendorId,
           match_status: r.paymentEntry.matchStatus,
           ocr_upload_id: r.paymentEntry.voucher.ocrUploadId ?? null,
           bank_ocr_upload_id: linkedBankUploadId,
@@ -396,6 +386,7 @@ async function saveResultsToJournalEntries(
           description: r.withholdingPaymentEntry.description,
           tax_type: r.withholdingPaymentEntry.taxType,
           vendor_name: vendor,
+          vendor_id: vendorId,
           match_status: r.withholdingPaymentEntry.matchStatus,
           ocr_upload_id: null,
           bank_ocr_upload_id: r.withholdingPaymentEntry.transaction.ocrUploadId ?? null,

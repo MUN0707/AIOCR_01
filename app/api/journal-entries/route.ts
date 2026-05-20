@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveVendor } from '@/lib/vendor-resolve';
 
 export const maxDuration = 15;
 
@@ -80,6 +81,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // 取引先を解決（vendor_id を埋め、canonical name に揃える）
+  const { vendorId, canonicalName } = await resolveVendor(service, user.id, clientId, vendorName);
+
   const row = {
     user_id: user.id,
     client_id: clientId,
@@ -92,7 +96,8 @@ export async function POST(request: NextRequest) {
     description,
     tax_type: '対象外',
     tax_category: taxCategory,
-    vendor_name: vendorName,
+    vendor_name: canonicalName,
+    vendor_id: vendorId,
     match_status: 'manual',
   };
 

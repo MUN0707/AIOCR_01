@@ -44,16 +44,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '対象の取引先が見つかりません' }, { status: 404 });
     }
 
-    let updated = 0;
+    // vendor_id で参照されている仕訳をマージ先に張り替え（canonical name も統一）
+    const { data: byIdUpdated } = await service
+      .from('journal_entries')
+      .update({ vendor_id: keep.id, vendor_name: keep.name })
+      .eq('user_id', user.id)
+      .eq('vendor_id', merge.id)
+      .select('id');
+
+    // vendor_id 未設定で vendor_name のみ merge.name の旧仕訳も拾う（既存表記揺れ救済）
+    let byNameUpdated: { id: string }[] | null = null;
     if (keep.name !== merge.name) {
-      const { data: rowsUpdated } = await service
+      const { data } = await service
         .from('journal_entries')
-        .update({ vendor_name: keep.name })
+        .update({ vendor_name: keep.name, vendor_id: keep.id })
         .eq('user_id', user.id)
+        .is('vendor_id', null)
         .eq('vendor_name', merge.name)
         .select('id');
-      updated = rowsUpdated?.length ?? 0;
+      byNameUpdated = data ?? null;
     }
+    const updated = (byIdUpdated?.length ?? 0) + (byNameUpdated?.length ?? 0);
 
     const { error: delErr } = await service
       .from('vendors')
