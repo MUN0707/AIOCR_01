@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
+import { isAdmin } from '@/lib/auth-admin';
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -26,7 +27,7 @@ export async function GET() {
   }
 
   // 管理者は常に active 扱い
-  if (user.email === process.env.ADMIN_EMAIL) {
+  if (await isAdmin(user)) {
     return NextResponse.json({
       subscription: { status: 'active', email: user.email },
     });

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
+import { isAdmin } from '@/lib/auth-admin';
 
 async function verifyAdmin() {
   const cookieStore = await cookies();
@@ -21,7 +22,7 @@ async function verifyAdmin() {
     }
   );
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user || user.email !== process.env.ADMIN_EMAIL) return null;
+  if (!user || !(await isAdmin(user))) return null;
   return user;
 }
 

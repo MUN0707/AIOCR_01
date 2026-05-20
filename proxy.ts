@@ -105,12 +105,18 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // 管理者は全アクセス可（サブスク不要）
-  if (user.email === process.env.ADMIN_EMAIL) {
+  // 管理者は全アクセス可（サブスク不要）。aiocr_admins テーブルの RLS で自分の行のみ見える
+  const { data: adminRow } = await supabase
+    .from('aiocr_admins')
+    .select('user_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  const isAdminUser = !!adminRow;
+  if (isAdminUser) {
     return supabaseResponse;
   }
 
-  // /admin は管理者メールのみ
+  // /admin は管理者のみ
   if (pathname.startsWith('/admin')) {
     const homeUrl = request.nextUrl.clone();
     homeUrl.pathname = '/';

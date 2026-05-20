@@ -6,6 +6,7 @@ import { processTaxReturnPdf } from '@/lib/ocr/tax-return-ocr';
 import { processBankStatementPdf } from '@/lib/ocr/bank-statement-ocr';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { isAdmin } from '@/lib/auth-admin';
 
 export const maxDuration = 60;
 
@@ -83,7 +84,7 @@ export async function POST(request: NextRequest) {
       trackGuestUsage = true;
     }
 
-    if (user && user.email !== process.env.ADMIN_EMAIL) {
+    if (user && !(await isAdmin(user))) {
       const { data: subscription } = await supabase
         .from('subscriptions')
         .select('plan, status')

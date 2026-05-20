@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { isAdmin } from '@/lib/auth-admin';
 
 type CorrectionInput = {
   uploadId: string;
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  if (user.email !== process.env.ADMIN_EMAIL) {
+  if (!(await isAdmin(user))) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 

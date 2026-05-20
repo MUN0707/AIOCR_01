@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
+import { isAdmin } from '@/lib/auth-admin';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
 
     if (!error && user) {
       // 管理者はサブスクリプション不要
-      if (user.email !== process.env.ADMIN_EMAIL) {
+      if (!(await isAdmin(user))) {
         // 既存のサブスクリプションがなければ trial を作成
         const serviceClient = createServiceClient();
         const { data: existing } = await serviceClient

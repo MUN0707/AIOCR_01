@@ -465,3 +465,30 @@
 - 次にやること:
   - `app/api/journal-entries/route.ts:114` の `'created'` 用 void insert は別タスク化（INSERT トリガ追加 or await 化）
 
+## 2026-05-20 17:30
+- やったこと: [MU🔴5] 管理者ロールを DB 化（TaskHub 3ac8c94e 対応）
+  - migration `20260520_aiocr_admins_table` 適用済み
+    - `public.aiocr_admins(user_id PK ref auth.users, email, note, created_at)` + RLS（自分の行のみ SELECT 可）
+    - 初期データ: 既存 `ADMIN_EMAIL=negitoro0707@gmail.com` のユーザーを `aiocr_admins` に INSERT
+  - `lib/auth-admin.ts` 新設: `isAdmin(user)` ヘルパー（service client で `aiocr_admins.user_id` 存在チェック）
+  - 認可用途 8 箇所を `isAdmin(user)` 呼び出しに置換
+    - `proxy.ts` middleware（admin は全アクセス可）
+    - `app/auth/callback/route.ts`（admin はサブスク作成スキップ）
+    - `app/api/admin/subscriptions/route.ts`
+    - `app/api/admin/error-reports/route.ts`
+    - `app/api/subscription/status/route.ts`（admin は active 扱い）
+    - `app/api/process-pdf/route.ts`（admin は使用回数チェック迂回）
+    - `app/api/me/route.ts`（isAdmin フラグ）
+    - `app/api/corrections/route.ts`
+  - 通知メール送信先用途（`subscribe/route.ts`, `report-error/route.ts`）は `ADMIN_EMAIL` env のまま残存（認可ではないため）
+- 背景/理由:
+  - 旧実装は `user.email === process.env.ADMIN_EMAIL` のみで認可していた
+  - 環境変数漏洩で誰でも管理者操作可能、複数管理者にも未対応、ローテーション不可能
+  - DB 化により: 漏洩リスク低減、複数管理者対応、追加管理者は SQL 1 行で済む
+- 検証:
+  - tsc --noEmit EXIT=0
+  - aiocr_admins テーブルに 1 行（negitoro0707@gmail.com）が登録済みであることを SELECT で確認
+- 次にやること:
+  - 本番デプロイ後、admin として /admin にアクセスして閲覧可否を目視確認
+  - 通知用 `ADMIN_EMAIL` env はそのまま残しているので Vercel env からは削除しなくてよい
+
