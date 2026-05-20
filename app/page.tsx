@@ -2414,7 +2414,8 @@ export default function Home() {
                   text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300
                   transition-all duration-200 min-w-[160px]"
               >
-                <option value="">未選択（個人）</option>
+                {/* 日記帳含む自動仕訳モードでは未選択を不可にする（誤って個人扱いで仕訳登録するのを防止） */}
+                {mode !== 'journal-entry' && <option value="">未選択（個人）</option>}
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>{clientDisplayLabel(c)}</option>
                 ))}
@@ -2965,7 +2966,7 @@ export default function Home() {
                 <p className="text-[11px] text-slate-400 px-2 leading-relaxed">
                   行をクリックで元PDF表示 / 科目セルをクリックで編集・新規作成 / チェックした行だけ先に登録できます。
                   <br />
-                  「取引先 🏷️」ボタンで「この相手先は常にこの科目」というルールをマスタに登録できます。
+                  「🏷️ ルール登録」ボタンで「この相手先は常にこの科目」という自動仕訳ルールをマスタに登録できます。
                 </p>
 
                 {/* 証憑なしの入出金は「未照合」タブで編集 */}
@@ -7877,13 +7878,19 @@ function AccountCombobox({
   }, [open, creating]);
 
   // 補完候補（前方一致）— name または reading が入力で始まるもの
+  // マスタに同名（読み違いの重複等）が混入していてもドロップダウンでは name 単位で1件に集約する
   const q = value.trim().toLowerCase();
-  const candidates = q
+  const filtered = q
     ? accounts.filter((a) =>
         a.name.toLowerCase().startsWith(q) ||
         (a.reading || '').toLowerCase().startsWith(q)
-      ).slice(0, 12)
-    : accounts.slice(0, 12);
+      )
+    : accounts;
+  const dedupMap = new Map<string, AccountOption>();
+  for (const a of filtered) {
+    if (!dedupMap.has(a.name)) dedupMap.set(a.name, a);
+  }
+  const candidates = Array.from(dedupMap.values()).slice(0, 12);
 
   // 完全一致がない場合は「+ 新規追加」を表示
   const exact = accounts.some((a) => a.name === value.trim());
@@ -10264,17 +10271,17 @@ function MatchResultTable({
                             <button
                               type="button"
                               onClick={() => showVoucherPdf(voucherFirst)}
-                              className="text-[10px] text-sky-500 hover:text-sky-700 whitespace-nowrap"
+                              className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100 rounded px-1.5 py-0.5 whitespace-nowrap"
                               title="請求書PDFを開く"
-                            >📄</button>
+                            >📄 請求書</button>
                           )}
                           {r.paymentEntry?.transaction?.ocrUploadId && lineIdx === 0 && (
                             <button
                               type="button"
                               onClick={() => showTransactionPdf(r.paymentEntry!.transaction)}
-                              className="text-[10px] text-lime-500 hover:text-lime-700 whitespace-nowrap"
-                              title="通帳PDFを開く"
-                            >🏦</button>
+                              className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-lime-700 bg-lime-50 border border-lime-200 hover:bg-lime-100 rounded px-1.5 py-0.5 whitespace-nowrap"
+                              title="通帳PDF（入出金明細）を開く"
+                            >🏦 通帳</button>
                           )}
                         </div>
                       </td>
@@ -10297,9 +10304,9 @@ function MatchResultTable({
                             disabled={!vendorName || !firstDebit}
                             onClick={() => onCreateVendorRule(vendorName, r.accrualEntries[0]?.debitAccount ?? '')}
                             className="text-[10px] text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded-md px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                            title="この取引先→科目のルールをマスタに登録"
+                            title={`この取引先「${vendorName || '(未指定)'}」→「${firstDebit || '(科目未指定)'}」を次回以降の自動仕訳ルールとしてマスタに登録します`}
                           >
-                            🏷️ 取引先
+                            🏷️ ルール登録
                           </button>
                         </td>
                       )}

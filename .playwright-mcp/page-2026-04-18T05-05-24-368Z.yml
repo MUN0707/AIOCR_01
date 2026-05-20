@@ -1,0 +1,214 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - link "Invoice OCR" [ref=e5] [cursor=pointer]:
+          - /url: /login
+          - img [ref=e6]
+          - generic [ref=e9]: Invoice OCR
+        - navigation [ref=e10]:
+          - link "セキュリティ" [ref=e11] [cursor=pointer]:
+            - /url: /security
+          - link "使い方" [ref=e12] [cursor=pointer]:
+            - /url: /guide
+          - link "FAQ" [ref=e13] [cursor=pointer]:
+            - /url: /faq
+    - main [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e16]: まずは3日間、無料でお試しいただけます
+        - heading "料金プラン" [level=1] [ref=e17]
+        - paragraph [ref=e18]: 事務所の規模に合わせて選べる4プラン。すべて銀行振込に対応。
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]:
+            - paragraph [ref=e22]: ライト
+            - generic [ref=e23]:
+              - paragraph [ref=e24]: ¥1,500
+              - paragraph [ref=e25]: / 月
+            - paragraph [ref=e26]: 個人事業主・少量処理向け
+          - list [ref=e27]:
+            - listitem [ref=e28]:
+              - generic [ref=e29]: ✓
+              - text: 月30件まで処理
+            - listitem [ref=e30]:
+              - generic [ref=e31]: ✓
+              - text: AIによる請求書・通帳自動解析
+            - listitem [ref=e32]:
+              - generic [ref=e33]: ✓
+              - text: PDF分割・ファイル命名
+            - listitem [ref=e34]:
+              - generic [ref=e35]: ✓
+              - text: ZIPダウンロード対応
+            - listitem [ref=e36]:
+              - generic [ref=e37]: ✓
+              - text: メールサポート
+          - link "申し込む" [ref=e38] [cursor=pointer]:
+            - /url: /subscribe
+        - generic [ref=e39]:
+          - generic [ref=e40]: 人気
+          - generic [ref=e41]:
+            - paragraph [ref=e42]: スタンダード
+            - generic [ref=e43]:
+              - paragraph [ref=e44]: ¥3,980
+              - paragraph [ref=e45]: / 月
+            - paragraph [ref=e46]: 1人税理士・少数顧問先向け
+          - list [ref=e47]:
+            - listitem [ref=e48]:
+              - generic [ref=e49]: ✓
+              - text: 月100件まで処理
+            - listitem [ref=e50]:
+              - generic [ref=e51]: ✓
+              - text: AIによる請求書・通帳自動解析
+            - listitem [ref=e52]:
+              - generic [ref=e53]: ✓
+              - text: PDF分割・ファイル命名
+            - listitem [ref=e54]:
+              - generic [ref=e55]: ✓
+              - text: ZIPダウンロード対応
+            - listitem [ref=e56]:
+              - generic [ref=e57]: ✓
+              - text: 顧問先管理
+            - listitem [ref=e58]:
+              - generic [ref=e59]: ✓
+              - text: メールサポート
+          - link "申し込む" [ref=e60] [cursor=pointer]:
+            - /url: /subscribe
+        - generic [ref=e61]:
+          - generic [ref=e62]:
+            - paragraph [ref=e63]: プロ
+            - generic [ref=e64]:
+              - paragraph [ref=e65]: ¥9,800
+              - paragraph [ref=e66]: / 月
+            - paragraph [ref=e67]: 税理士事務所・20社規模向け
+          - list [ref=e68]:
+            - listitem [ref=e69]:
+              - generic [ref=e70]: ✓
+              - text: 月500件まで処理
+            - listitem [ref=e71]:
+              - generic [ref=e72]: ✓
+              - text: AIによる請求書・通帳自動解析
+            - listitem [ref=e73]:
+              - generic [ref=e74]: ✓
+              - text: PDF分割・ファイル命名
+            - listitem [ref=e75]:
+              - generic [ref=e76]: ✓
+              - text: ZIPダウンロード対応
+            - listitem [ref=e77]:
+              - generic [ref=e78]: ✓
+              - text: 顧問先管理
+            - listitem [ref=e79]:
+              - generic [ref=e80]: ✓
+              - text: 仕訳突合
+            - listitem [ref=e81]:
+              - generic [ref=e82]: ✓
+              - text: 優先サポート
+          - link "申し込む" [ref=e83] [cursor=pointer]:
+            - /url: /subscribe
+        - generic [ref=e84]:
+          - generic [ref=e85]:
+            - paragraph [ref=e86]: エンタープライズ
+            - generic [ref=e87]:
+              - paragraph [ref=e88]: ¥19,800
+              - paragraph [ref=e89]: / 月
+            - paragraph [ref=e90]: 大規模事務所・法人向け
+          - list [ref=e91]:
+            - listitem [ref=e92]:
+              - generic [ref=e93]: ✓
+              - text: 月1,000件まで処理
+            - listitem [ref=e94]:
+              - generic [ref=e95]: ✓
+              - text: AIによる請求書・通帳自動解析
+            - listitem [ref=e96]:
+              - generic [ref=e97]: ✓
+              - text: PDF分割・ファイル命名
+            - listitem [ref=e98]:
+              - generic [ref=e99]: ✓
+              - text: ZIPダウンロード対応
+            - listitem [ref=e100]:
+              - generic [ref=e101]: ✓
+              - text: 顧問先管理
+            - listitem [ref=e102]:
+              - generic [ref=e103]: ✓
+              - text: 仕訳突合
+            - listitem [ref=e104]:
+              - generic [ref=e105]: ✓
+              - text: 優先サポート（翌営業日以内）
+          - link "お問い合わせ" [ref=e106] [cursor=pointer]:
+            - /url: /subscribe
+      - generic [ref=e107]:
+        - heading "プラン比較" [level=2] [ref=e109]
+        - table [ref=e111]:
+          - rowgroup [ref=e112]:
+            - row "機能 ライト スタンダード プロ エンタープライズ" [ref=e113]:
+              - columnheader "機能" [ref=e114]
+              - columnheader "ライト" [ref=e115]
+              - columnheader "スタンダード" [ref=e116]
+              - columnheader "プロ" [ref=e117]
+              - columnheader "エンタープライズ" [ref=e118]
+          - rowgroup [ref=e119]:
+            - row "月額料金 ¥1,500 ¥3,980 ¥9,800 ¥19,800" [ref=e120]:
+              - cell "月額料金" [ref=e121]
+              - cell "¥1,500" [ref=e122]
+              - cell "¥3,980" [ref=e123]
+              - cell "¥9,800" [ref=e124]
+              - cell "¥19,800" [ref=e125]
+            - row "月次処理件数 30件 100件 500件 1,000件" [ref=e126]:
+              - cell "月次処理件数" [ref=e127]
+              - cell "30件" [ref=e128]
+              - cell "100件" [ref=e129]
+              - cell "500件" [ref=e130]
+              - cell "1,000件" [ref=e131]
+            - row "請求書・通帳OCR ✓ ✓ ✓ ✓" [ref=e132]:
+              - cell "請求書・通帳OCR" [ref=e133]
+              - cell "✓" [ref=e134]
+              - cell "✓" [ref=e135]
+              - cell "✓" [ref=e136]
+              - cell "✓" [ref=e137]
+            - row "確定申告モード ✓ ✓ ✓ ✓" [ref=e138]:
+              - cell "確定申告モード" [ref=e139]
+              - cell "✓" [ref=e140]
+              - cell "✓" [ref=e141]
+              - cell "✓" [ref=e142]
+              - cell "✓" [ref=e143]
+            - row "PDF分割・ZIP一括DL ✓ ✓ ✓ ✓" [ref=e144]:
+              - cell "PDF分割・ZIP一括DL" [ref=e145]
+              - cell "✓" [ref=e146]
+              - cell "✓" [ref=e147]
+              - cell "✓" [ref=e148]
+              - cell "✓" [ref=e149]
+            - row "顧問先管理 — ✓ ✓ ✓" [ref=e150]:
+              - cell "顧問先管理" [ref=e151]
+              - cell "—" [ref=e152]
+              - cell "✓" [ref=e153]
+              - cell "✓" [ref=e154]
+              - cell "✓" [ref=e155]
+            - row "仕訳突合 — — ✓ ✓" [ref=e156]:
+              - cell "仕訳突合" [ref=e157]
+              - cell "—" [ref=e158]
+              - cell "—" [ref=e159]
+              - cell "✓" [ref=e160]
+              - cell "✓" [ref=e161]
+            - row "サポート メール メール 優先 優先（翌営業日）" [ref=e162]:
+              - cell "サポート" [ref=e163]
+              - cell "メール" [ref=e164]
+              - cell "メール" [ref=e165]
+              - cell "優先" [ref=e166]
+              - cell "優先（翌営業日）" [ref=e167]
+      - generic [ref=e168]:
+        - heading "お支払い方法" [level=2] [ref=e169]
+        - generic [ref=e170]:
+          - generic [ref=e171]:
+            - img [ref=e173]
+            - paragraph [ref=e176]: 銀行振込
+          - paragraph [ref=e177]: 1ヶ月分の前払い、または後払いに対応。適格請求書（インボイス）を発行いたします。
+          - paragraph [ref=e178]: クレジットカード登録不要・自動課金なし
+      - generic [ref=e179]:
+        - link "3日間無料で試してみる →" [ref=e180] [cursor=pointer]:
+          - /url: /login
+        - paragraph [ref=e181]: Googleログインのみ・カード登録不要
+  - button "エラー報告" [ref=e182]:
+    - img [ref=e183]
+    - text: エラー報告
+  - button "Open Next.js Dev Tools" [ref=e190] [cursor=pointer]:
+    - img [ref=e191]
+  - alert [ref=e194]

@@ -1,0 +1,1045 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - button "ホームへ戻る" [ref=e5]:
+          - img [ref=e7]
+          - generic [ref=e10]:
+            - paragraph [ref=e11]: Invoice OCR
+            - paragraph [ref=e12]: AI-Powered PDF Splitter
+        - generic [ref=e59]:
+          - button "履歴" [ref=e60]
+          - button "サインアウト" [ref=e61]
+    - main [ref=e13]:
+      - generic [ref=e15]:
+        - button "請求書・領収書" [ref=e16]
+        - button "確定申告" [ref=e17]
+        - button "通帳OCR" [ref=e18]
+        - button "自動仕訳" [ref=e19]
+        - button "決算書" [ref=e20]
+      - generic [ref=e63]:
+        - generic [ref=e64]: クライアント
+        - combobox [ref=e65]:
+          - option "未選択（個人）"
+          - option "887 gkTU003"
+          - option "253_東那須太陽光" [selected]
+          - option "443_Jインフラ41"
+          - option "870_ブルーインフラ8号"
+        - button "管理" [ref=e66]
+      - generic [ref=e68]:
+        - generic [ref=e69]: 今月の使用量
+        - generic [ref=e71]:
+          - text: "0"
+          - generic [ref=e72]: /10件
+      - generic [ref=e21]:
+        - heading "通帳 × 請求書を AI で自動照合・仕訳" [level=2] [ref=e73]
+        - paragraph [ref=e74]: 通帳と請求書をそれぞれアップロード → 金額・日付・相手先で照合 → 仕訳CSV出力
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - button "仕訳実行" [ref=e78]
+            - button "未照合" [active] [ref=e79]
+            - button "入出金明細" [ref=e80]
+            - button "日記帳" [ref=e81]
+            - button "残高" [ref=e82]
+            - button "マスタ" [ref=e83]
+          - button "エラー報告" [ref=e84]:
+            - img [ref=e85]
+            - text: エラー報告
+        - generic [ref=e87]:
+          - generic [ref=e107]:
+            - generic [ref=e110]:
+              - generic [ref=e111]:
+                - paragraph [ref=e819]: 未登録の仕訳 18 件
+                - paragraph [ref=e820]: 照合済みですが、まだ DB に保存されていません。チェックして「選択を登録」か「残り全て登録」で確定できます。
+              - generic [ref=e114]:
+                - button "選択を登録（0）" [disabled] [ref=e821]
+                - button "残り全て登録" [ref=e822]
+                - button "仕訳実行タブへ" [ref=e823]
+            - generic [ref=e824]:
+              - generic [ref=e825]:
+                - generic [ref=e826]: 日付不明の項目があります
+                - button "一括：支払日の前月末を設定" [ref=e827]
+                - generic [ref=e828]: ※ 個別に手入力も可能です
+              - table [ref=e830]:
+                - rowgroup [ref=e841]:
+                  - row "種別 日付 借方 貸方 金額 摘要 照合 操作" [ref=e842]:
+                    - columnheader [ref=e843]:
+                      - checkbox [ref=e844] [cursor=pointer]
+                    - columnheader "種別" [ref=e845]
+                    - columnheader "日付" [ref=e846]
+                    - columnheader "借方" [ref=e847]
+                    - columnheader "貸方" [ref=e848]
+                    - columnheader "金額" [ref=e849]
+                    - columnheader "摘要" [ref=e850]
+                    - columnheader "照合" [ref=e851]
+                    - columnheader "操作" [ref=e852]
+                - rowgroup [ref=e853]:
+                  - row "費用計上 未分類 未払費用 0 ALSOK株式会社 📄 未照合 🏷️ 取引先" [ref=e854]:
+                    - cell [ref=e855]:
+                      - checkbox [ref=e856] [cursor=pointer]
+                    - cell "費用計上" [ref=e857]:
+                      - generic [ref=e859]: 費用計上
+                    - cell [ref=e860]:
+                      - textbox [ref=e862]
+                    - cell "未分類" [ref=e863]:
+                      - textbox [ref=e865]: 未分類
+                    - cell "未払費用" [ref=e866]:
+                      - textbox [ref=e868]: 未払費用
+                    - cell "0" [ref=e869]:
+                      - spinbutton [ref=e870]: "0"
+                    - cell "ALSOK株式会社 📄" [ref=e871]:
+                      - generic [ref=e872]:
+                        - textbox "摘要" [ref=e873]: ALSOK株式会社
+                        - button "📄" [ref=e874]
+                    - cell "未照合" [ref=e875]
+                    - cell "🏷️ 取引先" [ref=e876]:
+                      - button "🏷️ 取引先" [ref=e877]
+                  - row "+ 行を追加" [ref=e878]:
+                    - cell "+ 行を追加" [ref=e879]:
+                      - button "+ 行を追加" [ref=e880]
+                  - row "費用計上 前月 未分類 未払費用 0 ALSOK株式会社 📄 🏦 要確認 🏷️ 取引先" [ref=e881]:
+                    - cell [ref=e882]:
+                      - checkbox [ref=e883] [cursor=pointer]
+                    - cell "費用計上" [ref=e884]:
+                      - generic [ref=e886]: 費用計上
+                    - cell "前月" [ref=e887]:
+                      - generic [ref=e888]:
+                        - textbox [ref=e889]
+                        - button "前月" [ref=e890]
+                    - cell "未分類" [ref=e891]:
+                      - textbox [ref=e893]: 未分類
+                    - cell "未払費用" [ref=e894]:
+                      - textbox [ref=e896]: 未払費用
+                    - cell "0" [ref=e897]:
+                      - spinbutton [ref=e898]: "0"
+                    - cell "ALSOK株式会社 📄 🏦" [ref=e899]:
+                      - generic [ref=e900]:
+                        - textbox "摘要" [ref=e901]: ALSOK株式会社
+                        - button "📄" [ref=e902]
+                        - button "🏦" [ref=e903]
+                    - cell "要確認" [ref=e904]
+                    - cell "🏷️ 取引先" [ref=e905]:
+                      - button "🏷️ 取引先" [ref=e906]
+                  - row "支払消込 2026/03/04 未払費用 普通預金 ¥421,234 ALSOK株式会社 支払消込 要確認 69%" [ref=e907]:
+                    - cell "支払消込" [ref=e908]
+                    - cell "2026/03/04" [ref=e909]
+                    - cell "未払費用" [ref=e910]:
+                      - textbox [ref=e912]: 未払費用
+                    - cell "普通預金" [ref=e913]:
+                      - textbox [ref=e915]: 普通預金
+                    - cell "¥421,234" [ref=e916]
+                    - cell "ALSOK株式会社 支払消込" [ref=e917]
+                    - cell "要確認 69%" [ref=e918]
+                  - row "+ 行を追加" [ref=e919]:
+                    - cell "+ 行を追加" [ref=e920]:
+                      - button "+ 行を追加" [ref=e921]
+                  - row "費用計上 未分類 未払費用 0 ALSOK株式会社 📄 未照合 🏷️ 取引先" [ref=e922]:
+                    - cell [ref=e923]:
+                      - checkbox [ref=e924] [cursor=pointer]
+                    - cell "費用計上" [ref=e925]:
+                      - generic [ref=e927]: 費用計上
+                    - cell [ref=e928]:
+                      - textbox [ref=e930]
+                    - cell "未分類" [ref=e931]:
+                      - textbox [ref=e933]: 未分類
+                    - cell "未払費用" [ref=e934]:
+                      - textbox [ref=e936]: 未払費用
+                    - cell "0" [ref=e937]:
+                      - spinbutton [ref=e938]: "0"
+                    - cell "ALSOK株式会社 📄" [ref=e939]:
+                      - generic [ref=e940]:
+                        - textbox "摘要" [ref=e941]: ALSOK株式会社
+                        - button "📄" [ref=e942]
+                    - cell "未照合" [ref=e943]
+                    - cell "🏷️ 取引先" [ref=e944]:
+                      - button "🏷️ 取引先" [ref=e945]
+                  - row "+ 行を追加" [ref=e946]:
+                    - cell "+ 行を追加" [ref=e947]:
+                      - button "+ 行を追加" [ref=e948]
+                  - row "費用計上 2026-03-04 未分類 未払費用 0 松田綜合法律事務所 📄 未照合 🏷️ 取引先" [ref=e949]:
+                    - cell [ref=e950]:
+                      - checkbox [ref=e951] [cursor=pointer]
+                    - cell "費用計上" [ref=e952]:
+                      - generic [ref=e954]: 費用計上
+                    - cell "2026-03-04" [ref=e955]:
+                      - textbox [ref=e957]: 2026-03-04
+                    - cell "未分類" [ref=e958]:
+                      - textbox [ref=e960]: 未分類
+                    - cell "未払費用" [ref=e961]:
+                      - textbox [ref=e963]: 未払費用
+                    - cell "0" [ref=e964]:
+                      - spinbutton [ref=e965]: "0"
+                    - cell "松田綜合法律事務所 📄" [ref=e966]:
+                      - generic [ref=e967]:
+                        - textbox "摘要" [ref=e968]: 松田綜合法律事務所
+                        - button "📄" [ref=e969]
+                    - cell "未照合" [ref=e970]
+                    - cell "🏷️ 取引先" [ref=e971]:
+                      - button "🏷️ 取引先" [ref=e972]
+                  - row "+ 行を追加" [ref=e973]:
+                    - cell "+ 行を追加" [ref=e974]:
+                      - button "+ 行を追加" [ref=e975]
+                  - row "費用計上 2026-03-05 OM費 未払費用 0 京セラコミュニケーションシステム株式会社 📄 🏦 自動照合 🏷️ 取引先" [ref=e976]:
+                    - cell [ref=e977]:
+                      - checkbox [ref=e978] [cursor=pointer]
+                    - cell "費用計上" [ref=e979]:
+                      - generic [ref=e981]: 費用計上
+                    - cell "2026-03-05" [ref=e982]:
+                      - textbox [ref=e984]: 2026-03-05
+                    - cell "OM費" [ref=e985]:
+                      - textbox [ref=e987]: OM費
+                    - cell "未払費用" [ref=e988]:
+                      - textbox [ref=e990]: 未払費用
+                    - cell "0" [ref=e991]:
+                      - spinbutton [ref=e992]: "0"
+                    - cell "京セラコミュニケーションシステム株式会社 📄 🏦" [ref=e993]:
+                      - generic [ref=e994]:
+                        - textbox "摘要" [ref=e995]: 京セラコミュニケーションシステム株式会社
+                        - button "📄" [ref=e996]
+                        - button "🏦" [ref=e997]
+                    - cell "自動照合" [ref=e998]
+                    - cell "🏷️ 取引先" [ref=e999]:
+                      - button "🏷️ 取引先" [ref=e1000]
+                  - row "支払消込 2026/03/31 未払費用 普通預金 ¥3,611,300 京セラコミュニケーションシステム株式会社 支払消込 自動 91%" [ref=e1001]:
+                    - cell "支払消込" [ref=e1002]
+                    - cell "2026/03/31" [ref=e1003]
+                    - cell "未払費用" [ref=e1004]:
+                      - textbox [ref=e1006]: 未払費用
+                    - cell "普通預金" [ref=e1007]:
+                      - textbox [ref=e1009]: 普通預金
+                    - cell "¥3,611,300" [ref=e1010]
+                    - cell "京セラコミュニケーションシステム株式会社 支払消込" [ref=e1011]
+                    - cell "自動 91%" [ref=e1012]
+                  - row "+ 行を追加" [ref=e1013]:
+                    - cell "+ 行を追加" [ref=e1014]:
+                      - button "+ 行を追加" [ref=e1015]
+                  - row "費用計上 未分類 未払費用 0 ALSOK株式会社 📄 未照合 🏷️ 取引先" [ref=e1016]:
+                    - cell [ref=e1017]:
+                      - checkbox [ref=e1018] [cursor=pointer]
+                    - cell "費用計上" [ref=e1019]:
+                      - generic [ref=e1021]: 費用計上
+                    - cell [ref=e1022]:
+                      - textbox [ref=e1024]
+                    - cell "未分類" [ref=e1025]:
+                      - textbox [ref=e1027]: 未分類
+                    - cell "未払費用" [ref=e1028]:
+                      - textbox [ref=e1030]: 未払費用
+                    - cell "0" [ref=e1031]:
+                      - spinbutton [ref=e1032]: "0"
+                    - cell "ALSOK株式会社 📄" [ref=e1033]:
+                      - generic [ref=e1034]:
+                        - textbox "摘要" [ref=e1035]: ALSOK株式会社
+                        - button "📄" [ref=e1036]
+                    - cell "未照合" [ref=e1037]
+                    - cell "🏷️ 取引先" [ref=e1038]:
+                      - button "🏷️ 取引先" [ref=e1039]
+                  - row "+ 行を追加" [ref=e1040]:
+                    - cell "+ 行を追加" [ref=e1041]:
+                      - button "+ 行を追加" [ref=e1042]
+                  - row "費用計上 未分類 未払費用 0 ALSOK株式会社 埼玉北支社 📄 未照合 🏷️ 取引先" [ref=e1043]:
+                    - cell [ref=e1044]:
+                      - checkbox [ref=e1045] [cursor=pointer]
+                    - cell "費用計上" [ref=e1046]:
+                      - generic [ref=e1048]: 費用計上
+                    - cell [ref=e1049]:
+                      - textbox [ref=e1051]
+                    - cell "未分類" [ref=e1052]:
+                      - textbox [ref=e1054]: 未分類
+                    - cell "未払費用" [ref=e1055]:
+                      - textbox [ref=e1057]: 未払費用
+                    - cell "0" [ref=e1058]:
+                      - spinbutton [ref=e1059]: "0"
+                    - cell "ALSOK株式会社 埼玉北支社 📄" [ref=e1060]:
+                      - generic [ref=e1061]:
+                        - textbox "摘要" [ref=e1062]: ALSOK株式会社 埼玉北支社
+                        - button "📄" [ref=e1063]
+                    - cell "未照合" [ref=e1064]
+                    - cell "🏷️ 取引先" [ref=e1065]:
+                      - button "🏷️ 取引先" [ref=e1066]
+                  - row "+ 行を追加" [ref=e1067]:
+                    - cell "+ 行を追加" [ref=e1068]:
+                      - button "+ 行を追加" [ref=e1069]
+                  - row "費用計上(1/2) × 2026-01-08 未分類 未払費用 0 松田綜合法律事務所 📄 🏦 自動照合 🏷️ 取引先" [ref=e1070]:
+                    - cell [ref=e1071]:
+                      - checkbox [ref=e1072] [cursor=pointer]
+                    - cell "費用計上(1/2) ×" [ref=e1073]:
+                      - generic [ref=e1074]:
+                        - generic [ref=e1075]: 費用計上(1/2)
+                        - button "×" [ref=e1076]
+                    - cell "2026-01-08" [ref=e1077]:
+                      - textbox [ref=e1079]: 2026-01-08
+                    - cell "未分類" [ref=e1080]:
+                      - textbox [ref=e1082]: 未分類
+                    - cell "未払費用" [ref=e1083]:
+                      - textbox [ref=e1085]: 未払費用
+                    - cell "0" [ref=e1086]:
+                      - spinbutton [ref=e1087]: "0"
+                    - cell "松田綜合法律事務所 📄 🏦" [ref=e1088]:
+                      - generic [ref=e1089]:
+                        - textbox "摘要" [ref=e1090]: 松田綜合法律事務所
+                        - button "📄" [ref=e1091]
+                        - button "🏦" [ref=e1092]
+                    - cell "自動照合" [ref=e1093]
+                    - cell "🏷️ 取引先" [ref=e1094]:
+                      - button "🏷️ 取引先" [ref=e1095]
+                  - row "費用計上(2/2) × 2026-01-08 未分類 未払費用 0 松田綜合法律事務所 📄 自動照合" [ref=e1096]:
+                    - cell "費用計上(2/2) ×" [ref=e1097]:
+                      - generic [ref=e1098]:
+                        - generic [ref=e1099]: 費用計上(2/2)
+                        - button "×" [ref=e1100]
+                    - cell "2026-01-08" [ref=e1101]:
+                      - textbox [ref=e1103]: 2026-01-08
+                    - cell "未分類" [ref=e1104]:
+                      - textbox [ref=e1106]: 未分類
+                    - cell "未払費用" [ref=e1107]:
+                      - textbox [ref=e1109]: 未払費用
+                    - cell "0" [ref=e1110]:
+                      - spinbutton [ref=e1111]: "0"
+                    - cell "松田綜合法律事務所 📄" [ref=e1112]:
+                      - generic [ref=e1113]:
+                        - textbox "摘要" [ref=e1114]: 松田綜合法律事務所
+                        - button "📄" [ref=e1115]
+                    - cell "自動照合" [ref=e1116]
+                  - row "支払消込 2026/02/26 未払費用 普通預金 ¥28,540 松田綜合法律事務所 支払消込 自動 78%" [ref=e1117]:
+                    - cell "支払消込" [ref=e1118]
+                    - cell "2026/02/26" [ref=e1119]
+                    - cell "未払費用" [ref=e1120]:
+                      - textbox [ref=e1122]: 未払費用
+                    - cell "普通預金" [ref=e1123]:
+                      - textbox [ref=e1125]: 普通預金
+                    - cell "¥28,540" [ref=e1126]
+                    - cell "松田綜合法律事務所 支払消込" [ref=e1127]
+                    - cell "自動 78%" [ref=e1128]
+                  - row "+ 行を追加" [ref=e1129]:
+                    - cell "+ 行を追加" [ref=e1130]:
+                      - button "+ 行を追加" [ref=e1131]
+                  - row "費用計上 2026-02-12 OM費 未払費用 0 京セラコミュニケーションシステム株式会社 📄 🏦 自動照合 🏷️ 取引先" [ref=e1132]:
+                    - cell [ref=e1133]:
+                      - checkbox [ref=e1134] [cursor=pointer]
+                    - cell "費用計上" [ref=e1135]:
+                      - generic [ref=e1137]: 費用計上
+                    - cell "2026-02-12" [ref=e1138]:
+                      - textbox [ref=e1140]: 2026-02-12
+                    - cell "OM費" [ref=e1141]:
+                      - textbox [ref=e1143]: OM費
+                    - cell "未払費用" [ref=e1144]:
+                      - textbox [ref=e1146]: 未払費用
+                    - cell "0" [ref=e1147]:
+                      - spinbutton [ref=e1148]: "0"
+                    - cell "京セラコミュニケーションシステム株式会社 📄 🏦" [ref=e1149]:
+                      - generic [ref=e1150]:
+                        - textbox "摘要" [ref=e1151]: 京セラコミュニケーションシステム株式会社
+                        - button "📄" [ref=e1152]
+                        - button "🏦" [ref=e1153]
+                    - cell "自動照合" [ref=e1154]
+                    - cell "🏷️ 取引先" [ref=e1155]:
+                      - button "🏷️ 取引先" [ref=e1156]
+                  - row "支払消込 2026/02/27 未払費用 普通預金 ¥3,611,300 京セラコミュニケーションシステム株式会社 支払消込 自動 91%" [ref=e1157]:
+                    - cell "支払消込" [ref=e1158]
+                    - cell "2026/02/27" [ref=e1159]
+                    - cell "未払費用" [ref=e1160]:
+                      - textbox [ref=e1162]: 未払費用
+                    - cell "普通預金" [ref=e1163]:
+                      - textbox [ref=e1165]: 普通預金
+                    - cell "¥3,611,300" [ref=e1166]
+                    - cell "京セラコミュニケーションシステム株式会社 支払消込" [ref=e1167]
+                    - cell "自動 91%" [ref=e1168]
+                  - row "+ 行を追加" [ref=e1169]:
+                    - cell "+ 行を追加" [ref=e1170]:
+                      - button "+ 行を追加" [ref=e1171]
+                  - row "費用計上 未分類 未払費用 0 ALSOK株式会社 埼玉北支社 📄 未照合 🏷️ 取引先" [ref=e1172]:
+                    - cell [ref=e1173]:
+                      - checkbox [ref=e1174] [cursor=pointer]
+                    - cell "費用計上" [ref=e1175]:
+                      - generic [ref=e1177]: 費用計上
+                    - cell [ref=e1178]:
+                      - textbox [ref=e1180]
+                    - cell "未分類" [ref=e1181]:
+                      - textbox [ref=e1183]: 未分類
+                    - cell "未払費用" [ref=e1184]:
+                      - textbox [ref=e1186]: 未払費用
+                    - cell "0" [ref=e1187]:
+                      - spinbutton [ref=e1188]: "0"
+                    - cell "ALSOK株式会社 埼玉北支社 📄" [ref=e1189]:
+                      - generic [ref=e1190]:
+                        - textbox "摘要" [ref=e1191]: ALSOK株式会社 埼玉北支社
+                        - button "📄" [ref=e1192]
+                    - cell "未照合" [ref=e1193]
+                    - cell "🏷️ 取引先" [ref=e1194]:
+                      - button "🏷️ 取引先" [ref=e1195]
+                  - row "+ 行を追加" [ref=e1196]:
+                    - cell "+ 行を追加" [ref=e1197]:
+                      - button "+ 行を追加" [ref=e1198]
+                  - row "費用計上(1/2) × 2026-01-08 未分類 未払費用 0 松田綜合法律事務所 📄 🏦 自動照合 🏷️ 取引先" [ref=e1199]:
+                    - cell [ref=e1200]:
+                      - checkbox [ref=e1201] [cursor=pointer]
+                    - cell "費用計上(1/2) ×" [ref=e1202]:
+                      - generic [ref=e1203]:
+                        - generic [ref=e1204]: 費用計上(1/2)
+                        - button "×" [ref=e1205]
+                    - cell "2026-01-08" [ref=e1206]:
+                      - textbox [ref=e1208]: 2026-01-08
+                    - cell "未分類" [ref=e1209]:
+                      - textbox [ref=e1211]: 未分類
+                    - cell "未払費用" [ref=e1212]:
+                      - textbox [ref=e1214]: 未払費用
+                    - cell "0" [ref=e1215]:
+                      - spinbutton [ref=e1216]: "0"
+                    - cell "松田綜合法律事務所 📄 🏦" [ref=e1217]:
+                      - generic [ref=e1218]:
+                        - textbox "摘要" [ref=e1219]: 松田綜合法律事務所
+                        - button "📄" [ref=e1220]
+                        - button "🏦" [ref=e1221]
+                    - cell "自動照合" [ref=e1222]
+                    - cell "🏷️ 取引先" [ref=e1223]:
+                      - button "🏷️ 取引先" [ref=e1224]
+                  - row "費用計上(2/2) × 2026-01-08 未分類 未払費用 0 松田綜合法律事務所 📄 自動照合" [ref=e1225]:
+                    - cell "費用計上(2/2) ×" [ref=e1226]:
+                      - generic [ref=e1227]:
+                        - generic [ref=e1228]: 費用計上(2/2)
+                        - button "×" [ref=e1229]
+                    - cell "2026-01-08" [ref=e1230]:
+                      - textbox [ref=e1232]: 2026-01-08
+                    - cell "未分類" [ref=e1233]:
+                      - textbox [ref=e1235]: 未分類
+                    - cell "未払費用" [ref=e1236]:
+                      - textbox [ref=e1238]: 未払費用
+                    - cell "0" [ref=e1239]:
+                      - spinbutton [ref=e1240]: "0"
+                    - cell "松田綜合法律事務所 📄" [ref=e1241]:
+                      - generic [ref=e1242]:
+                        - textbox "摘要" [ref=e1243]: 松田綜合法律事務所
+                        - button "📄" [ref=e1244]
+                    - cell "自動照合" [ref=e1245]
+                  - row "支払消込 2026/02/26 未払費用 普通預金 ¥28,540 松田綜合法律事務所 支払消込 自動 78%" [ref=e1246]:
+                    - cell "支払消込" [ref=e1247]
+                    - cell "2026/02/26" [ref=e1248]
+                    - cell "未払費用" [ref=e1249]:
+                      - textbox [ref=e1251]: 未払費用
+                    - cell "普通預金" [ref=e1252]:
+                      - textbox [ref=e1254]: 普通預金
+                    - cell "¥28,540" [ref=e1255]
+                    - cell "松田綜合法律事務所 支払消込" [ref=e1256]
+                    - cell "自動 78%" [ref=e1257]
+                  - row "+ 行を追加" [ref=e1258]:
+                    - cell "+ 行を追加" [ref=e1259]:
+                      - button "+ 行を追加" [ref=e1260]
+                  - row "費用計上 未分類 未払費用 0 ALSOK株式会社 埼玉北支社 📄 未照合 🏷️ 取引先" [ref=e1261]:
+                    - cell [ref=e1262]:
+                      - checkbox [ref=e1263] [cursor=pointer]
+                    - cell "費用計上" [ref=e1264]:
+                      - generic [ref=e1266]: 費用計上
+                    - cell [ref=e1267]:
+                      - textbox [ref=e1269]
+                    - cell "未分類" [ref=e1270]:
+                      - textbox [ref=e1272]: 未分類
+                    - cell "未払費用" [ref=e1273]:
+                      - textbox [ref=e1275]: 未払費用
+                    - cell "0" [ref=e1276]:
+                      - spinbutton [ref=e1277]: "0"
+                    - cell "ALSOK株式会社 埼玉北支社 📄" [ref=e1278]:
+                      - generic [ref=e1279]:
+                        - textbox "摘要" [ref=e1280]: ALSOK株式会社 埼玉北支社
+                        - button "📄" [ref=e1281]
+                    - cell "未照合" [ref=e1282]
+                    - cell "🏷️ 取引先" [ref=e1283]:
+                      - button "🏷️ 取引先" [ref=e1284]
+                  - row "+ 行を追加" [ref=e1285]:
+                    - cell "+ 行を追加" [ref=e1286]:
+                      - button "+ 行を追加" [ref=e1287]
+                  - row "費用計上 2026-02-12 OM費 未払費用 0 京セラコミュニケーションシステム株式会社 📄 🏦 自動照合 🏷️ 取引先" [ref=e1288]:
+                    - cell [ref=e1289]:
+                      - checkbox [ref=e1290] [cursor=pointer]
+                    - cell "費用計上" [ref=e1291]:
+                      - generic [ref=e1293]: 費用計上
+                    - cell "2026-02-12" [ref=e1294]:
+                      - textbox [ref=e1296]: 2026-02-12
+                    - cell "OM費" [ref=e1297]:
+                      - textbox [ref=e1299]: OM費
+                    - cell "未払費用" [ref=e1300]:
+                      - textbox [ref=e1302]: 未払費用
+                    - cell "0" [ref=e1303]:
+                      - spinbutton [ref=e1304]: "0"
+                    - cell "京セラコミュニケーションシステム株式会社 📄 🏦" [ref=e1305]:
+                      - generic [ref=e1306]:
+                        - textbox "摘要" [ref=e1307]: 京セラコミュニケーションシステム株式会社
+                        - button "📄" [ref=e1308]
+                        - button "🏦" [ref=e1309]
+                    - cell "自動照合" [ref=e1310]
+                    - cell "🏷️ 取引先" [ref=e1311]:
+                      - button "🏷️ 取引先" [ref=e1312]
+                  - row "支払消込 2026/02/27 未払費用 普通預金 ¥3,611,300 京セラコミュニケーションシステム株式会社 支払消込 自動 91%" [ref=e1313]:
+                    - cell "支払消込" [ref=e1314]
+                    - cell "2026/02/27" [ref=e1315]
+                    - cell "未払費用" [ref=e1316]:
+                      - textbox [ref=e1318]: 未払費用
+                    - cell "普通預金" [ref=e1319]:
+                      - textbox [ref=e1321]: 普通預金
+                    - cell "¥3,611,300" [ref=e1322]
+                    - cell "京セラコミュニケーションシステム株式会社 支払消込" [ref=e1323]
+                    - cell "自動 91%" [ref=e1324]
+                  - row "+ 行を追加" [ref=e1325]:
+                    - cell "+ 行を追加" [ref=e1326]:
+                      - button "+ 行を追加" [ref=e1327]
+                  - row "費用計上 未分類 未払費用 0 ALSOK株式会社 埼玉北支社 📄 未照合 🏷️ 取引先" [ref=e1328]:
+                    - cell [ref=e1329]:
+                      - checkbox [ref=e1330] [cursor=pointer]
+                    - cell "費用計上" [ref=e1331]:
+                      - generic [ref=e1333]: 費用計上
+                    - cell [ref=e1334]:
+                      - textbox [ref=e1336]
+                    - cell "未分類" [ref=e1337]:
+                      - textbox [ref=e1339]: 未分類
+                    - cell "未払費用" [ref=e1340]:
+                      - textbox [ref=e1342]: 未払費用
+                    - cell "0" [ref=e1343]:
+                      - spinbutton [ref=e1344]: "0"
+                    - cell "ALSOK株式会社 埼玉北支社 📄" [ref=e1345]:
+                      - generic [ref=e1346]:
+                        - textbox "摘要" [ref=e1347]: ALSOK株式会社 埼玉北支社
+                        - button "📄" [ref=e1348]
+                    - cell "未照合" [ref=e1349]
+                    - cell "🏷️ 取引先" [ref=e1350]:
+                      - button "🏷️ 取引先" [ref=e1351]
+                  - row "+ 行を追加" [ref=e1352]:
+                    - cell "+ 行を追加" [ref=e1353]:
+                      - button "+ 行を追加" [ref=e1354]
+                  - row "費用計上 未分類 未払費用 0 ALSOK株式会社 埼玉北支社 📄 未照合 🏷️ 取引先" [ref=e1355]:
+                    - cell [ref=e1356]:
+                      - checkbox [ref=e1357] [cursor=pointer]
+                    - cell "費用計上" [ref=e1358]:
+                      - generic [ref=e1360]: 費用計上
+                    - cell [ref=e1361]:
+                      - textbox [ref=e1363]
+                    - cell "未分類" [ref=e1364]:
+                      - textbox [ref=e1366]: 未分類
+                    - cell "未払費用" [ref=e1367]:
+                      - textbox [ref=e1369]: 未払費用
+                    - cell "0" [ref=e1370]:
+                      - spinbutton [ref=e1371]: "0"
+                    - cell "ALSOK株式会社 埼玉北支社 📄" [ref=e1372]:
+                      - generic [ref=e1373]:
+                        - textbox "摘要" [ref=e1374]: ALSOK株式会社 埼玉北支社
+                        - button "📄" [ref=e1375]
+                    - cell "未照合" [ref=e1376]
+                    - cell "🏷️ 取引先" [ref=e1377]:
+                      - button "🏷️ 取引先" [ref=e1378]
+                  - row "+ 行を追加" [ref=e1379]:
+                    - cell "+ 行を追加" [ref=e1380]:
+                      - button "+ 行を追加" [ref=e1381]
+                  - row "費用計上 未分類 未払費用 0 ALSOK株式会社 埼玉北支社 📄 未照合 🏷️ 取引先" [ref=e1382]:
+                    - cell [ref=e1383]:
+                      - checkbox [ref=e1384] [cursor=pointer]
+                    - cell "費用計上" [ref=e1385]:
+                      - generic [ref=e1387]: 費用計上
+                    - cell [ref=e1388]:
+                      - textbox [ref=e1390]
+                    - cell "未分類" [ref=e1391]:
+                      - textbox [ref=e1393]: 未分類
+                    - cell "未払費用" [ref=e1394]:
+                      - textbox [ref=e1396]: 未払費用
+                    - cell "0" [ref=e1397]:
+                      - spinbutton [ref=e1398]: "0"
+                    - cell "ALSOK株式会社 埼玉北支社 📄" [ref=e1399]:
+                      - generic [ref=e1400]:
+                        - textbox "摘要" [ref=e1401]: ALSOK株式会社 埼玉北支社
+                        - button "📄" [ref=e1402]
+                    - cell "未照合" [ref=e1403]
+                    - cell "🏷️ 取引先" [ref=e1404]:
+                      - button "🏷️ 取引先" [ref=e1405]
+                  - row "+ 行を追加" [ref=e1406]:
+                    - cell "+ 行を追加" [ref=e1407]:
+                      - button "+ 行を追加" [ref=e1408]
+                  - row "費用計上(1/2) × 2026-01-08 未分類 未払費用 0 松田綜合法律事務所 📄 🏦 自動照合 🏷️ 取引先" [ref=e1409]:
+                    - cell [ref=e1410]:
+                      - checkbox [ref=e1411] [cursor=pointer]
+                    - cell "費用計上(1/2) ×" [ref=e1412]:
+                      - generic [ref=e1413]:
+                        - generic [ref=e1414]: 費用計上(1/2)
+                        - button "×" [ref=e1415]
+                    - cell "2026-01-08" [ref=e1416]:
+                      - textbox [ref=e1418]: 2026-01-08
+                    - cell "未分類" [ref=e1419]:
+                      - textbox [ref=e1421]: 未分類
+                    - cell "未払費用" [ref=e1422]:
+                      - textbox [ref=e1424]: 未払費用
+                    - cell "0" [ref=e1425]:
+                      - spinbutton [ref=e1426]: "0"
+                    - cell "松田綜合法律事務所 📄 🏦" [ref=e1427]:
+                      - generic [ref=e1428]:
+                        - textbox "摘要" [ref=e1429]: 松田綜合法律事務所
+                        - button "📄" [ref=e1430]
+                        - button "🏦" [ref=e1431]
+                    - cell "自動照合" [ref=e1432]
+                    - cell "🏷️ 取引先" [ref=e1433]:
+                      - button "🏷️ 取引先" [ref=e1434]
+                  - row "費用計上(2/2) × 2026-01-08 未分類 未払費用 0 松田綜合法律事務所 📄 自動照合" [ref=e1435]:
+                    - cell "費用計上(2/2) ×" [ref=e1436]:
+                      - generic [ref=e1437]:
+                        - generic [ref=e1438]: 費用計上(2/2)
+                        - button "×" [ref=e1439]
+                    - cell "2026-01-08" [ref=e1440]:
+                      - textbox [ref=e1442]: 2026-01-08
+                    - cell "未分類" [ref=e1443]:
+                      - textbox [ref=e1445]: 未分類
+                    - cell "未払費用" [ref=e1446]:
+                      - textbox [ref=e1448]: 未払費用
+                    - cell "0" [ref=e1449]:
+                      - spinbutton [ref=e1450]: "0"
+                    - cell "松田綜合法律事務所 📄" [ref=e1451]:
+                      - generic [ref=e1452]:
+                        - textbox "摘要" [ref=e1453]: 松田綜合法律事務所
+                        - button "📄" [ref=e1454]
+                    - cell "自動照合" [ref=e1455]
+                  - row "支払消込 2026/02/26 未払費用 普通預金 ¥28,540 松田綜合法律事務所 支払消込 自動 78%" [ref=e1456]:
+                    - cell "支払消込" [ref=e1457]
+                    - cell "2026/02/26" [ref=e1458]
+                    - cell "未払費用" [ref=e1459]:
+                      - textbox [ref=e1461]: 未払費用
+                    - cell "普通預金" [ref=e1462]:
+                      - textbox [ref=e1464]: 普通預金
+                    - cell "¥28,540" [ref=e1465]
+                    - cell "松田綜合法律事務所 支払消込" [ref=e1466]
+                    - cell "自動 78%" [ref=e1467]
+                  - row "+ 行を追加" [ref=e1468]:
+                    - cell "+ 行を追加" [ref=e1469]:
+                      - button "+ 行を追加" [ref=e1470]
+                  - row "費用計上 2026-02-12 OM費 未払費用 0 京セラコミュニケーションシステム株式会社 📄 🏦 自動照合 🏷️ 取引先" [ref=e1471]:
+                    - cell [ref=e1472]:
+                      - checkbox [ref=e1473] [cursor=pointer]
+                    - cell "費用計上" [ref=e1474]:
+                      - generic [ref=e1476]: 費用計上
+                    - cell "2026-02-12" [ref=e1477]:
+                      - textbox [ref=e1479]: 2026-02-12
+                    - cell "OM費" [ref=e1480]:
+                      - textbox [ref=e1482]: OM費
+                    - cell "未払費用" [ref=e1483]:
+                      - textbox [ref=e1485]: 未払費用
+                    - cell "0" [ref=e1486]:
+                      - spinbutton [ref=e1487]: "0"
+                    - cell "京セラコミュニケーションシステム株式会社 📄 🏦" [ref=e1488]:
+                      - generic [ref=e1489]:
+                        - textbox "摘要" [ref=e1490]: 京セラコミュニケーションシステム株式会社
+                        - button "📄" [ref=e1491]
+                        - button "🏦" [ref=e1492]
+                    - cell "自動照合" [ref=e1493]
+                    - cell "🏷️ 取引先" [ref=e1494]:
+                      - button "🏷️ 取引先" [ref=e1495]
+                  - row "支払消込 2026/02/27 未払費用 普通預金 ¥3,611,300 京セラコミュニケーションシステム株式会社 支払消込 自動 91%" [ref=e1496]:
+                    - cell "支払消込" [ref=e1497]
+                    - cell "2026/02/27" [ref=e1498]
+                    - cell "未払費用" [ref=e1499]:
+                      - textbox [ref=e1501]: 未払費用
+                    - cell "普通預金" [ref=e1502]:
+                      - textbox [ref=e1504]: 普通預金
+                    - cell "¥3,611,300" [ref=e1505]
+                    - cell "京セラコミュニケーションシステム株式会社 支払消込" [ref=e1506]
+                    - cell "自動 91%" [ref=e1507]
+                  - row "+ 行を追加" [ref=e1508]:
+                    - cell "+ 行を追加" [ref=e1509]:
+                      - button "+ 行を追加" [ref=e1510]
+          - generic [ref=e1511]:
+            - generic [ref=e1512]:
+              - generic [ref=e1513]:
+                - paragraph [ref=e1514]: 証憑がない入出金 32 件
+                - paragraph [ref=e1515]: 科目割当済み 0 / 32 件 — CSVに含まれるのは科目を設定したものだけです
+              - paragraph [ref=e1516]: 例：銀行手数料 → 支払手数料
+            - generic [ref=e1517]:
+              - paragraph [ref=e1519]: 行を選択すると一括適用できます
+              - generic [ref=e1520]:
+                - generic [ref=e1521]:
+                  - text: 借方科目（一括）
+                  - generic [ref=e1522]:
+                    - textbox "科目名 / ローマ字" [ref=e1525]
+                    - button "選択に適用" [disabled] [ref=e1526]
+                - generic [ref=e1527]:
+                  - text: 摘要（一括）
+                  - generic [ref=e1528]:
+                    - textbox "例：振込手数料" [ref=e1529]
+                    - button "選択に適用" [disabled] [ref=e1530]
+            - table [ref=e1533]:
+              - rowgroup [ref=e1534]:
+                - row "日付 元摘要 出金 入金 借方科目 摘要（上書き）" [ref=e1535]:
+                  - columnheader [ref=e1536]:
+                    - checkbox [ref=e1537] [cursor=pointer]
+                  - columnheader "日付" [ref=e1538]
+                  - columnheader "元摘要" [ref=e1539]
+                  - columnheader "出金" [ref=e1540]
+                  - columnheader "入金" [ref=e1541]
+                  - columnheader "借方科目" [ref=e1542]
+                  - columnheader "摘要（上書き）" [ref=e1543]
+              - rowgroup [ref=e1544]:
+                - row "2026/03/03 振替 PE ヨウヤセﾞイムショ ¥121,100 —" [ref=e1545]:
+                  - cell [ref=e1546]:
+                    - checkbox [ref=e1547] [cursor=pointer]
+                  - cell "2026/03/03" [ref=e1548] [cursor=pointer]
+                  - cell "振替 PE ヨウヤセﾞイムショ" [ref=e1549] [cursor=pointer]
+                  - cell "¥121,100" [ref=e1550]
+                  - cell "—" [ref=e1551]
+                  - cell [ref=e1552]:
+                    - textbox "科目名 / ローマ字" [ref=e1554]
+                  - cell [ref=e1555]:
+                    - textbox "振替 PE ヨウヤセﾞイムショ" [ref=e1556]:
+                      - /placeholder: 振替　PE ヨウヤセﾞイムショ
+                - row "2026/03/04 振替 フリコミテスクリヨウ ¥660 —" [ref=e1557]:
+                  - cell [ref=e1558]:
+                    - checkbox [ref=e1559] [cursor=pointer]
+                  - cell "2026/03/04" [ref=e1560] [cursor=pointer]
+                  - cell "振替 フリコミテスクリヨウ" [ref=e1561] [cursor=pointer]
+                  - cell "¥660" [ref=e1562]
+                  - cell "—" [ref=e1563]
+                  - cell [ref=e1564]:
+                    - textbox "科目名 / ローマ字" [ref=e1566]
+                  - cell [ref=e1567]:
+                    - textbox "振替 フリコミテスクリヨウ" [ref=e1568]:
+                      - /placeholder: 振替　フリコミテスクリヨウ
+                - row "2026/03/16 振替 Eﾋﾞｼﾞﾈスサイトリヨウ ¥5,500 —" [ref=e1569]:
+                  - cell [ref=e1570]:
+                    - checkbox [ref=e1571] [cursor=pointer]
+                  - cell "2026/03/16" [ref=e1572] [cursor=pointer]
+                  - cell "振替 Eﾋﾞｼﾞﾈスサイトリヨウ" [ref=e1573] [cursor=pointer]
+                  - cell "¥5,500" [ref=e1574]
+                  - cell "—" [ref=e1575]
+                  - cell [ref=e1576]:
+                    - textbox "科目名 / ローマ字" [ref=e1578]
+                  - cell [ref=e1579]:
+                    - textbox "振替 Eﾋﾞｼﾞﾈスサイトリヨウ" [ref=e1580]:
+                      - /placeholder: 振替　Eﾋﾞｼﾞﾈスサイトリヨウ
+                - row "2026/03/25 振替 ﾌﾞﾙｰスカイエナシー（カ ¥19,800,000 —" [ref=e1581]:
+                  - cell [ref=e1582]:
+                    - checkbox [ref=e1583] [cursor=pointer]
+                  - cell "2026/03/25" [ref=e1584] [cursor=pointer]
+                  - cell "振替 ﾌﾞﾙｰスカイエナシー（カ" [ref=e1585] [cursor=pointer]
+                  - cell "¥19,800,000" [ref=e1586]
+                  - cell "—" [ref=e1587]
+                  - cell [ref=e1588]:
+                    - textbox "科目名 / ローマ字" [ref=e1590]
+                  - cell [ref=e1591]:
+                    - textbox "振替 ﾌﾞﾙｰスカイエナシー（カ" [ref=e1592]:
+                      - /placeholder: 振替　ﾌﾞﾙｰスカイエナシー（カ
+                - row "2026/03/25 振替 フリコミテスクリヨウ ¥660 —" [ref=e1593]:
+                  - cell [ref=e1594]:
+                    - checkbox [ref=e1595] [cursor=pointer]
+                  - cell "2026/03/25" [ref=e1596] [cursor=pointer]
+                  - cell "振替 フリコミテスクリヨウ" [ref=e1597] [cursor=pointer]
+                  - cell "¥660" [ref=e1598]
+                  - cell "—" [ref=e1599]
+                  - cell [ref=e1600]:
+                    - textbox "科目名 / ローマ字" [ref=e1602]
+                  - cell [ref=e1603]:
+                    - textbox "振替 フリコミテスクリヨウ" [ref=e1604]:
+                      - /placeholder: 振替　フリコミテスクリヨウ
+                - row "2026/03/31 振替 アルソツク（カ ¥336,600 —" [ref=e1605]:
+                  - cell [ref=e1606]:
+                    - checkbox [ref=e1607] [cursor=pointer]
+                  - cell "2026/03/31" [ref=e1608] [cursor=pointer]
+                  - cell "振替 アルソツク（カ" [ref=e1609] [cursor=pointer]
+                  - cell "¥336,600" [ref=e1610]
+                  - cell "—" [ref=e1611]
+                  - cell [ref=e1612]:
+                    - textbox "科目名 / ローマ字" [ref=e1614]
+                  - cell [ref=e1615]:
+                    - textbox "振替 アルソツク（カ" [ref=e1616]:
+                      - /placeholder: 振替　アルソツク（カ
+                - row "2026/03/31 振替 フリコミテスクリヨウ ¥660 —" [ref=e1617]:
+                  - cell [ref=e1618]:
+                    - checkbox [ref=e1619] [cursor=pointer]
+                  - cell "2026/03/31" [ref=e1620] [cursor=pointer]
+                  - cell "振替 フリコミテスクリヨウ" [ref=e1621] [cursor=pointer]
+                  - cell "¥660" [ref=e1622]
+                  - cell "—" [ref=e1623]
+                  - cell [ref=e1624]:
+                    - textbox "科目名 / ローマ字" [ref=e1626]
+                  - cell [ref=e1627]:
+                    - textbox "振替 フリコミテスクリヨウ" [ref=e1628]:
+                      - /placeholder: 振替　フリコミテスクリヨウ
+                - row "2026/03/31 振替 マツダﾞソウゴﾞウホクリツシﾞムショ マ ¥115,258 —" [ref=e1629]:
+                  - cell [ref=e1630]:
+                    - checkbox [ref=e1631] [cursor=pointer]
+                  - cell "2026/03/31" [ref=e1632] [cursor=pointer]
+                  - cell "振替 マツダﾞソウゴﾞウホクリツシﾞムショ マ" [ref=e1633] [cursor=pointer]
+                  - cell "¥115,258" [ref=e1634]
+                  - cell "—" [ref=e1635]
+                  - cell [ref=e1636]:
+                    - textbox "科目名 / ローマ字" [ref=e1638]
+                  - cell [ref=e1639]:
+                    - textbox "振替 マツダﾞソウゴﾞウホクリツシﾞムショ マ" [ref=e1640]:
+                      - /placeholder: 振替　マツダﾞソウゴﾞウホクリツシﾞムショ マ
+                - row "2026/03/31 振替 フリコミテスクリヨウ ¥660 —" [ref=e1641]:
+                  - cell [ref=e1642]:
+                    - checkbox [ref=e1643] [cursor=pointer]
+                  - cell "2026/03/31" [ref=e1644] [cursor=pointer]
+                  - cell "振替 フリコミテスクリヨウ" [ref=e1645] [cursor=pointer]
+                  - cell "¥660" [ref=e1646]
+                  - cell "—" [ref=e1647]
+                  - cell [ref=e1648]:
+                    - textbox "科目名 / ローマ字" [ref=e1650]
+                  - cell [ref=e1651]:
+                    - textbox "振替 フリコミテスクリヨウ" [ref=e1652]:
+                      - /placeholder: 振替　フリコミテスクリヨウ
+                - row "2026/03/31 振替 フリコミテスクリヨウ ¥660 —" [ref=e1653]:
+                  - cell [ref=e1654]:
+                    - checkbox [ref=e1655] [cursor=pointer]
+                  - cell "2026/03/31" [ref=e1656] [cursor=pointer]
+                  - cell "振替 フリコミテスクリヨウ" [ref=e1657] [cursor=pointer]
+                  - cell "¥660" [ref=e1658]
+                  - cell "—" [ref=e1659]
+                  - cell [ref=e1660]:
+                    - textbox "科目名 / ローマ字" [ref=e1662]
+                  - cell [ref=e1663]:
+                    - textbox "振替 フリコミテスクリヨウ" [ref=e1664]:
+                      - /placeholder: 振替　フリコミテスクリヨウ
+                - row "2026/03/31 振替 PE ヨウヤセﾞイムショ ¥11,792 —" [ref=e1665]:
+                  - cell [ref=e1666]:
+                    - checkbox [ref=e1667] [cursor=pointer]
+                  - cell "2026/03/31" [ref=e1668] [cursor=pointer]
+                  - cell "振替 PE ヨウヤセﾞイムショ" [ref=e1669] [cursor=pointer]
+                  - cell "¥11,792" [ref=e1670]
+                  - cell "—" [ref=e1671]
+                  - cell [ref=e1672]:
+                    - textbox "科目名 / ローマ字" [ref=e1674]
+                  - cell [ref=e1675]:
+                    - textbox "振替 PE ヨウヤセﾞイムショ" [ref=e1676]:
+                      - /placeholder: 振替　PE ヨウヤセﾞイムショ
+                - row "2026/02/16 振替 Eビジネスサイトリヨウ ¥5,500 —" [ref=e1677]:
+                  - cell [ref=e1678]:
+                    - checkbox [ref=e1679] [cursor=pointer]
+                  - cell "2026/02/16" [ref=e1680] [cursor=pointer]
+                  - cell "振替 Eビジネスサイトリヨウ" [ref=e1681] [cursor=pointer]
+                  - cell "¥5,500" [ref=e1682]
+                  - cell "—" [ref=e1683]
+                  - cell [ref=e1684]:
+                    - textbox "科目名 / ローマ字" [ref=e1686]
+                  - cell [ref=e1687]:
+                    - textbox "振替 Eビジネスサイトリヨウ" [ref=e1688]
+                - row "2026/02/26 振替 フリコミテスウリヨウ ¥490 —" [ref=e1689]:
+                  - cell [ref=e1690]:
+                    - checkbox [ref=e1691] [cursor=pointer]
+                  - cell "2026/02/26" [ref=e1692] [cursor=pointer]
+                  - cell "振替 フリコミテスウリヨウ" [ref=e1693] [cursor=pointer]
+                  - cell "¥490" [ref=e1694]
+                  - cell "—" [ref=e1695]
+                  - cell [ref=e1696]:
+                    - textbox "科目名 / ローマ字" [ref=e1698]
+                  - cell [ref=e1699]:
+                    - textbox "振替 フリコミテスウリヨウ" [ref=e1700]
+                - row "2026/02/26 振替 PE ヨツヤセ゛イムショ ¥2,920 —" [ref=e1701]:
+                  - cell [ref=e1702]:
+                    - checkbox [ref=e1703] [cursor=pointer]
+                  - cell "2026/02/26" [ref=e1704] [cursor=pointer]
+                  - cell "振替 PE ヨツヤセ゛イムショ" [ref=e1705] [cursor=pointer]
+                  - cell "¥2,920" [ref=e1706]
+                  - cell "—" [ref=e1707]
+                  - cell [ref=e1708]:
+                    - textbox "科目名 / ローマ字" [ref=e1710]
+                  - cell [ref=e1711]:
+                    - textbox "振替 PE ヨツヤセ゛イムショ" [ref=e1712]
+                - row "2026/02/27 振替 アルソウク゛カ ¥336,600 —" [ref=e1713]:
+                  - cell [ref=e1714]:
+                    - checkbox [ref=e1715] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1716] [cursor=pointer]
+                  - cell "振替 アルソウク゛カ" [ref=e1717] [cursor=pointer]
+                  - cell "¥336,600" [ref=e1718]
+                  - cell "—" [ref=e1719]
+                  - cell [ref=e1720]:
+                    - textbox "科目名 / ローマ字" [ref=e1722]
+                  - cell [ref=e1723]:
+                    - textbox "振替 アルソウク゛カ" [ref=e1724]
+                - row "2026/02/27 振替 フリコミテスウリヨウ ¥660 —" [ref=e1725]:
+                  - cell [ref=e1726]:
+                    - checkbox [ref=e1727] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1728] [cursor=pointer]
+                  - cell "振替 フリコミテスウリヨウ" [ref=e1729] [cursor=pointer]
+                  - cell "¥660" [ref=e1730]
+                  - cell "—" [ref=e1731]
+                  - cell [ref=e1732]:
+                    - textbox "科目名 / ローマ字" [ref=e1734]
+                  - cell [ref=e1735]:
+                    - textbox "振替 フリコミテスウリヨウ" [ref=e1736]
+                - row "2026/02/27 振替 フリコミテスウリヨウ ¥660 —" [ref=e1737]:
+                  - cell [ref=e1738]:
+                    - checkbox [ref=e1739] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1740] [cursor=pointer]
+                  - cell "振替 フリコミテスウリヨウ" [ref=e1741] [cursor=pointer]
+                  - cell "¥660" [ref=e1742]
+                  - cell "—" [ref=e1743]
+                  - cell [ref=e1744]:
+                    - textbox "科目名 / ローマ字" [ref=e1746]
+                  - cell [ref=e1747]:
+                    - textbox "振替 フリコミテスウリヨウ" [ref=e1748]
+                - row "2026/02/27 振替 PE ヨツヤセ゛イムショ ¥4,354,600 —" [ref=e1749]:
+                  - cell [ref=e1750]:
+                    - checkbox [ref=e1751] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1752] [cursor=pointer]
+                  - cell "振替 PE ヨツヤセ゛イムショ" [ref=e1753] [cursor=pointer]
+                  - cell "¥4,354,600" [ref=e1754]
+                  - cell "—" [ref=e1755]
+                  - cell [ref=e1756]:
+                    - textbox "科目名 / ローマ字" [ref=e1758]
+                  - cell [ref=e1759]:
+                    - textbox "振替 PE ヨツヤセ゛イムショ" [ref=e1760]
+                - row "2026/02/16 振替 Eビジネスサイトリヨウ ¥5,500 —" [ref=e1761]:
+                  - cell [ref=e1762]:
+                    - checkbox [ref=e1763] [cursor=pointer]
+                  - cell "2026/02/16" [ref=e1764] [cursor=pointer]
+                  - cell "振替 Eビジネスサイトリヨウ" [ref=e1765] [cursor=pointer]
+                  - cell "¥5,500" [ref=e1766]
+                  - cell "—" [ref=e1767]
+                  - cell [ref=e1768]:
+                    - textbox "科目名 / ローマ字" [ref=e1770]
+                  - cell [ref=e1771]:
+                    - textbox "振替 Eビジネスサイトリヨウ" [ref=e1772]
+                - row "2026/02/26 振替 フリコミテスウリヨウ ¥490 —" [ref=e1773]:
+                  - cell [ref=e1774]:
+                    - checkbox [ref=e1775] [cursor=pointer]
+                  - cell "2026/02/26" [ref=e1776] [cursor=pointer]
+                  - cell "振替 フリコミテスウリヨウ" [ref=e1777] [cursor=pointer]
+                  - cell "¥490" [ref=e1778]
+                  - cell "—" [ref=e1779]
+                  - cell [ref=e1780]:
+                    - textbox "科目名 / ローマ字" [ref=e1782]
+                  - cell [ref=e1783]:
+                    - textbox "振替 フリコミテスウリヨウ" [ref=e1784]
+                - row "2026/02/26 振替 PE ヨツヤセ゛イムショ ¥2,920 —" [ref=e1785]:
+                  - cell [ref=e1786]:
+                    - checkbox [ref=e1787] [cursor=pointer]
+                  - cell "2026/02/26" [ref=e1788] [cursor=pointer]
+                  - cell "振替 PE ヨツヤセ゛イムショ" [ref=e1789] [cursor=pointer]
+                  - cell "¥2,920" [ref=e1790]
+                  - cell "—" [ref=e1791]
+                  - cell [ref=e1792]:
+                    - textbox "科目名 / ローマ字" [ref=e1794]
+                  - cell [ref=e1795]:
+                    - textbox "振替 PE ヨツヤセ゛イムショ" [ref=e1796]
+                - row "2026/02/27 振替 アルソウク（カ ¥336,600 —" [ref=e1797]:
+                  - cell [ref=e1798]:
+                    - checkbox [ref=e1799] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1800] [cursor=pointer]
+                  - cell "振替 アルソウク（カ" [ref=e1801] [cursor=pointer]
+                  - cell "¥336,600" [ref=e1802]
+                  - cell "—" [ref=e1803]
+                  - cell [ref=e1804]:
+                    - textbox "科目名 / ローマ字" [ref=e1806]
+                  - cell [ref=e1807]:
+                    - textbox "振替 アルソウク（カ" [ref=e1808]
+                - row "2026/02/27 振替 フリコミテスウリヨウ ¥660 —" [ref=e1809]:
+                  - cell [ref=e1810]:
+                    - checkbox [ref=e1811] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1812] [cursor=pointer]
+                  - cell "振替 フリコミテスウリヨウ" [ref=e1813] [cursor=pointer]
+                  - cell "¥660" [ref=e1814]
+                  - cell "—" [ref=e1815]
+                  - cell [ref=e1816]:
+                    - textbox "科目名 / ローマ字" [ref=e1818]
+                  - cell [ref=e1819]:
+                    - textbox "振替 フリコミテスウリヨウ" [ref=e1820]
+                - row "2026/02/27 振替 フリコミテスウリヨウ ¥660 —" [ref=e1821]:
+                  - cell [ref=e1822]:
+                    - checkbox [ref=e1823] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1824] [cursor=pointer]
+                  - cell "振替 フリコミテスウリヨウ" [ref=e1825] [cursor=pointer]
+                  - cell "¥660" [ref=e1826]
+                  - cell "—" [ref=e1827]
+                  - cell [ref=e1828]:
+                    - textbox "科目名 / ローマ字" [ref=e1830]
+                  - cell [ref=e1831]:
+                    - textbox "振替 フリコミテスウリヨウ" [ref=e1832]
+                - row "2026/02/27 振替 PE ヨツヤセ゛イムショ ¥4,354,600 —" [ref=e1833]:
+                  - cell [ref=e1834]:
+                    - checkbox [ref=e1835] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1836] [cursor=pointer]
+                  - cell "振替 PE ヨツヤセ゛イムショ" [ref=e1837] [cursor=pointer]
+                  - cell "¥4,354,600" [ref=e1838]
+                  - cell "—" [ref=e1839]
+                  - cell [ref=e1840]:
+                    - textbox "科目名 / ローマ字" [ref=e1842]
+                  - cell [ref=e1843]:
+                    - textbox "振替 PE ヨツヤセ゛イムショ" [ref=e1844]
+                - row "2026/02/16 振替 Eビジネスサイトリヨウ ¥5,500 —" [ref=e1845]:
+                  - cell [ref=e1846]:
+                    - checkbox [ref=e1847] [cursor=pointer]
+                  - cell "2026/02/16" [ref=e1848] [cursor=pointer]
+                  - cell "振替 Eビジネスサイトリヨウ" [ref=e1849] [cursor=pointer]
+                  - cell "¥5,500" [ref=e1850]
+                  - cell "—" [ref=e1851]
+                  - cell [ref=e1852]:
+                    - textbox "科目名 / ローマ字" [ref=e1854]
+                  - cell [ref=e1855]:
+                    - textbox "振替 Eビジネスサイトリヨウ" [ref=e1856]
+                - row "2026/02/26 振替 フリコミテスウリヨウ ¥490 —" [ref=e1857]:
+                  - cell [ref=e1858]:
+                    - checkbox [ref=e1859] [cursor=pointer]
+                  - cell "2026/02/26" [ref=e1860] [cursor=pointer]
+                  - cell "振替 フリコミテスウリヨウ" [ref=e1861] [cursor=pointer]
+                  - cell "¥490" [ref=e1862]
+                  - cell "—" [ref=e1863]
+                  - cell [ref=e1864]:
+                    - textbox "科目名 / ローマ字" [ref=e1866]
+                  - cell [ref=e1867]:
+                    - textbox "振替 フリコミテスウリヨウ" [ref=e1868]
+                - row "2026/02/26 振替 PE ヨツヤセ゛イムショ ¥2,920 —" [ref=e1869]:
+                  - cell [ref=e1870]:
+                    - checkbox [ref=e1871] [cursor=pointer]
+                  - cell "2026/02/26" [ref=e1872] [cursor=pointer]
+                  - cell "振替 PE ヨツヤセ゛イムショ" [ref=e1873] [cursor=pointer]
+                  - cell "¥2,920" [ref=e1874]
+                  - cell "—" [ref=e1875]
+                  - cell [ref=e1876]:
+                    - textbox "科目名 / ローマ字" [ref=e1878]
+                  - cell [ref=e1879]:
+                    - textbox "振替 PE ヨツヤセ゛イムショ" [ref=e1880]
+                - row "2026/02/27 振替 アルソツク(カ ¥336,600 —" [ref=e1881]:
+                  - cell [ref=e1882]:
+                    - checkbox [ref=e1883] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1884] [cursor=pointer]
+                  - cell "振替 アルソツク(カ" [ref=e1885] [cursor=pointer]
+                  - cell "¥336,600" [ref=e1886]
+                  - cell "—" [ref=e1887]
+                  - cell [ref=e1888]:
+                    - textbox "科目名 / ローマ字" [ref=e1890]
+                  - cell [ref=e1891]:
+                    - textbox "振替 アルソツク(カ" [ref=e1892]
+                - row "2026/02/27 振替 フリコミテスウリヨウ ¥660 —" [ref=e1893]:
+                  - cell [ref=e1894]:
+                    - checkbox [ref=e1895] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1896] [cursor=pointer]
+                  - cell "振替 フリコミテスウリヨウ" [ref=e1897] [cursor=pointer]
+                  - cell "¥660" [ref=e1898]
+                  - cell "—" [ref=e1899]
+                  - cell [ref=e1900]:
+                    - textbox "科目名 / ローマ字" [ref=e1902]
+                  - cell [ref=e1903]:
+                    - textbox "振替 フリコミテスウリヨウ" [ref=e1904]
+                - row "2026/02/27 振替 フリコミテスウリヨウ ¥660 —" [ref=e1905]:
+                  - cell [ref=e1906]:
+                    - checkbox [ref=e1907] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1908] [cursor=pointer]
+                  - cell "振替 フリコミテスウリヨウ" [ref=e1909] [cursor=pointer]
+                  - cell "¥660" [ref=e1910]
+                  - cell "—" [ref=e1911]
+                  - cell [ref=e1912]:
+                    - textbox "科目名 / ローマ字" [ref=e1914]
+                  - cell [ref=e1915]:
+                    - textbox "振替 フリコミテスウリヨウ" [ref=e1916]
+                - row "2026/02/27 振替 PE ヨツヤセ゛イムショ ¥4,354,600 —" [ref=e1917]:
+                  - cell [ref=e1918]:
+                    - checkbox [ref=e1919] [cursor=pointer]
+                  - cell "2026/02/27" [ref=e1920] [cursor=pointer]
+                  - cell "振替 PE ヨツヤセ゛イムショ" [ref=e1921] [cursor=pointer]
+                  - cell "¥4,354,600" [ref=e1922]
+                  - cell "—" [ref=e1923]
+                  - cell [ref=e1924]:
+                    - textbox "科目名 / ローマ字" [ref=e1926]
+                  - cell [ref=e1927]:
+                    - textbox "振替 PE ヨツヤセ゛イムショ" [ref=e1928]
+            - paragraph [ref=e1929]: 設定が終わったら「仕訳実行」タブに戻ってCSVをダウンロードしてください
+    - contentinfo [ref=e51]:
+      - paragraph [ref=e52]: Invoice OCR · Powered by Claude AI · © 2026
+      - paragraph [ref=e53]:
+        - link "特定商取引法に基づく表記" [ref=e54] [cursor=pointer]:
+          - /url: /tokusho
+  - button "エラー報告" [ref=e55]:
+    - img [ref=e56]
+    - text: エラー報告
+  - alert [ref=e58]

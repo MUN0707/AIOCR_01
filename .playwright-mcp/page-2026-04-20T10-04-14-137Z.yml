@@ -1,0 +1,6 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]: 読み込み中...
+  - button "エラー報告" [ref=e3]:
+    - img [ref=e4]
+    - text: エラー報告
+  - alert [ref=e6]

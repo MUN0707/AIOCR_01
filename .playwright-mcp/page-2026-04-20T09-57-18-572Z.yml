@@ -1,0 +1,74 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - button "ホームへ戻る" [ref=e5]:
+          - img [ref=e7]
+          - generic [ref=e10]:
+            - paragraph [ref=e11]: Invoice OCR
+            - paragraph [ref=e12]: AI-Powered PDF Splitter
+        - generic [ref=e59]:
+          - button "履歴" [ref=e60]
+          - button "サインアウト" [ref=e61]
+    - main [ref=e13]:
+      - generic [ref=e15]:
+        - button "請求書・領収書" [ref=e16]
+        - button "確定申告" [ref=e17]
+        - button "通帳OCR" [ref=e18]
+        - button "自動仕訳" [ref=e19]
+        - button "決算書" [ref=e20]
+      - generic [ref=e63]:
+        - generic [ref=e64]: クライアント
+        - combobox [active] [ref=e65]:
+          - option "未選択（個人）" [selected]
+          - option "887 gkTU003"
+          - option "253_東那須太陽光"
+          - option "443_Jインフラ41"
+          - option "870_ブルーインフラ8号"
+        - button "管理" [ref=e66]
+      - generic [ref=e68]:
+        - generic [ref=e69]: 今月の使用量
+        - generic [ref=e71]:
+          - text: "0"
+          - generic [ref=e72]: /10件
+      - generic [ref=e21]:
+        - heading "通帳 × 請求書を AI で自動照合・仕訳" [level=2] [ref=e73]
+        - paragraph [ref=e74]: 通帳と請求書をそれぞれアップロード → 金額・日付・相手先で照合 → 仕訳CSV出力
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - button "仕訳実行" [ref=e78]
+            - button "未照合" [ref=e79]
+            - button "入出金明細" [ref=e80]
+            - button "日記帳" [ref=e81]
+            - button "残高" [ref=e82]
+            - button "マスタ" [ref=e83]
+          - button "エラー報告" [ref=e84]:
+            - img [ref=e85]
+            - text: エラー報告
+        - generic [ref=e88]:
+          - generic [ref=e89]:
+            - generic [ref=e90]:
+              - paragraph [ref=e91]: ① 通帳 / 口座明細
+              - paragraph [ref=e92]: 入出金データを抽出します
+            - button "PDFをドラッグ＆ドロップ または クリックで選択" [ref=e93]:
+              - img [ref=e94]
+              - text: PDFをドラッグ＆ドロップ または クリックで選択
+            - button "OCRで抽出" [disabled] [ref=e97]
+          - generic [ref=e98]:
+            - generic [ref=e99]:
+              - paragraph [ref=e100]: ② 請求書 / 領収書
+              - paragraph [ref=e101]: 相手先・金額・日付を抽出します
+            - button "PDF・画像をドラッグ＆ドロップ または クリックで選択" [ref=e102]:
+              - img [ref=e103]
+              - text: PDF・画像をドラッグ＆ドロップ または クリックで選択
+            - button "OCRで抽出" [disabled] [ref=e106]
+    - contentinfo [ref=e51]:
+      - paragraph [ref=e52]: Invoice OCR · Powered by Claude AI · © 2026
+      - paragraph [ref=e53]:
+        - link "特定商取引法に基づく表記" [ref=e54] [cursor=pointer]:
+          - /url: /tokusho
+  - button "エラー報告" [ref=e55]:
+    - img [ref=e56]
+    - text: エラー報告
+  - alert [ref=e58]

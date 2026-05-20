@@ -139,7 +139,7 @@ export default function ErrorReportFab() {
       <button
         type="button"
         onClick={openModal}
-        className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-4 py-2.5 shadow-lg hover:bg-amber-100 transition-all"
+        className="fixed bottom-6 left-6 z-40 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-4 py-2.5 shadow-lg hover:bg-amber-100 transition-all"
         title="エラー・不具合を報告する"
       >
         <IconAlertCircle className="w-4 h-4" />

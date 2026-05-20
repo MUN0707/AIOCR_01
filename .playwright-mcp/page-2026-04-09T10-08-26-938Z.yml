@@ -1,0 +1,368 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - banner:
+            - generic:
+              - generic:
+                - link:
+                  - /url: /dashboard/org/espmelbgkpxjikmflgat
+                  - img
+                - generic:
+                  - generic:
+                    - img
+                  - generic:
+                    - link:
+                      - /url: /dashboard/org/espmelbgkpxjikmflgat
+                      - img
+                      - generic: MUN0707's Org
+                      - generic: Free
+                    - button:
+                      - generic:
+                        - img
+                  - generic:
+                    - generic:
+                      - img
+                    - generic:
+                      - link:
+                        - /url: /dashboard/project/lonmddwpcfalgtddaksg
+                        - img
+                        - generic: 税理士関連
+                      - button:
+                        - generic:
+                          - img
+                    - generic:
+                      - img
+                    - generic:
+                      - link:
+                        - /url: /dashboard/project/lonmddwpcfalgtddaksg
+                        - generic: main
+                        - generic: Production
+                      - button:
+                        - generic:
+                          - img
+                - button [ref=e403] [cursor=pointer]:
+                  - img [ref=e64]
+                  - generic [ref=e66]: Connect
+              - generic:
+                - generic:
+                  - generic: Feedback
+                - generic:
+                  - button:
+                    - generic:
+                      - img
+                      - paragraph: Search...
+                    - generic:
+                      - generic: Ctrl K
+                  - button [ref=e79] [cursor=pointer]:
+                    - img [ref=e81]
+                  - button [ref=e85] [cursor=pointer]:
+                    - img [ref=e87]
+                  - button [ref=e89] [cursor=pointer]:
+                    - img [ref=e91]
+                  - button [ref=e93] [cursor=pointer]:
+                    - img [ref=e97]
+                - button [ref=e404] [cursor=pointer]:
+                  - img [ref=e405]
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - list:
+                      - generic:
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg
+                            - img
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/editor
+                            - img
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/sql
+                            - img
+                      - generic:
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/database/schemas
+                            - img
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/users
+                            - img
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/storage/files
+                            - img
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/functions
+                            - img
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/realtime/inspector
+                            - img
+                      - generic:
+                        - generic:
+                          - listitem:
+                            - link:
+                              - /url: /dashboard/project/lonmddwpcfalgtddaksg/advisors/security
+                              - img
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/observability
+                            - img
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/logs/explorer
+                            - img
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/integrations
+                            - img
+                      - generic:
+                        - listitem:
+                          - link:
+                            - /url: /dashboard/project/lonmddwpcfalgtddaksg/settings/general
+                            - img
+                - generic:
+                  - generic:
+                    - button:
+                      - generic:
+                        - img
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic:
+                              - generic:
+                                - heading [level=4]: Authentication
+                              - generic:
+                                - generic:
+                                  - menu [disabled]:
+                                    - list:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic: Manage
+                                            - generic:
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/users
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Users
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/oauth-apps
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: OAuth Apps
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic: Notifications
+                                            - generic:
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/templates
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Email
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - generic:
+                                                - generic:
+                                                  - generic: Configuration
+                                            - generic:
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/policies
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Policies
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/providers
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Sign In / Providers
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/oauth-server
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: OAuth Server
+                                                        - generic: Beta
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/sessions
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Sessions
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/rate-limits
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Rate Limits
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/mfa
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Multi-Factor
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/url-configuration
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: URL Configuration
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/protection
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Attack Protection
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/hooks
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Auth Hooks
+                                                        - generic: Beta
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/audit-logs
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Audit Logs
+                                              - link [disabled]:
+                                                - /url: /dashboard/project/lonmddwpcfalgtddaksg/auth/performance
+                                                - menuitem [disabled]:
+                                                  - generic:
+                                                    - generic:
+                                                      - generic:
+                                                        - generic: Performance
+                      - separator [disabled]:
+                        - generic:
+                          - img
+                      - generic:
+                        - generic:
+                          - main:
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - heading [level=1]: URL Configuration
+                                    - generic: Configure site URL and redirect URLs for authentication
+                            - generic:
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - heading [level=2]: Site URL
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - generic:
+                                            - generic:
+                                              - textbox: https://invoice-ocr-tawny.vercel.app
+                                            - generic:
+                                              - generic:
+                                                - generic: Site URL
+                                              - generic: Configure the default redirect URL used when a redirect URL is not specified or doesn't match one from the allow list. This value is also exposed as a template variable in the email templates section. Wildcards cannot be used here.
+                                      - generic:
+                                        - button [disabled]:
+                                          - generic: Save changes
+                              - generic:
+                                - generic:
+                                  - generic:
+                                    - generic:
+                                      - heading [level=2]: Redirect URLs
+                                      - generic: URLs that auth providers are permitted to redirect to post authentication. Wildcards are allowed, for example, https://*.domain.com
+                                    - generic:
+                                      - link:
+                                        - /url: https://supabase.com/docs/guides/auth/concepts/redirect-urls
+                                        - generic:
+                                          - img
+                                        - generic: Docs
+                                - generic:
+                                  - generic:
+                                    - button [ref=e406] [cursor=pointer]:
+                                      - generic [ref=e368]: Add URL
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - checkbox
+                                        - img
+                                        - generic: https://127.0.0.1:3000
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - checkbox
+                                        - img
+                                        - generic: http://localhost:3000
+                                    - generic:
+                                      - generic:
+                                        - generic:
+                                          - checkbox
+                                        - img
+                                        - generic: http://localhost:3001
+                                    - generic:
+                                      - paragraph: "Total URLs: 3"
+  - generic:
+    - alert: URL Configuration | Authentication | Supabase
+  - dialog "Add new redirect URLs" [ref=e408]:
+    - generic [ref=e409]:
+      - heading "Add new redirect URLs" [level=2] [ref=e410]
+      - paragraph [ref=e411]: This will add a URL to a list of allowed URLs that can interact with your Authentication services for this project.
+    - generic [ref=e412]:
+      - generic [ref=e413]:
+        - generic [ref=e414]: URL
+        - generic [ref=e423]:
+          - generic [ref=e425]:
+            - textbox "https://mydomain.com" [active] [ref=e427]
+            - button "Remove URL" [disabled]:
+              - generic:
+                - img
+          - button "Add URL" [ref=e429] [cursor=pointer]:
+            - img [ref=e431]
+            - generic [ref=e432]: Add URL
+      - button "Save URLs" [ref=e435] [cursor=pointer]:
+        - generic [ref=e436]: Save URLs
+    - button "Close" [ref=e437] [cursor=pointer]:
+      - img [ref=e438]
+      - generic [ref=e441]: Close

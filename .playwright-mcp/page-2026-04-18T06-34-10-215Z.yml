@@ -1,0 +1,104 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: Invoice OCR
+      - generic [ref=e6]: 税理士事務所向け
+    - generic [ref=e7]:
+      - text: 請求書PDFの
+      - emphasis [ref=e8]: 分割・命名
+      - text: 、
+      - text: まだ手作業でやっていませんか？
+    - generic [ref=e9]:
+      - text: 顧問先から届いたPDFをアップロードするだけ。
+      - text: AIが1枚ずつ自動分割し、日付・取引先・金額でファイル名を生成します。
+  - generic [ref=e10]:
+    - generic [ref=e11]:
+      - generic [ref=e12]: Before ─ いままで
+      - list [ref=e13]:
+        - listitem [ref=e14]: ✕ 顧問先から届いた数十ページのPDFを開く
+        - listitem [ref=e15]: ✕ 1枚ずつ内容を目視で確認
+        - listitem [ref=e16]: ✕ 「日付_取引先_金額.pdf」と手入力で命名
+        - listitem [ref=e17]: ✕ フォルダに1つずつ保存
+    - generic [ref=e18]: →
+    - generic [ref=e19]:
+      - generic [ref=e20]: After ─ Invoice OCR
+      - list [ref=e21]:
+        - listitem [ref=e22]: ✓ PDFをドラッグ＆ドロップ
+        - listitem [ref=e23]: ✓ AIが請求書を1枚ずつ自動分割
+        - listitem [ref=e24]: ✓ 日付・取引先・金額でファイル名を自動生成
+        - listitem [ref=e25]: ✓ ZIPでまとめてダウンロード
+  - generic [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]: "1"
+      - generic [ref=e29]: アップロード
+      - generic [ref=e30]:
+        - text: PDFをブラウザに
+        - text: ドラッグ＆ドロップ
+    - generic [ref=e31]:
+      - generic [ref=e32]: "2"
+      - generic [ref=e33]: AI自動処理
+      - generic [ref=e34]:
+        - text: 分割・命名・
+        - text: 金額抽出を自動実行
+    - generic [ref=e35]:
+      - generic [ref=e36]: "3"
+      - generic [ref=e37]: ダウンロード
+      - generic [ref=e38]:
+        - text: 命名済みPDFを
+        - text: ZIP一括ダウンロード
+  - generic [ref=e39]: そのほかの機能
+  - generic [ref=e40]:
+    - generic [ref=e41]:
+      - generic [ref=e42]: 📄
+      - generic [ref=e43]:
+        - strong [ref=e44]: 確定申告書類の自動仕分け
+        - text: 申告書・源泉徴収票・控除証明書など約35種を自動分類
+    - generic [ref=e45]:
+      - generic [ref=e46]: 🔄
+      - generic [ref=e47]:
+        - strong [ref=e48]: 通帳×請求書の自動照合
+        - text: 金額・日付・取引先名で自動マッチング
+    - generic [ref=e49]:
+      - generic [ref=e50]: 📝
+      - generic [ref=e51]:
+        - strong [ref=e52]: 仕訳の自動生成
+        - text: 照合結果から仕訳を生成、弥生CSV出力対応
+    - generic [ref=e53]:
+      - generic [ref=e54]: 🔒
+      - generic [ref=e55]:
+        - strong [ref=e56]: セキュリティ
+        - text: データはサーバーに保存されず処理後即削除
+  - generic [ref=e57]:
+    - generic [ref=e58]: 料金プラン（税込）
+    - generic [ref=e59]:
+      - generic [ref=e60]:
+        - generic [ref=e61]: ライト
+        - generic [ref=e62]: ¥1,500/月
+        - generic [ref=e63]: 月30件
+      - generic [ref=e64]:
+        - generic [ref=e65]: スタンダード
+        - generic [ref=e66]: ¥3,980/月
+        - generic [ref=e67]: 月100件 + 顧問先管理
+        - text: 人気
+      - generic [ref=e68]:
+        - generic [ref=e69]: プロ
+        - generic [ref=e70]: ¥9,800/月
+        - generic [ref=e71]: 月300件 + 仕訳突合
+      - generic [ref=e72]:
+        - generic [ref=e73]: エンタープライズ
+        - generic [ref=e74]: ¥19,800/月
+        - generic [ref=e75]: 月1,000件 + 全機能
+  - generic [ref=e76]:
+    - generic [ref=e77]:
+      - generic [ref=e78]: 3日間 無料トライアル
+      - generic [ref=e79]:
+        - text: カード登録不要・ブラウザだけで完結
+        - text: インストール不要ですぐにお試しいただけます
+    - generic [ref=e81]:
+      - img [ref=e83]
+      - generic [ref=e86]:
+        - generic [ref=e87]: ▼ スマホで読み取り or 下記URLへ
+        - text: https://invoice-ocr-tawny.vercel.app
+  - generic [ref=e88]:
+    - generic [ref=e89]: "お問い合わせ: info@taxbestresearch.com"
+    - generic [ref=e90]: Invoice OCR by AI Lab

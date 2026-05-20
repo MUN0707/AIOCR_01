@@ -1,0 +1,13 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - text: 📄
+      - heading "請求書 PDF 分割ツール" [level=1] [ref=e5]
+      - paragraph [ref=e6]: Googleアカウントでサインインしてください
+    - button "Googleでサインイン" [ref=e7]:
+      - img [ref=e8]
+      - text: Googleでサインイン
+    - link "ゲストとして利用する（無料5回まで）" [ref=e13] [cursor=pointer]:
+      - /url: /
+  - button "Open Next.js Dev Tools" [ref=e19] [cursor=pointer]:
+    - img [ref=e20]

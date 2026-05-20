@@ -1,0 +1,25 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e7]:
+      - generic [ref=e8]:
+        - link "Invoice OCR History" [ref=e9] [cursor=pointer]:
+          - /url: /
+          - img [ref=e11]
+          - generic [ref=e14]
+        - link "← ホームへ戻る" [ref=e17] [cursor=pointer]:
+          - /url: /
+    - main [ref=e18]:
+      - heading "処理履歴" [level=1] [ref=e19]
+      - paragraph [ref=e20]: 過去にアップロードしたPDFと認識結果を確認し、誤認識を修正して精度改善に役立てられます（直近200件）。
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - generic [ref=e23]
+          - generic [ref=e28]
+        - generic [ref=e781]:
+          - iframe [ref=e783]:
+            
+          - generic [ref=e784]
+  - button "エラー報告" [ref=e3]:
+    - img [ref=e4]
+    - text: エラー報告
+  - alert [ref=e6]

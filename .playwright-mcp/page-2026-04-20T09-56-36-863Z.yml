@@ -1,0 +1,51 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - button "ホームへ戻る" [ref=e5]:
+        - img [ref=e7]
+        - generic [ref=e10]:
+          - paragraph [ref=e11]: Invoice OCR
+          - paragraph [ref=e12]: AI-Powered PDF Splitter
+    - main [ref=e13]:
+      - generic [ref=e15]:
+        - button "請求書・領収書" [ref=e16]
+        - button "確定申告" [ref=e17]
+        - button "通帳OCR" [ref=e18]
+        - button "自動仕訳" [ref=e19]
+        - button "決算書" [ref=e20]
+      - generic [ref=e21]:
+        - heading "複数の請求書PDFを AI で自動整理" [level=2] [ref=e22]
+        - paragraph [ref=e23]: アップロードするだけで、1件1ファイルに分割・命名まで完了
+      - generic [ref=e25]:
+        - button "PDF・画像ファイルをドラッグ＆ドロップ、またはクリックして選択" [ref=e26] [cursor=pointer]:
+          - button "Choose File" [ref=e27]
+          - generic [ref=e28]:
+            - img [ref=e30]
+            - generic [ref=e33]:
+              - paragraph [ref=e34]: PDF・画像をドラッグ＆ドロップ
+              - paragraph [ref=e35]: またはクリックしてファイルを選択（複数可）
+        - button "AI OCRで解析・分割する" [disabled] [ref=e37]:
+          - img [ref=e38]
+          - text: AI OCRで解析・分割する
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - text: "01"
+          - paragraph [ref=e43]: PDFをアップロード
+          - paragraph [ref=e44]: 複数の請求書・領収書がまとまったPDFをドロップ。複数ファイルを同時に指定することも可能です。
+        - generic [ref=e45]:
+          - text: "02"
+          - paragraph [ref=e46]: AI OCRで自動解析
+          - paragraph [ref=e47]: Claude AIが各書類の境界・種別（請求書/領収書）・日付・発行者名・金額・インボイス番号を自動で抽出します。
+        - generic [ref=e48]:
+          - text: "03"
+          - paragraph [ref=e49]: 分割PDFをダウンロード
+          - paragraph [ref=e50]: 日付_発行者名_金額_摘要で命名された1書類1PDFを個別またはZIPで一括ダウンロード。
+    - contentinfo [ref=e51]:
+      - paragraph [ref=e52]: Invoice OCR · Powered by Claude AI · © 2026
+      - paragraph [ref=e53]:
+        - link "特定商取引法に基づく表記" [ref=e54] [cursor=pointer]:
+          - /url: /tokusho
+  - button "エラー報告" [ref=e55]:
+    - img [ref=e56]
+    - text: エラー報告
+  - alert [ref=e58]

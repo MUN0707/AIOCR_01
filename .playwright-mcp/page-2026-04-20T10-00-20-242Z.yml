@@ -1,0 +1,238 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - button "ホームへ戻る" [ref=e5]:
+          - img [ref=e7]
+          - generic [ref=e10]:
+            - paragraph [ref=e11]: Invoice OCR
+            - paragraph [ref=e12]: AI-Powered PDF Splitter
+        - generic [ref=e59]:
+          - button "履歴" [ref=e60]
+          - button "サインアウト" [ref=e61]
+    - main [ref=e13]:
+      - generic [ref=e15]:
+        - button "請求書・領収書" [ref=e16]
+        - button "確定申告" [ref=e17]
+        - button "通帳OCR" [ref=e18]
+        - button "自動仕訳" [ref=e19]
+        - button "決算書" [ref=e20]
+      - generic [ref=e63]:
+        - generic [ref=e64]: クライアント
+        - combobox [ref=e65]:
+          - option "未選択（個人）"
+          - option "887 gkTU003"
+          - option "253_東那須太陽光" [selected]
+          - option "443_Jインフラ41"
+          - option "870_ブルーインフラ8号"
+        - button "管理" [ref=e66]
+      - generic [ref=e68]:
+        - generic [ref=e69]: 今月の使用量
+        - generic [ref=e71]:
+          - text: "0"
+          - generic [ref=e72]: /10件
+      - generic [ref=e21]:
+        - heading "通帳 × 請求書を AI で自動照合・仕訳" [level=2] [ref=e73]
+        - paragraph [ref=e74]: 通帳と請求書をそれぞれアップロード → 金額・日付・相手先で照合 → 仕訳CSV出力
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - button "仕訳実行" [ref=e78]
+            - button "未照合" [ref=e79]
+            - button "入出金明細" [active] [ref=e80]
+            - button "日記帳" [ref=e81]
+            - button "残高" [ref=e82]
+            - button "マスタ" [ref=e83]
+          - button "エラー報告" [ref=e84]:
+            - img [ref=e85]
+            - text: エラー報告
+        - generic [ref=e1931]:
+          - generic [ref=e1932]:
+            - generic [ref=e1933]:
+              - paragraph [ref=e1934]:
+                - text: 入出金明細
+                - generic [ref=e1935]: · 253_東那須太陽光
+              - paragraph [ref=e1936]: 通帳OCRデータの入出金を確認し、証票なしの取引に科目を割り当てて仕訳登録できます
+            - button "更新" [ref=e1937]
+          - generic [ref=e1938]:
+            - button "みずほ銀行 四谷支店 (****3434) · 15件" [ref=e1939]
+            - button "みずほ銀行 四谷支店 (****3434) · 12件" [ref=e1940]
+            - button "みずほ銀行 四谷支店 (****3434) · 12件" [ref=e1941]
+            - button "みずほ銀行 四谷支店 (****3434) · 12件" [ref=e1942]
+          - generic [ref=e1943]:
+            - generic [ref=e1944]:
+              - button "全て(15)" [ref=e1945]
+              - button "未反映(15)" [ref=e1946]
+              - button "反映済(0)" [ref=e1947]
+            - paragraph [ref=e1948]: 【東那須太陽光発電所gk_収入兼支払口座_3093434】2603.pdf
+          - table [ref=e1950]:
+            - rowgroup [ref=e1951]:
+              - row "状態 日付 摘要 出金 入金 勘定科目" [ref=e1952]:
+                - columnheader [ref=e1953]:
+                  - checkbox [ref=e1954] [cursor=pointer]
+                - columnheader "状態" [ref=e1955]
+                - columnheader "日付" [ref=e1956]
+                - columnheader "摘要" [ref=e1957]
+                - columnheader "出金" [ref=e1958]
+                - columnheader "入金" [ref=e1959]
+                - columnheader "勘定科目" [ref=e1960]
+            - rowgroup [ref=e1961]:
+              - row "未反映 2026/03/03 振替 PE ヨウヤセﾞイムショ ¥121,100" [ref=e1962]:
+                - cell [ref=e1963]:
+                  - checkbox [ref=e1964] [cursor=pointer]
+                - cell "未反映" [ref=e1965]
+                - cell "2026/03/03" [ref=e1966]
+                - cell "振替 PE ヨウヤセﾞイムショ" [ref=e1967]
+                - cell "¥121,100" [ref=e1968]
+                - cell [ref=e1969]
+                - cell [ref=e1970]:
+                  - textbox "科目を選択" [ref=e1972]
+              - row "未反映 2026/03/04 振替 アルソツク（カ ¥421,234" [ref=e1973]:
+                - cell [ref=e1974]:
+                  - checkbox [ref=e1975] [cursor=pointer]
+                - cell "未反映" [ref=e1976]
+                - cell "2026/03/04" [ref=e1977]
+                - cell "振替 アルソツク（カ" [ref=e1978]
+                - cell "¥421,234" [ref=e1979]
+                - cell [ref=e1980]
+                - cell [ref=e1981]:
+                  - textbox "科目を選択" [ref=e1983]
+              - row "未反映 2026/03/04 振替 フリコミテスクリヨウ ¥660" [ref=e1984]:
+                - cell [ref=e1985]:
+                  - checkbox [ref=e1986] [cursor=pointer]
+                - cell "未反映" [ref=e1987]
+                - cell "2026/03/04" [ref=e1988]
+                - cell "振替 フリコミテスクリヨウ" [ref=e1989]
+                - cell "¥660" [ref=e1990]
+                - cell [ref=e1991]
+                - cell [ref=e1992]:
+                  - textbox "科目を選択" [ref=e1994]
+              - row "未反映 2026/03/16 振替 Eﾋﾞｼﾞﾈスサイトリヨウ ¥5,500" [ref=e1995]:
+                - cell [ref=e1996]:
+                  - checkbox [ref=e1997] [cursor=pointer]
+                - cell "未反映" [ref=e1998]
+                - cell "2026/03/16" [ref=e1999]
+                - cell "振替 Eﾋﾞｼﾞﾈスサイトリヨウ" [ref=e2000]
+                - cell "¥5,500" [ref=e2001]
+                - cell [ref=e2002]
+                - cell [ref=e2003]:
+                  - textbox "科目を選択" [ref=e2005]
+              - row "未反映 2026/03/25 振替 ﾌﾞﾙｰスカイエナシー（カ ¥19,800,000" [ref=e2006]:
+                - cell [ref=e2007]:
+                  - checkbox [ref=e2008] [cursor=pointer]
+                - cell "未反映" [ref=e2009]
+                - cell "2026/03/25" [ref=e2010]
+                - cell "振替 ﾌﾞﾙｰスカイエナシー（カ" [ref=e2011]
+                - cell "¥19,800,000" [ref=e2012]
+                - cell [ref=e2013]
+                - cell [ref=e2014]:
+                  - textbox "科目を選択" [ref=e2016]
+              - row "未反映 2026/03/25 振替 フリコミテスクリヨウ ¥660" [ref=e2017]:
+                - cell [ref=e2018]:
+                  - checkbox [ref=e2019] [cursor=pointer]
+                - cell "未反映" [ref=e2020]
+                - cell "2026/03/25" [ref=e2021]
+                - cell "振替 フリコミテスクリヨウ" [ref=e2022]
+                - cell "¥660" [ref=e2023]
+                - cell [ref=e2024]
+                - cell [ref=e2025]:
+                  - textbox "科目を選択" [ref=e2027]
+              - row "未反映 2026/03/27 振込 グﾞアルホール（ドﾞ ミツイスミトモ ヒビﾞヤ グﾞアルホール（ドﾞ ¥405,606" [ref=e2028]:
+                - cell [ref=e2029]:
+                  - checkbox [ref=e2030] [cursor=pointer]
+                - cell "未反映" [ref=e2031]
+                - cell "2026/03/27" [ref=e2032]
+                - cell "振込 グﾞアルホール（ドﾞ ミツイスミトモ ヒビﾞヤ グﾞアルホール（ドﾞ" [ref=e2033]
+                - cell [ref=e2034]
+                - cell "¥405,606" [ref=e2035]
+                - cell [ref=e2036]:
+                  - textbox "科目を選択" [ref=e2038]
+              - row "未反映 2026/03/31 振替 アルソツク（カ ¥336,600" [ref=e2039]:
+                - cell [ref=e2040]:
+                  - checkbox [ref=e2041] [cursor=pointer]
+                - cell "未反映" [ref=e2042]
+                - cell "2026/03/31" [ref=e2043]
+                - cell "振替 アルソツク（カ" [ref=e2044]
+                - cell "¥336,600" [ref=e2045]
+                - cell [ref=e2046]
+                - cell [ref=e2047]:
+                  - textbox "科目を選択" [ref=e2049]
+              - row "未反映 2026/03/31 振替 フリコミテスクリヨウ ¥660" [ref=e2050]:
+                - cell [ref=e2051]:
+                  - checkbox [ref=e2052] [cursor=pointer]
+                - cell "未反映" [ref=e2053]
+                - cell "2026/03/31" [ref=e2054]
+                - cell "振替 フリコミテスクリヨウ" [ref=e2055]
+                - cell "¥660" [ref=e2056]
+                - cell [ref=e2057]
+                - cell [ref=e2058]:
+                  - textbox "科目を選択" [ref=e2060]
+              - row "未反映 2026/03/31 振替 マツダﾞソウゴﾞウホクリツシﾞムショ マ ¥115,258" [ref=e2061]:
+                - cell [ref=e2062]:
+                  - checkbox [ref=e2063] [cursor=pointer]
+                - cell "未反映" [ref=e2064]
+                - cell "2026/03/31" [ref=e2065]
+                - cell "振替 マツダﾞソウゴﾞウホクリツシﾞムショ マ" [ref=e2066]
+                - cell "¥115,258" [ref=e2067]
+                - cell [ref=e2068]
+                - cell [ref=e2069]:
+                  - textbox "科目を選択" [ref=e2071]
+              - row "未反映 2026/03/31 振替 フリコミテスクリヨウ ¥660" [ref=e2072]:
+                - cell [ref=e2073]:
+                  - checkbox [ref=e2074] [cursor=pointer]
+                - cell "未反映" [ref=e2075]
+                - cell "2026/03/31" [ref=e2076]
+                - cell "振替 フリコミテスクリヨウ" [ref=e2077]
+                - cell "¥660" [ref=e2078]
+                - cell [ref=e2079]
+                - cell [ref=e2080]:
+                  - textbox "科目を選択" [ref=e2082]
+              - row "未反映 2026/03/31 振替 キヨウセラコミュニケーションシステム カ ¥3,611,300" [ref=e2083]:
+                - cell [ref=e2084]:
+                  - checkbox [ref=e2085] [cursor=pointer]
+                - cell "未反映" [ref=e2086]
+                - cell "2026/03/31" [ref=e2087]
+                - cell "振替 キヨウセラコミュニケーションシステム カ" [ref=e2088]
+                - cell "¥3,611,300" [ref=e2089]
+                - cell [ref=e2090]
+                - cell [ref=e2091]:
+                  - textbox "科目を選択" [ref=e2093]
+              - row "未反映 2026/03/31 振替 フリコミテスクリヨウ ¥660" [ref=e2094]:
+                - cell [ref=e2095]:
+                  - checkbox [ref=e2096] [cursor=pointer]
+                - cell "未反映" [ref=e2097]
+                - cell "2026/03/31" [ref=e2098]
+                - cell "振替 フリコミテスクリヨウ" [ref=e2099]
+                - cell "¥660" [ref=e2100]
+                - cell [ref=e2101]
+                - cell [ref=e2102]:
+                  - textbox "科目を選択" [ref=e2104]
+              - row "未反映 2026/03/31 振替 PE ヨウヤセﾞイムショ ¥11,792" [ref=e2105]:
+                - cell [ref=e2106]:
+                  - checkbox [ref=e2107] [cursor=pointer]
+                - cell "未反映" [ref=e2108]
+                - cell "2026/03/31" [ref=e2109]
+                - cell "振替 PE ヨウヤセﾞイムショ" [ref=e2110]
+                - cell "¥11,792" [ref=e2111]
+                - cell [ref=e2112]
+                - cell [ref=e2113]:
+                  - textbox "科目を選択" [ref=e2115]
+              - row "未反映 2026/03/31 振込 キヨウセラコミュニケーションシステム（カ ミツビシUFJ キョウト キヨウセラコミュニケーションシステム（カ ¥4,664,396" [ref=e2116]:
+                - cell [ref=e2117]:
+                  - checkbox [ref=e2118] [cursor=pointer]
+                - cell "未反映" [ref=e2119]
+                - cell "2026/03/31" [ref=e2120]
+                - cell "振込 キヨウセラコミュニケーションシステム（カ ミツビシUFJ キョウト キヨウセラコミュニケーションシステム（カ" [ref=e2121]
+                - cell [ref=e2122]
+                - cell "¥4,664,396" [ref=e2123]
+                - cell [ref=e2124]:
+                  - textbox "科目を選択" [ref=e2126]
+    - contentinfo [ref=e51]:
+      - paragraph [ref=e52]: Invoice OCR · Powered by Claude AI · © 2026
+      - paragraph [ref=e53]:
+        - link "特定商取引法に基づく表記" [ref=e54] [cursor=pointer]:
+          - /url: /tokusho
+  - button "エラー報告" [ref=e55]:
+    - img [ref=e56]
+    - text: エラー報告
+  - alert [ref=e58]

@@ -1,0 +1,51 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - button "ホームへ戻る" [ref=e5]:
+          - img [ref=e7]
+          - generic [ref=e10]:
+            - paragraph [ref=e11]: Invoice OCR
+            - paragraph [ref=e12]: AI-Powered PDF Splitter
+        - button "Googleでサインイン" [ref=e13]
+    - main [ref=e14]:
+      - generic [ref=e16]:
+        - button "法人請求書" [ref=e17]
+        - button "確定申告" [ref=e18]
+        - button "通帳OCR" [ref=e19]
+        - button "自動仕訳" [ref=e20]
+        - button "決算書" [ref=e21]
+      - generic [ref=e22]:
+        - heading "複数の請求書PDFを AI で自動整理" [level=2] [ref=e23]
+        - paragraph [ref=e24]: アップロードするだけで、1件1ファイルに分割・命名まで完了
+      - generic [ref=e26]:
+        - button "PDFファイルをドラッグ＆ドロップ、またはクリックして選択" [ref=e27] [cursor=pointer]:
+          - button "Choose File" [ref=e28]
+          - generic [ref=e29]:
+            - img [ref=e31]
+            - generic [ref=e34]:
+              - paragraph [ref=e35]: PDFをドラッグ＆ドロップ
+              - paragraph [ref=e36]: またはクリックしてファイルを選択（複数可）
+            - generic [ref=e37]: ゲスト：5回まで無料でお試し
+        - button "AI OCRで解析・分割する" [disabled] [ref=e39]:
+          - img [ref=e40]
+          - text: AI OCRで解析・分割する
+      - generic [ref=e43]:
+        - generic [ref=e44]:
+          - text: "01"
+          - paragraph [ref=e45]: PDFをアップロード
+          - paragraph [ref=e46]: 複数の請求書がまとまったPDFをドロップ。複数ファイルを同時に指定することも可能です。
+        - generic [ref=e47]:
+          - text: "02"
+          - paragraph [ref=e48]: AI OCRで自動解析
+          - paragraph [ref=e49]: Claude AIが各請求書の境界・日付・請求者名・税込金額を自動で抽出します。
+        - generic [ref=e50]:
+          - text: "03"
+          - paragraph [ref=e51]: 分割PDFをダウンロード
+          - paragraph [ref=e52]: 日付_請求者名_金額で命名された1請求書1PDFを個別またはZIPで一括ダウンロード。
+    - contentinfo [ref=e53]:
+      - paragraph [ref=e54]: Invoice OCR · Powered by Claude AI · © 2026
+      - paragraph [ref=e55]:
+        - link "特定商取引法に基づく表記" [ref=e56] [cursor=pointer]:
+          - /url: /tokusho
+  - alert [ref=e57]

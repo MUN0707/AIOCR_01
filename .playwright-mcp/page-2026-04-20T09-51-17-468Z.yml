@@ -1,0 +1,60 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - button "ホームへ戻る" [ref=e5]:
+          - img [ref=e7]
+          - generic [ref=e10]:
+            - paragraph [ref=e11]: Invoice OCR
+            - paragraph [ref=e12]: AI-Powered PDF Splitter
+        - button "Googleでサインイン" [ref=e58]
+    - main [ref=e13]:
+      - generic [ref=e15]:
+        - button "請求書・領収書" [ref=e16]
+        - button "確定申告" [ref=e17]
+        - button "通帳OCR" [ref=e18]
+        - button "自動仕訳" [active] [ref=e19]
+        - button "決算書" [ref=e20]
+      - generic [ref=e21]:
+        - heading "通帳 × 請求書を AI で自動照合・仕訳" [level=2] [ref=e70]
+        - paragraph [ref=e71]: 通帳と請求書をそれぞれアップロード → 金額・日付・相手先で照合 → 仕訳CSV出力
+      - generic [ref=e72]:
+        - generic [ref=e73]:
+          - generic [ref=e74]:
+            - button "仕訳実行" [ref=e75]
+            - button "未照合" [ref=e76]
+            - button "入出金明細" [ref=e77]
+            - button "日記帳" [ref=e78]
+            - button "残高" [ref=e79]
+            - button "マスタ" [ref=e80]
+          - button "エラー報告" [ref=e81]:
+            - img [ref=e82]
+            - text: エラー報告
+        - generic [ref=e85]:
+          - generic [ref=e86]:
+            - generic [ref=e87]:
+              - paragraph [ref=e88]: ① 通帳 / 口座明細
+              - paragraph [ref=e89]: 入出金データを抽出します
+            - button "PDFをドラッグ＆ドロップ または クリックで選択" [ref=e90]:
+              - img [ref=e91]
+              - text: PDFをドラッグ＆ドロップ または クリックで選択
+            - button "OCRで抽出" [disabled] [ref=e94]
+          - generic [ref=e95]:
+            - generic [ref=e96]:
+              - paragraph [ref=e97]: ② 請求書 / 領収書
+              - paragraph [ref=e98]: 相手先・金額・日付を抽出します
+            - button "PDF・画像をドラッグ＆ドロップ または クリックで選択" [ref=e99]:
+              - img [ref=e100]
+              - text: PDF・画像をドラッグ＆ドロップ または クリックで選択
+            - button "OCRで抽出" [disabled] [ref=e103]
+    - contentinfo [ref=e51]:
+      - paragraph [ref=e52]: Invoice OCR · Powered by Claude AI · © 2026
+      - paragraph [ref=e53]:
+        - link "特定商取引法に基づく表記" [ref=e54] [cursor=pointer]:
+          - /url: /tokusho
+  - button "エラー報告" [ref=e55]:
+    - img [ref=e56]
+    - text: エラー報告
+  - button "Open Next.js Dev Tools" [ref=e65] [cursor=pointer]:
+    - img [ref=e66]
+  - alert [ref=e69]

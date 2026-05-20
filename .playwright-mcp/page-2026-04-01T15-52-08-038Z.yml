@@ -1,0 +1,52 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - img [ref=e7]
+          - generic [ref=e10]:
+            - paragraph [ref=e11]: Invoice OCR
+            - paragraph [ref=e12]: AI-Powered PDF Splitter
+        - button "Googleでサインイン" [ref=e54]
+    - main [ref=e13]:
+      - generic [ref=e15]:
+        - button "法人請求書" [active] [ref=e16]
+        - button "確定申告" [ref=e17]
+        - button "通帳OCR" [ref=e18]
+        - button "自動仕訳" [ref=e19]
+      - generic [ref=e20]:
+        - heading "複数の請求書PDFを AI で自動整理" [level=2] [ref=e88]
+        - paragraph [ref=e89]: アップロードするだけで、1件1ファイルに分割・命名まで完了
+      - generic [ref=e91]:
+        - button "PDFファイルをドラッグ＆ドロップ、またはクリックして選択" [ref=e92] [cursor=pointer]:
+          - button "Choose File" [ref=e93]
+          - generic [ref=e94]:
+            - img [ref=e96]
+            - generic [ref=e99]:
+              - paragraph [ref=e100]: PDFをドラッグ＆ドロップ
+              - paragraph [ref=e101]: またはクリックしてファイルを選択（複数可）
+            - generic [ref=e102]: ゲスト：5回まで無料でお試し
+        - button "AI OCRで解析・分割する" [disabled] [ref=e104]:
+          - img [ref=e105]
+          - text: AI OCRで解析・分割する
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - text: "01"
+          - paragraph [ref=e42]: PDFをアップロード
+          - paragraph [ref=e43]: 複数の請求書がまとまったPDFをドロップ。複数ファイルを同時に指定することも可能です。
+        - generic [ref=e44]:
+          - text: "02"
+          - paragraph [ref=e45]: AI OCRで自動解析
+          - paragraph [ref=e46]: Claude AIが各請求書の境界・日付・請求者名・税込金額を自動で抽出します。
+        - generic [ref=e47]:
+          - text: "03"
+          - paragraph [ref=e48]: 分割PDFをダウンロード
+          - paragraph [ref=e49]: 日付_請求者名_金額で命名された1請求書1PDFを個別またはZIPで一括ダウンロード。
+    - contentinfo [ref=e50]:
+      - paragraph [ref=e51]: Invoice OCR · Powered by Claude AI · © 2026
+      - paragraph [ref=e52]:
+        - link "特定商取引法に基づく表記" [ref=e53] [cursor=pointer]:
+          - /url: /tokusho
+  - button "Open Next.js Dev Tools" [ref=e61] [cursor=pointer]:
+    - img [ref=e62]
+  - alert [ref=e65]

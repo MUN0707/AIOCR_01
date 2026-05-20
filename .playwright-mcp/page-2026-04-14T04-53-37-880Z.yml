@@ -1,0 +1,55 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - img [ref=e7]
+          - generic [ref=e10]:
+            - paragraph [ref=e11]: Invoice OCR
+            - paragraph [ref=e12]: AI-Powered PDF Splitter
+        - button "Googleでサインイン" [ref=e56]
+    - main [ref=e13]:
+      - generic [ref=e15]:
+        - button "法人請求書" [ref=e16]
+        - button "確定申告" [ref=e17]
+        - button "通帳OCR" [ref=e18]
+        - button "自動仕訳" [ref=e19]
+        - button "決算書" [active] [ref=e20]
+      - generic [ref=e21]:
+        - heading "仕訳日記帳から 決算書 を自動生成" [level=2] [ref=e67]
+        - paragraph [ref=e68]: 会計期間を指定 → P/L・B/S を集計 → PDF 出力
+      - generic [ref=e69]:
+        - generic [ref=e71]:
+          - generic [ref=e72]: 会計期間
+          - combobox [ref=e73]:
+            - option "選択してください" [selected]
+          - button "+ 期を追加" [ref=e74]
+          - generic [ref=e75]:
+            - generic [ref=e76]: 法人税等
+            - spinbutton [ref=e77]: "0"
+            - generic [ref=e78]: 円
+          - button "決算書を生成" [disabled] [ref=e79]
+        - generic [ref=e80]:
+          - paragraph [ref=e81]: 会計期間を選択して「決算書を生成」ボタンを押してください
+          - paragraph [ref=e82]: 期が未登録の場合は「+ 期を追加」から登録できます
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - text: "01"
+          - paragraph [ref=e43]: PDFをアップロード
+          - paragraph [ref=e44]: 複数の請求書がまとまったPDFをドロップ。複数ファイルを同時に指定することも可能です。
+        - generic [ref=e45]:
+          - text: "02"
+          - paragraph [ref=e46]: AI OCRで自動解析
+          - paragraph [ref=e47]: Claude AIが各請求書の境界・日付・請求者名・税込金額を自動で抽出します。
+        - generic [ref=e48]:
+          - text: "03"
+          - paragraph [ref=e49]: 分割PDFをダウンロード
+          - paragraph [ref=e50]: 日付_請求者名_金額で命名された1請求書1PDFを個別またはZIPで一括ダウンロード。
+    - contentinfo [ref=e51]:
+      - paragraph [ref=e52]: Invoice OCR · Powered by Claude AI · © 2026
+      - paragraph [ref=e53]:
+        - link "特定商取引法に基づく表記" [ref=e54] [cursor=pointer]:
+          - /url: /tokusho
+  - button "Open Next.js Dev Tools" [ref=e63] [cursor=pointer]:
+    - img [ref=e64]
+  - alert [ref=e55]

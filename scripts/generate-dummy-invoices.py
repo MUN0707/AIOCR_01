@@ -85,6 +85,169 @@ ITEMS_POOL = [
 RECIPIENT = "税理士法人サンプル会計"
 RECIPIENT_ADDRESS = "東京都港区六本木9-9-9"
 
+# 弁護士事務所（源泉徴収あり）
+LAWYER_COMPANY = {
+    "name": "弁護士法人サンプル総合法律事務所",
+    "address": "東京都中央区銀座5-5-5 銀座サンプルビル8F",
+    "tel": "03-5555-9999",
+}
+LAWYER_ITEMS = [
+    ("顧問契約に基づく法律相談料（2026年3月分）", 200000),
+    ("契約書レビュー（業務委託契約書）", 80000),
+    ("内容証明郵便作成・発送", 50000),
+]
+
+
+def generate_lawyer_invoice_pdf(filepath: str, company: dict, invoice_date: date, items: list, invoice_no: str):
+    """源泉徴収ありの弁護士請求書PDFを生成する"""
+    c = canvas.Canvas(filepath, pagesize=A4)
+    w, h = A4
+
+    # ── ヘッダー背景 ──
+    c.setFillColor(colors.HexColor("#f0f9ff"))
+    c.rect(0, h - 100 * mm, w, 100 * mm, fill=1, stroke=0)
+
+    # ── タイトル ──
+    c.setFillColor(colors.HexColor("#0369a1"))
+    c.setFont(JP_FONT, 28)
+    c.drawCentredString(w / 2, h - 25 * mm, "請  求  書")
+
+    # ── 請求番号・日付 ──
+    c.setFillColor(colors.HexColor("#334155"))
+    c.setFont(JP_FONT, 10)
+    c.drawRightString(w - 20 * mm, h - 38 * mm, f"請求番号: {invoice_no}")
+    c.drawRightString(w - 20 * mm, h - 44 * mm, f"発行日: {invoice_date.strftime('%Y年%m月%d日')}")
+
+    # ── 宛先（左上） ──
+    c.setFont(JP_FONT, 14)
+    c.setFillColor(colors.HexColor("#0f172a"))
+    c.drawString(20 * mm, h - 55 * mm, f"{RECIPIENT}  御中")
+
+    c.setFont(JP_FONT, 9)
+    c.setFillColor(colors.HexColor("#64748b"))
+    c.drawString(20 * mm, h - 62 * mm, RECIPIENT_ADDRESS)
+
+    # ── 差出人（右上） ──
+    c.setFont(JP_FONT, 12)
+    c.setFillColor(colors.HexColor("#0f172a"))
+    c.drawRightString(w - 20 * mm, h - 55 * mm, company["name"])
+
+    c.setFont(JP_FONT, 9)
+    c.setFillColor(colors.HexColor("#64748b"))
+    c.drawRightString(w - 20 * mm, h - 62 * mm, company["address"])
+    c.drawRightString(w - 20 * mm, h - 68 * mm, f"TEL: {company['tel']}")
+
+    # ── 区切り線 ──
+    c.setStrokeColor(colors.HexColor("#0369a1"))
+    c.setLineWidth(1.5)
+    c.line(20 * mm, h - 75 * mm, w - 20 * mm, h - 75 * mm)
+
+    # ── 金額計算（源泉徴収あり） ──
+    subtotal = sum(qty * price for _, price, qty in items)
+    tax = int(subtotal * 0.1)
+    # 源泉所得税: 100万円以下 → 10.21%、100万円超 → 超過分20.42% + 102,100円
+    if subtotal <= 1_000_000:
+        withholding = int(subtotal * 0.1021)
+    else:
+        withholding = int((subtotal - 1_000_000) * 0.2042 + 102_100)
+    total = subtotal + tax - withholding
+
+    # ── 合計金額（差引請求額） ──
+    c.setFont(JP_FONT, 9)
+    c.setFillColor(colors.HexColor("#64748b"))
+    c.drawString(20 * mm, h - 83 * mm, "差引請求金額")
+
+    c.setFont(JP_FONT, 24)
+    c.setFillColor(colors.HexColor("#0369a1"))
+    c.drawString(20 * mm, h - 93 * mm, f"¥{total:,}")
+
+    # ── 明細テーブル ──
+    table_top = h - 110 * mm
+    col_x = [20 * mm, 110 * mm, 135 * mm, w - 20 * mm]
+
+    # ヘッダー行
+    c.setFillColor(colors.HexColor("#0369a1"))
+    c.rect(20 * mm, table_top - 8 * mm, w - 40 * mm, 8 * mm, fill=1, stroke=0)
+    c.setFillColor(colors.white)
+    c.setFont(JP_FONT, 9)
+    c.drawString(col_x[0] + 3 * mm, table_top - 6 * mm, "品目")
+    c.drawString(col_x[1] + 3 * mm, table_top - 6 * mm, "単価")
+    c.drawString(col_x[2] + 3 * mm, table_top - 6 * mm, "数量")
+    c.drawRightString(col_x[3] - 3 * mm, table_top - 6 * mm, "金額")
+
+    # データ行
+    y = table_top - 8 * mm
+    for i, (item_name, price, qty) in enumerate(items):
+        y -= 8 * mm
+        if i % 2 == 0:
+            c.setFillColor(colors.HexColor("#f8fafc"))
+            c.rect(20 * mm, y, w - 40 * mm, 8 * mm, fill=1, stroke=0)
+
+        c.setFillColor(colors.HexColor("#334155"))
+        c.setFont(JP_FONT, 9)
+        c.drawString(col_x[0] + 3 * mm, y + 2 * mm, item_name)
+        c.drawString(col_x[1] + 3 * mm, y + 2 * mm, f"¥{price:,}")
+        c.drawString(col_x[2] + 3 * mm, y + 2 * mm, str(qty))
+        c.drawRightString(col_x[3] - 3 * mm, y + 2 * mm, f"¥{price * qty:,}")
+
+    # ── 小計・税・源泉・差引合計 ──
+    y -= 15 * mm
+    c.setStrokeColor(colors.HexColor("#e2e8f0"))
+    c.setLineWidth(0.5)
+    c.line(100 * mm, y + 10 * mm, w - 20 * mm, y + 10 * mm)
+
+    c.setFont(JP_FONT, 10)
+    c.setFillColor(colors.HexColor("#334155"))
+    c.drawString(100 * mm, y + 3 * mm, "小計")
+    c.drawRightString(w - 20 * mm, y + 3 * mm, f"¥{subtotal:,}")
+
+    y -= 7 * mm
+    c.drawString(100 * mm, y + 3 * mm, "消費税（10%）")
+    c.drawRightString(w - 20 * mm, y + 3 * mm, f"¥{tax:,}")
+
+    y -= 7 * mm
+    c.setFillColor(colors.HexColor("#dc2626"))
+    c.drawString(100 * mm, y + 3 * mm, "源泉所得税（10.21%）")
+    c.drawRightString(w - 20 * mm, y + 3 * mm, f"△ ¥{withholding:,}")
+
+    y -= 9 * mm
+    c.setStrokeColor(colors.HexColor("#0369a1"))
+    c.setLineWidth(1.5)
+    c.line(100 * mm, y + 8 * mm, w - 20 * mm, y + 8 * mm)
+
+    c.setFont(JP_FONT, 14)
+    c.setFillColor(colors.HexColor("#0369a1"))
+    c.drawString(100 * mm, y, "差引請求額")
+    c.drawRightString(w - 20 * mm, y, f"¥{total:,}")
+
+    # ── 源泉徴収の注記 ──
+    y -= 15 * mm
+    c.setFont(JP_FONT, 8)
+    c.setFillColor(colors.HexColor("#64748b"))
+    c.drawString(20 * mm, y, "※ 本請求書の報酬には所得税法第204条に基づく源泉徴収が適用されます。")
+    y -= 5 * mm
+    c.drawString(20 * mm, y, "※ 源泉所得税は報酬額（税抜）に対して10.21%を適用しております。")
+
+    # ── 振込先 ──
+    y -= 18 * mm
+    c.setFillColor(colors.HexColor("#f0f9ff"))
+    c.roundRect(20 * mm, y - 5 * mm, w - 40 * mm, 22 * mm, 3 * mm, fill=1, stroke=0)
+
+    c.setFont(JP_FONT, 10)
+    c.setFillColor(colors.HexColor("#0369a1"))
+    c.drawString(25 * mm, y + 12 * mm, "【お振込先】")
+    c.setFont(JP_FONT, 9)
+    c.setFillColor(colors.HexColor("#334155"))
+    c.drawString(25 * mm, y + 4 * mm, "みずほ銀行　銀座支店　普通　9876543")
+    c.drawString(25 * mm, y - 2 * mm, f"口座名義: {company['name']}")
+
+    # ── フッター ──
+    c.setFont(JP_FONT, 8)
+    c.setFillColor(colors.HexColor("#94a3b8"))
+    c.drawCentredString(w / 2, 15 * mm, f"{company['name']} | {company['address']} | {company['tel']}")
+
+    c.save()
+
 
 def generate_invoice_pdf(filepath: str, company: dict, invoice_date: date, items: list, invoice_no: str):
     """1枚の請求書PDFを生成する"""
@@ -266,6 +429,25 @@ def main():
 
         individual_paths.append(filepath)
 
+    # ── 弁護士請求書（源泉徴収あり）──
+    lawyer_date = base_date + timedelta(days=random.randint(10, 30))
+    lawyer_items = [(name, price, 1) for name, price in LAWYER_ITEMS]
+    lawyer_invoice_no = "INV-2026-0009"
+    lawyer_filename = f"invoice_09_{LAWYER_COMPANY['name']}.pdf"
+    lawyer_filepath = str(INDIVIDUAL_DIR / lawyer_filename)
+
+    generate_lawyer_invoice_pdf(lawyer_filepath, LAWYER_COMPANY, lawyer_date, lawyer_items, lawyer_invoice_no)
+
+    lawyer_subtotal = sum(price for _, price in LAWYER_ITEMS)
+    lawyer_tax = int(lawyer_subtotal * 0.1)
+    lawyer_withholding = int(lawyer_subtotal * 0.1021)
+    lawyer_total = lawyer_subtotal + lawyer_tax - lawyer_withholding
+    print(f"  [9/9] {LAWYER_COMPANY['name']}  ★源泉徴収あり")
+    print(f"        日付: {lawyer_date}  報酬: {lawyer_subtotal:,}円  源泉税: △{lawyer_withholding:,}円  差引: {lawyer_total:,}円")
+    print(f"        → {lawyer_filename}")
+
+    individual_paths.append(lawyer_filepath)
+
     # 合体PDF
     combined_path = str(OUT_DIR / "dummy-invoices-combined.pdf")
     merge_pdfs(individual_paths, combined_path)
@@ -273,6 +455,7 @@ def main():
     print()
     print(f"合体PDF → public/demo/dummy-invoices-combined.pdf")
     print(f"個別PDF → public/demo/individual/ ({len(individual_paths)}枚)")
+    print(f"  ※ invoice_09 は弁護士法人（源泉徴収あり）")
     print()
     print("デモ動画撮影時はこの合体PDFをアップロードしてください！")
 

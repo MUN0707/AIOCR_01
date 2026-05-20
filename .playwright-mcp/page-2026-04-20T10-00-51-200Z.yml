@@ -1,0 +1,802 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - button "ホームへ戻る" [ref=e5]:
+          - img [ref=e7]
+          - generic [ref=e10]:
+            - paragraph [ref=e11]: Invoice OCR
+            - paragraph [ref=e12]: AI-Powered PDF Splitter
+        - generic [ref=e59]:
+          - button "履歴" [ref=e60]
+          - button "サインアウト" [ref=e61]
+    - main [ref=e13]:
+      - generic [ref=e15]:
+        - button "請求書・領収書" [ref=e16]
+        - button "確定申告" [ref=e17]
+        - button "通帳OCR" [ref=e18]
+        - button "自動仕訳" [ref=e19]
+        - button "決算書" [ref=e20]
+      - generic [ref=e63]:
+        - generic [ref=e64]: クライアント
+        - combobox [ref=e65]:
+          - option "未選択（個人）"
+          - option "887 gkTU003"
+          - option "253_東那須太陽光" [selected]
+          - option "443_Jインフラ41"
+          - option "870_ブルーインフラ8号"
+        - button "管理" [ref=e66]
+      - generic [ref=e68]:
+        - generic [ref=e69]: 今月の使用量
+        - generic [ref=e71]:
+          - text: "0"
+          - generic [ref=e72]: /10件
+      - generic [ref=e21]:
+        - heading "通帳 × 請求書を AI で自動照合・仕訳" [level=2] [ref=e73]
+        - paragraph [ref=e74]: 通帳と請求書をそれぞれアップロード → 金額・日付・相手先で照合 → 仕訳CSV出力
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - button "仕訳実行" [ref=e78]
+            - button "未照合" [ref=e79]
+            - button "入出金明細" [ref=e80]
+            - button "日記帳" [ref=e81]
+            - button "残高" [ref=e82]
+            - button "マスタ" [active] [ref=e83]
+          - button "エラー報告" [ref=e84]:
+            - img [ref=e85]
+            - text: エラー報告
+        - generic [ref=e2134]:
+          - generic [ref=e2135]:
+            - generic [ref=e2136]:
+              - generic [ref=e2137]:
+                - paragraph [ref=e2138]: 勘定科目マスタ
+                - paragraph [ref=e2139]: 28 件
+              - generic [ref=e2140]:
+                - textbox "科目名・読み・区分で検索…" [ref=e2141]
+                - generic [ref=e2142]:
+                  - textbox "科目名" [ref=e2143]
+                  - textbox "読み（ローマ字）" [ref=e2144]
+                - generic [ref=e2145]:
+                  - combobox [ref=e2146]:
+                    - option "中区分を選択（必須）" [selected]
+                    - option "流動資産"
+                    - option "固定資産"
+                    - option "繰延資産"
+                    - option "流動負債"
+                    - option "固定負債"
+                    - option "純資産"
+                    - option "売上高"
+                    - option "売上原価"
+                    - option "販管費"
+                    - option "営業外収益"
+                    - option "営業外費用"
+                    - option "特別利益"
+                    - option "特別損失"
+                  - button "追加" [disabled] [ref=e2147]
+              - table [ref=e2149]:
+                - rowgroup [ref=e2150]:
+                  - row "普通預金 futsuyokin 流動資産 削除" [ref=e2151]:
+                    - cell "普通預金" [ref=e2152]:
+                      - textbox [ref=e2154]: 普通預金
+                    - cell "futsuyokin" [ref=e2155]:
+                      - textbox "ローマ字" [ref=e2156]: futsuyokin
+                    - cell "流動資産" [ref=e2157]:
+                      - combobox [ref=e2158]:
+                        - option "（未設定）"
+                        - option "流動資産" [selected]
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2159]:
+                      - button "削除" [ref=e2160]
+                  - row "現金 genkin 流動資産 削除" [ref=e2161]:
+                    - cell "現金" [ref=e2162]:
+                      - textbox [ref=e2164]: 現金
+                    - cell "genkin" [ref=e2165]:
+                      - textbox "ローマ字" [ref=e2166]: genkin
+                    - cell "流動資産" [ref=e2167]:
+                      - combobox [ref=e2168]:
+                        - option "（未設定）"
+                        - option "流動資産" [selected]
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2169]:
+                      - button "削除" [ref=e2170]
+                  - row "当座預金 tozayokin 流動資産 削除" [ref=e2171]:
+                    - cell "当座預金" [ref=e2172]:
+                      - textbox [ref=e2174]: 当座預金
+                    - cell "tozayokin" [ref=e2175]:
+                      - textbox "ローマ字" [ref=e2176]: tozayokin
+                    - cell "流動資産" [ref=e2177]:
+                      - combobox [ref=e2178]:
+                        - option "（未設定）"
+                        - option "流動資産" [selected]
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2179]:
+                      - button "削除" [ref=e2180]
+                  - row "売掛金 urikakekin 流動資産 削除" [ref=e2181]:
+                    - cell "売掛金" [ref=e2182]:
+                      - textbox [ref=e2184]: 売掛金
+                    - cell "urikakekin" [ref=e2185]:
+                      - textbox "ローマ字" [ref=e2186]: urikakekin
+                    - cell "流動資産" [ref=e2187]:
+                      - combobox [ref=e2188]:
+                        - option "（未設定）"
+                        - option "流動資産" [selected]
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2189]:
+                      - button "削除" [ref=e2190]
+                  - row "創立費 sourituhi 繰延資産 削除" [ref=e2191]:
+                    - cell "創立費" [ref=e2192]:
+                      - textbox [ref=e2194]: 創立費
+                    - cell "sourituhi" [ref=e2195]:
+                      - textbox "ローマ字" [ref=e2196]: sourituhi
+                    - cell "繰延資産" [ref=e2197]:
+                      - combobox [ref=e2198]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産" [selected]
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2199]:
+                      - button "削除" [ref=e2200]
+                  - row "買掛金 kaikakekin 流動負債 削除" [ref=e2201]:
+                    - cell "買掛金" [ref=e2202]:
+                      - textbox [ref=e2204]: 買掛金
+                    - cell "kaikakekin" [ref=e2205]:
+                      - textbox "ローマ字" [ref=e2206]: kaikakekin
+                    - cell "流動負債" [ref=e2207]:
+                      - combobox [ref=e2208]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債" [selected]
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2209]:
+                      - button "削除" [ref=e2210]
+                  - row "未払費用 miharaihiyou 流動負債 削除" [ref=e2211]:
+                    - cell "未払費用" [ref=e2212]:
+                      - textbox [ref=e2214]: 未払費用
+                    - cell "miharaihiyou" [ref=e2215]:
+                      - textbox "ローマ字" [ref=e2216]: miharaihiyou
+                    - cell "流動負債" [ref=e2217]:
+                      - combobox [ref=e2218]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債" [selected]
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2219]:
+                      - button "削除" [ref=e2220]
+                  - row "未払金 miharaikin 流動負債 削除" [ref=e2221]:
+                    - cell "未払金" [ref=e2222]:
+                      - textbox [ref=e2224]: 未払金
+                    - cell "miharaikin" [ref=e2225]:
+                      - textbox "ローマ字" [ref=e2226]: miharaikin
+                    - cell "流動負債" [ref=e2227]:
+                      - combobox [ref=e2228]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債" [selected]
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2229]:
+                      - button "削除" [ref=e2230]
+                  - row "売上高 uriagedaka 売上高 削除" [ref=e2231]:
+                    - cell "売上高" [ref=e2232]:
+                      - textbox [ref=e2234]: 売上高
+                    - cell "uriagedaka" [ref=e2235]:
+                      - textbox "ローマ字" [ref=e2236]: uriagedaka
+                    - cell "売上高" [ref=e2237]:
+                      - combobox [ref=e2238]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高" [selected]
+                        - option "売上原価"
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2239]:
+                      - button "削除" [ref=e2240]
+                  - row "外注費 gaichuhi 売上原価 削除" [ref=e2241]:
+                    - cell "外注費" [ref=e2242]:
+                      - textbox [ref=e2244]: 外注費
+                    - cell "gaichuhi" [ref=e2245]:
+                      - textbox "ローマ字" [ref=e2246]: gaichuhi
+                    - cell "売上原価" [ref=e2247]:
+                      - combobox [ref=e2248]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価" [selected]
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2249]:
+                      - button "削除" [ref=e2250]
+                  - row "OM費 om 売上原価 削除" [ref=e2251]:
+                    - cell "OM費" [ref=e2252]:
+                      - textbox [ref=e2254]: OM費
+                    - cell "om" [ref=e2255]:
+                      - textbox "ローマ字" [ref=e2256]: om
+                    - cell "売上原価" [ref=e2257]:
+                      - combobox [ref=e2258]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価" [selected]
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2259]:
+                      - button "削除" [ref=e2260]
+                  - row "仕入高 shiiredaka 売上原価 削除" [ref=e2261]:
+                    - cell "仕入高" [ref=e2262]:
+                      - textbox [ref=e2264]: 仕入高
+                    - cell "shiiredaka" [ref=e2265]:
+                      - textbox "ローマ字" [ref=e2266]: shiiredaka
+                    - cell "売上原価" [ref=e2267]:
+                      - combobox [ref=e2268]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価" [selected]
+                        - option "販管費"
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2269]:
+                      - button "削除" [ref=e2270]
+                  - row "地代家賃 chidaiyachin 販管費 削除" [ref=e2271]:
+                    - cell "地代家賃" [ref=e2272]:
+                      - textbox [ref=e2274]: 地代家賃
+                    - cell "chidaiyachin" [ref=e2275]:
+                      - textbox "ローマ字" [ref=e2276]: chidaiyachin
+                    - cell "販管費" [ref=e2277]:
+                      - combobox [ref=e2278]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2279]:
+                      - button "削除" [ref=e2280]
+                  - row "減価償却費 genkashokyakuhi 販管費 削除" [ref=e2281]:
+                    - cell "減価償却費" [ref=e2282]:
+                      - textbox [ref=e2284]: 減価償却費
+                    - cell "genkashokyakuhi" [ref=e2285]:
+                      - textbox "ローマ字" [ref=e2286]: genkashokyakuhi
+                    - cell "販管費" [ref=e2287]:
+                      - combobox [ref=e2288]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2289]:
+                      - button "削除" [ref=e2290]
+                  - row "業務委託費 gyoumuitakuhi 販管費 削除" [ref=e2291]:
+                    - cell "業務委託費" [ref=e2292]:
+                      - textbox [ref=e2294]: 業務委託費
+                    - cell "gyoumuitakuhi" [ref=e2295]:
+                      - textbox "ローマ字" [ref=e2296]: gyoumuitakuhi
+                    - cell "販管費" [ref=e2297]:
+                      - combobox [ref=e2298]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2299]:
+                      - button "削除" [ref=e2300]
+                  - row "法定福利費 hoteifukurihi 販管費 削除" [ref=e2301]:
+                    - cell "法定福利費" [ref=e2302]:
+                      - textbox [ref=e2304]: 法定福利費
+                    - cell "hoteifukurihi" [ref=e2305]:
+                      - textbox "ローマ字" [ref=e2306]: hoteifukurihi
+                    - cell "販管費" [ref=e2307]:
+                      - combobox [ref=e2308]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2309]:
+                      - button "削除" [ref=e2310]
+                  - row "事務委託費 jimu 販管費 削除" [ref=e2311]:
+                    - cell "事務委託費" [ref=e2312]:
+                      - textbox [ref=e2314]: 事務委託費
+                    - cell "jimu" [ref=e2315]:
+                      - textbox "ローマ字" [ref=e2316]: jimu
+                    - cell "販管費" [ref=e2317]:
+                      - combobox [ref=e2318]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2319]:
+                      - button "削除" [ref=e2320]
+                  - row "会議費 kaigihi 販管費 削除" [ref=e2321]:
+                    - cell "会議費" [ref=e2322]:
+                      - textbox [ref=e2324]: 会議費
+                    - cell "kaigihi" [ref=e2325]:
+                      - textbox "ローマ字" [ref=e2326]: kaigihi
+                    - cell "販管費" [ref=e2327]:
+                      - combobox [ref=e2328]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2329]:
+                      - button "削除" [ref=e2330]
+                  - row "広告宣伝費 kokokusendenhi 販管費 削除" [ref=e2331]:
+                    - cell "広告宣伝費" [ref=e2332]:
+                      - textbox [ref=e2334]: 広告宣伝費
+                    - cell "kokokusendenhi" [ref=e2335]:
+                      - textbox "ローマ字" [ref=e2336]: kokokusendenhi
+                    - cell "販管費" [ref=e2337]:
+                      - combobox [ref=e2338]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2339]:
+                      - button "削除" [ref=e2340]
+                  - row "給料手当 kyuryoteate 販管費 削除" [ref=e2341]:
+                    - cell "給料手当" [ref=e2342]:
+                      - textbox [ref=e2344]: 給料手当
+                    - cell "kyuryoteate" [ref=e2345]:
+                      - textbox "ローマ字" [ref=e2346]: kyuryoteate
+                    - cell "販管費" [ref=e2347]:
+                      - combobox [ref=e2348]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2349]:
+                      - button "削除" [ref=e2350]
+                  - row "旅費交通費 ryohikoutsuhi 販管費 削除" [ref=e2351]:
+                    - cell "旅費交通費" [ref=e2352]:
+                      - textbox [ref=e2354]: 旅費交通費
+                    - cell "ryohikoutsuhi" [ref=e2355]:
+                      - textbox "ローマ字" [ref=e2356]: ryohikoutsuhi
+                    - cell "販管費" [ref=e2357]:
+                      - combobox [ref=e2358]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2359]:
+                      - button "削除" [ref=e2360]
+                  - row "接待交際費 settaikoseihi 販管費 削除" [ref=e2361]:
+                    - cell "接待交際費" [ref=e2362]:
+                      - textbox [ref=e2364]: 接待交際費
+                    - cell "settaikoseihi" [ref=e2365]:
+                      - textbox "ローマ字" [ref=e2366]: settaikoseihi
+                    - cell "販管費" [ref=e2367]:
+                      - combobox [ref=e2368]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2369]:
+                      - button "削除" [ref=e2370]
+                  - row "支払手数料 shiharaitesuryo 販管費 削除" [ref=e2371]:
+                    - cell "支払手数料" [ref=e2372]:
+                      - textbox [ref=e2374]: 支払手数料
+                    - cell "shiharaitesuryo" [ref=e2375]:
+                      - textbox "ローマ字" [ref=e2376]: shiharaitesuryo
+                    - cell "販管費" [ref=e2377]:
+                      - combobox [ref=e2378]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2379]:
+                      - button "削除" [ref=e2380]
+                  - row "消耗品費 shomohinhi 販管費 削除" [ref=e2381]:
+                    - cell "消耗品費" [ref=e2382]:
+                      - textbox [ref=e2384]: 消耗品費
+                    - cell "shomohinhi" [ref=e2385]:
+                      - textbox "ローマ字" [ref=e2386]: shomohinhi
+                    - cell "販管費" [ref=e2387]:
+                      - combobox [ref=e2388]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2389]:
+                      - button "削除" [ref=e2390]
+                  - row "租税公課 sozeikoka 販管費 削除" [ref=e2391]:
+                    - cell "租税公課" [ref=e2392]:
+                      - textbox [ref=e2394]: 租税公課
+                    - cell "sozeikoka" [ref=e2395]:
+                      - textbox "ローマ字" [ref=e2396]: sozeikoka
+                    - cell "販管費" [ref=e2397]:
+                      - combobox [ref=e2398]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2399]:
+                      - button "削除" [ref=e2400]
+                  - row "水道光熱費 suidokonetsuhi 販管費 削除" [ref=e2401]:
+                    - cell "水道光熱費" [ref=e2402]:
+                      - textbox [ref=e2404]: 水道光熱費
+                    - cell "suidokonetsuhi" [ref=e2405]:
+                      - textbox "ローマ字" [ref=e2406]: suidokonetsuhi
+                    - cell "販管費" [ref=e2407]:
+                      - combobox [ref=e2408]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2409]:
+                      - button "削除" [ref=e2410]
+                  - row "通信費 tsushinhi 販管費 削除" [ref=e2411]:
+                    - cell "通信費" [ref=e2412]:
+                      - textbox [ref=e2414]: 通信費
+                    - cell "tsushinhi" [ref=e2415]:
+                      - textbox "ローマ字" [ref=e2416]: tsushinhi
+                    - cell "販管費" [ref=e2417]:
+                      - combobox [ref=e2418]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2419]:
+                      - button "削除" [ref=e2420]
+                  - row "雑費 zappi 販管費 削除" [ref=e2421]:
+                    - cell "雑費" [ref=e2422]:
+                      - textbox [ref=e2424]: 雑費
+                    - cell "zappi" [ref=e2425]:
+                      - textbox "ローマ字" [ref=e2426]: zappi
+                    - cell "販管費" [ref=e2427]:
+                      - combobox [ref=e2428]:
+                        - option "（未設定）"
+                        - option "流動資産"
+                        - option "固定資産"
+                        - option "繰延資産"
+                        - option "流動負債"
+                        - option "固定負債"
+                        - option "純資産"
+                        - option "売上高"
+                        - option "売上原価"
+                        - option "販管費" [selected]
+                        - option "営業外収益"
+                        - option "営業外費用"
+                        - option "特別利益"
+                        - option "特別損失"
+                    - cell "削除" [ref=e2429]:
+                      - button "削除" [ref=e2430]
+            - generic [ref=e2431]:
+              - generic [ref=e2432]:
+                - paragraph [ref=e2433]: 取引先マスタ
+                - paragraph [ref=e2434]: 4 件 · 株式会社/㈱/空白は自動で同一視
+              - generic [ref=e2435]:
+                - textbox "取引先名・読みで検索…" [ref=e2436]
+                - generic [ref=e2437]:
+                  - textbox "取引先名" [ref=e2438]
+                  - textbox "読み（ローマ字）" [ref=e2439]
+                  - button "追加" [disabled] [ref=e2440]
+              - table [ref=e2442]:
+                - rowgroup [ref=e2443]:
+                  - row "ALSOK株式会社 削除" [ref=e2444]:
+                    - cell "ALSOK株式会社" [ref=e2445]:
+                      - textbox [ref=e2447]: ALSOK株式会社
+                    - cell [ref=e2448]:
+                      - textbox "ローマ字" [ref=e2449]
+                    - cell "削除" [ref=e2450]:
+                      - button "削除" [ref=e2451]
+                  - row "ALSOK株式会社 埼玉北支社 削除" [ref=e2452]:
+                    - cell "ALSOK株式会社 埼玉北支社" [ref=e2453]:
+                      - textbox [ref=e2455]: ALSOK株式会社 埼玉北支社
+                    - cell [ref=e2456]:
+                      - textbox "ローマ字" [ref=e2457]
+                    - cell "削除" [ref=e2458]:
+                      - button "削除" [ref=e2459]
+                  - row "京セラコミュニケーションシステム株式会社 削除" [ref=e2460]:
+                    - cell "京セラコミュニケーションシステム株式会社" [ref=e2461]:
+                      - textbox [ref=e2463]: 京セラコミュニケーションシステム株式会社
+                    - cell [ref=e2464]:
+                      - textbox "ローマ字" [ref=e2465]
+                    - cell "削除" [ref=e2466]:
+                      - button "削除" [ref=e2467]
+                  - row "松田綜合法律事務所 削除" [ref=e2468]:
+                    - cell "松田綜合法律事務所" [ref=e2469]:
+                      - textbox [ref=e2471]: 松田綜合法律事務所
+                    - cell [ref=e2472]:
+                      - textbox "ローマ字" [ref=e2473]
+                    - cell "削除" [ref=e2474]:
+                      - button "削除" [ref=e2475]
+          - generic [ref=e2476]:
+            - generic [ref=e2478]:
+              - paragraph [ref=e2479]: 勘定科目ルール
+              - paragraph [ref=e2480]: 2 件 · 仕訳照合時に自動で借方科目を上書きします
+            - generic [ref=e2481]:
+              - combobox [ref=e2482]:
+                - option "相手先" [selected]
+                - option "摘要"
+              - 'textbox "例: アルソック" [ref=e2483]'
+              - 'combobox "借方科目（例: 支払手数料）" [ref=e2484]'
+              - button "追加" [disabled] [ref=e2485]
+            - table [ref=e2487]:
+              - rowgroup [ref=e2488]:
+                - row "種別 パターン（正規化後） 借方科目" [ref=e2489]:
+                  - columnheader "種別" [ref=e2490]
+                  - columnheader "パターン（正規化後）" [ref=e2491]
+                  - columnheader "借方科目" [ref=e2492]
+                  - columnheader [ref=e2493]
+              - rowgroup [ref=e2494]:
+                - row "相手先 京セラコミュニケーションシステム OM費 削除" [ref=e2495]:
+                  - cell "相手先" [ref=e2496]
+                  - cell "京セラコミュニケーションシステム" [ref=e2497]
+                  - cell "OM費" [ref=e2498]
+                  - cell "削除" [ref=e2499]:
+                    - button "削除" [ref=e2500]
+                - row "相手先 松田綜合法律事務所 未分類 削除" [ref=e2501]:
+                  - cell "相手先" [ref=e2502]
+                  - cell "松田綜合法律事務所" [ref=e2503]
+                  - cell "未分類" [ref=e2504]
+                  - cell "削除" [ref=e2505]:
+                    - button "削除" [ref=e2506]
+    - contentinfo [ref=e51]:
+      - paragraph [ref=e52]: Invoice OCR · Powered by Claude AI · © 2026
+      - paragraph [ref=e53]:
+        - link "特定商取引法に基づく表記" [ref=e54] [cursor=pointer]:
+          - /url: /tokusho
+  - button "エラー報告" [ref=e55]:
+    - img [ref=e56]
+    - text: エラー報告
+  - alert [ref=e58]

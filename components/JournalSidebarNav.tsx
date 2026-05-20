@@ -25,7 +25,6 @@ export function JournalSidebarNav({
     {
       title: '仕訳・帳簿',
       items: [
-        { label: '仕訳日記帳', active: active === 'ledger' },
         { label: '総勘定元帳', href: `/general-ledger${q}`, external: true, active: active === 'general-ledger' },
       ],
     },
