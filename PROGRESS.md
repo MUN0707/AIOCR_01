@@ -449,3 +449,19 @@
   - 表記揺れ既存データの統合は MasterView の「あいまい重複候補」セクションで実施
   - 既存 [7] / [C1〜C7] 未着手タスク
 
+## 2026-05-20 16:55
+- やったこと: [MU🔴3] 監査ログ失敗時にトランザクションを破棄（TaskHub a2ef2b75 対応）
+  - migration `20260520_journal_entries_audit_trigger` 適用済み
+    - `log_journal_entry_changes()` 関数（SECURITY DEFINER, search_path=public）
+    - AFTER UPDATE / AFTER DELETE on `journal_entries` で `journal_audit_logs` を強制 INSERT
+    - UPDATE 時は変更があったキーのみ before/after に格納（updated_at は除外）
+  - `app/api/journal-entries/[id]/route.ts` PATCH/DELETE の `void service.from('journal_audit_logs').insert(...)` を削除
+- 背景/理由:
+  - 旧実装は `void` で fire-and-forget。audit insert が失敗しても本体 UPDATE/DELETE が通り、財務監査の前提（変更履歴が必ず残る）が崩れる
+  - await 5xx 化案もあったが、本体は既に commit 済みで巻き戻せない → DB トリガで同 trx 内 INSERT に切替えて漏れを構造的にゼロ化
+- 検証:
+  - tsc --noEmit EXIT=0
+  - BEGIN/ROLLBACK 付きの動作確認で UPDATE/DELETE どちらも audit_logs に before/after 付きで行が積まれることを確認
+- 次にやること:
+  - `app/api/journal-entries/route.ts:114` の `'created'` 用 void insert は別タスク化（INSERT トリガ追加 or await 化）
+

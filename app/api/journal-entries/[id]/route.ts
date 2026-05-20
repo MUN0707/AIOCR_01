@@ -85,20 +85,8 @@ export async function PATCH(
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  // 監査ログ（変更前後のスナップショット）。失敗しても本処理は成功扱い
-  void service.from('journal_audit_logs').insert({
-    user_id: user.id,
-    entry_id: id,
-    client_id: existing.client_id,
-    action: 'updated',
-    before_data: Object.fromEntries(
-      Object.keys(update).filter(k => k !== 'updated_at').map(k => [k, (existing as Record<string, unknown>)[k] ?? null])
-    ),
-    after_data: Object.fromEntries(
-      Object.keys(update).filter(k => k !== 'updated_at').map(k => [k, update[k]])
-    ),
-  });
-
+  // 監査ログは journal_entries の AFTER UPDATE トリガで自動記録される
+  // (migration: journal_entries_audit_trigger)
   return NextResponse.json({ success: true });
 }
 
@@ -138,14 +126,6 @@ export async function DELETE(
     return NextResponse.json({ error: deleteError.message }, { status: 500 });
   }
 
-  void service.from('journal_audit_logs').insert({
-    user_id: user.id,
-    entry_id: id,
-    client_id: existing.client_id,
-    action: 'deleted',
-    before_data: { debit_account: existing.debit_account, credit_account: existing.credit_account, amount: existing.amount, description: existing.description, entry_date: existing.entry_date },
-    after_data: null,
-  });
-
+  // 監査ログは journal_entries の AFTER DELETE トリガで自動記録される
   return NextResponse.json({ success: true });
 }
