@@ -413,3 +413,39 @@
   - [7] / [C1〜C7] の中から優先実装する 1〜2 件をユーザー判断で選ぶ
   - aiocr の残 open error_reports 8 件は [7] + [C1〜C7] でカバー済み（status='open' は実装着手まで残置）
 
+## 2026-05-20 19:00 [経理担当目線レビュー→段階A〜C 一括実装]
+
+- やったこと: 「請求書/通帳PDF→仕訳→未払金の内訳即答」の業務動線を整える3点改修
+  - **段階A 振込手数料の自動判定バナー** (commit 48b495e)
+    - `app/page.tsx` UnmatchedView に `isBankFeeCandidate` 判定 + 確認バナー追加
+    - 条件: 出金額 100〜880円 / 11の倍数（1.1で割って整数）/ 摘要に既存vendor名なし
+    - チェックボックスで個別除外可、OK で支払手数料/振込手数料を一括計上
+  - **段階B vendor_id 正規化** (commit aa35169)
+    - migration 20260520_journal_entries_vendor_id (適用済み): vendor_id UUID NULL + FK + index
+    - `lib/vendor-resolve.ts` 新設: `resolveVendor` / `resolveVendorsBatch`（既存検索 → 無ければ insert）
+    - 適用先 4 サイト: match-journal / journal-entries POST / journal-entries/import / journal-entries/persist-match
+    - 旧 vendors/merge API に vendor_id 経由 UPDATE を追加（既存表記揺れ救済）
+    - 既存 MasterView の「あいまい重複候補」UI で手動マージ可（findSimilarPairs ベース）
+    - depreciation/dispose は vendor_name 空のため変更不要
+  - **段階C ar_ap_records 廃止 / journal_entries 派生ビュー化** (commit 3f630e8)
+    - migration 20260520_drop_ar_ap_records (適用済み): ar_ap_records / ar_ap_payments を DROP（事前確認 0 件）
+    - GET /api/ar-ap: 買掛金/未払金/未払費用 or 売掛金/未収入金/未収金 を vendor×科目で集計
+    - POST/PATCH/DELETE と payments エンドポイントは 410 Gone でスタブ化
+    - /ar-ap を残高一覧+元帳ドリルダウンに全面書き換え（手入力フォーム/消込モーダル削除）
+
+- 背景/理由:
+  - レビュー観点: 「請求書OCR→未払費用ハードコード」「/ar-ap が仕訳と二重管理」「vendor_name 表記揺れで集計破綻」「振込手数料の手仕訳負荷」を経理目線で指摘
+  - vendor_name の正規化は match-journal で既に部分的に行われていたが、vendor_id がないため統合操作が文字列置換に依存していた → FK 化で名寄せ後の整合が崩れない
+  - ar_ap_records は OCR から自動投入されない孤立テーブルで、ユーザーが手入力する前提だったが利用 0 件 → 廃止して journal_entries 派生に統一する判断
+
+- 検証:
+  - tsc EXIT=0 / next build EXIT=0
+  - ESLint 新規エラーゼロ（既存の line 8935 のみ残存）
+  - Supabase migration 適用済み x 2: vendor_id 追加 / ar_ap_* DROP
+  - 段階A/B/C すべて push 済み、Vercel auto-deploy で本番反映
+
+- 次にやること:
+  - 本番（Vercel）で /ar-ap の vendor×科目残高、振込手数料バナー、OCR仕訳から vendor_id 入っているかを目視確認
+  - 表記揺れ既存データの統合は MasterView の「あいまい重複候補」セクションで実施
+  - 既存 [7] / [C1〜C7] 未着手タスク
+
