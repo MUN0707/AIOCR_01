@@ -249,18 +249,30 @@ function buildDescription(
   const vendor = voucher.vendorName?.trim() ?? '';
   if (mode === 'vendor') return vendor || line.description || voucher.description || '';
 
-  // mode === 'full'
+  // mode === 'full' — vendor + 本文 を連結するが、OCR が請求書本文を取れなかった場合
+  // line.description / voucher.description は vendor 名へフォールバックされる仕様 (line 229)
+  // のため、素朴に join すると「ALSOK株式会社 ALSOK株式会社」のように重複表示になる。
+  // vendor と等価 or vendor を含む lineDesc はデデュープする。
   const lineDesc = (line.description || voucher.description || '').trim();
+  const joinDescAndVendor = (descPart: string): string => {
+    if (!descPart) return vendor;
+    if (!vendor) return descPart;
+    // descPart が vendor と完全一致 / vendor を先頭に含む場合は descPart のみ
+    if (descPart === vendor || descPart.startsWith(vendor)) return descPart;
+    return `${vendor} ${descPart}`;
+  };
+
   // 複数行ある場合は、先頭行だけ詳細内容 + 「ほか」でまとめ、残りの行はシンプルに
   if (totalLines > 1) {
     if (isFirstLine) {
-      const head = lineDesc || vendor;
-      return [vendor, head ? `${head} ほか` : ''].filter(Boolean).join(' ').trim();
+      // 詳細が vendor と同じ（=本文なし）なら "ほか" を付けない
+      if (!lineDesc || lineDesc === vendor) return vendor;
+      return joinDescAndVendor(`${lineDesc} ほか`);
     }
-    return [vendor, lineDesc].filter(Boolean).join(' ').trim();
+    return joinDescAndVendor(lineDesc);
   }
-  // 単一行は 会社名 + 内容
-  return [vendor, lineDesc].filter(Boolean).join(' ').trim();
+  // 単一行は 会社名 + 内容（重複排除）
+  return joinDescAndVendor(lineDesc);
 }
 
 /**
