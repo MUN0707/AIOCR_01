@@ -32,9 +32,7 @@ export async function PUT(request: NextRequest) {
   const clientId = body.client_id ?? null;
   const service = createServiceClient();
 
-  const row = {
-    user_id: user.id,
-    client_id: clientId,
+  const patch = {
     company_name_kana: body.company_name_kana ?? null,
     bank_code: body.bank_code ?? null,
     branch_code: body.branch_code ?? null,
@@ -45,9 +43,33 @@ export async function PUT(request: NextRequest) {
     updated_at: new Date().toISOString(),
   };
 
+  // unique index (user_id, client_id) は client_id NULL を distinct 扱いするため
+  // upsert(onConflict) では NULL クライアントの重複検知ができない。SELECT → UPDATE/INSERT に分解する。
+  let existingQuery = service
+    .from('company_settings')
+    .select('id')
+    .eq('user_id', user.id)
+    .limit(1);
+  existingQuery = clientId
+    ? existingQuery.eq('client_id', clientId)
+    : existingQuery.is('client_id', null);
+
+  const { data: existing } = await existingQuery;
+
+  if (existing && existing.length > 0) {
+    const { data, error } = await service
+      .from('company_settings')
+      .update(patch)
+      .eq('id', existing[0].id)
+      .select(COLS)
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ settings: data });
+  }
+
   const { data, error } = await service
     .from('company_settings')
-    .upsert(row, { onConflict: 'user_id,client_id' })
+    .insert({ user_id: user.id, client_id: clientId, ...patch })
     .select(COLS)
     .single();
 

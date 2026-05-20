@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
         keyToName.set(v.normalized_key, v.name);
       }
 
-      const newVendorRows: { user_id: string; name: string; normalized_key: string }[] = [];
+      const newVendorRows: { user_id: string; client_id: string | null; name: string; normalized_key: string }[] = [];
       vouchers = rawVouchers.map((v) => {
         const raw = v.vendorName?.trim() ?? '';
         if (!raw) return v;
@@ -79,15 +79,18 @@ export async function POST(request: NextRequest) {
         }
         // 新規取引先として登録（最初に来た表記を canonical にする）
         keyToName.set(key, raw);
-        newVendorRows.push({ user_id: user.id, name: raw, normalized_key: key });
+        newVendorRows.push({ user_id: user.id, client_id: clientId, name: raw, normalized_key: key });
         return v;
       });
 
+      // vendors の unique index は COALESCE(client_id::text,'') を含む式インデックスのため
+      // PostgREST の onConflict には渡せない。新規分だけ insert し、race condition で
+      // 万一 23505 (unique_violation) が出ても致命でないため握り潰す。
       if (newVendorRows.length > 0) {
-        await service.from('vendors').upsert(newVendorRows, {
-          onConflict: 'user_id,normalized_key',
-          ignoreDuplicates: true,
-        });
+        const { error: vendorInsertError } = await service.from('vendors').insert(newVendorRows);
+        if (vendorInsertError && vendorInsertError.code !== '23505') {
+          console.error('vendors insert 失敗:', vendorInsertError);
+        }
       }
 
       // ─── 勘定科目ルールを取得（相手先・摘要パターン） ───
