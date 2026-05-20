@@ -379,3 +379,37 @@
 
 <!-- TODO: TaskHub 同期未実施: 上記の各タスクを TaskHub に正式登録する -->
 
+## 2026-05-20 17:00 [残課題消化セッション]
+
+- やったこと:
+  - **aiocr onConflict バグ残存箇所 2件を修正** → commit 8dd6270
+    - `app/api/match-journal/route.ts`: vendors の unique index は COALESCE(client_id,'') 式インデックスのため `onConflict: 'user_id,normalized_key'` が PostgREST 仕様上マッチせず upsert がサイレント失敗していた。`.insert()` + 23505 (unique_violation) のみ握り潰しに変更。あわせて newVendorRows に `client_id: clientId` を追加。
+    - `app/api/company-settings/route.ts`: 純カラム unique (user_id, client_id) だが client_id NULL を distinct 扱いするため重複検知漏れ。`account_rules` 同様の SELECT → UPDATE/INSERT 分解に置換。
+    - tsc EXIT=0、push 済み
+  - **pelesteia /hotels の proper rewrite** → commit 2e1c784 (in pelesteia repo)
+    - 5/20 メンテ stub からの正規復旧。`force-dynamic` 撤去、`MAX_PAGE=50` 超は `notFound()` で 404 短絡、`page>1` / フィルタ付き URL は robots noindex、`count: 'exact'` → `count: 'planned'` (全表 COUNT 回避)、ページャーをウィンドウ型 (1 / … / 中央±2 / … / last + prev/next) に。ヒストグラム / タグマスタは page=1 のみ計算。
+    - tsc EXIT=0、push 済み
+  - **[7] 「証憑なし入出金から直接仕訳登録」設計メモ作成** → memory/project_design_unmatched_to_journal.md
+    - error_report b6dd7f57 / 24e9102a の関連性整理、Phase 1-4 の段階設計、貸方自動補完 3 段階 (bankAccountName → bank_accounts マスタ → 普通預金 フォールバック)、consume_status の二重登録防止案を記載。MEMORY.md にも索引追加。
+  - **C バケツ 7 件 + [7] 実装本体を TaskHub に登録**:
+    - [C1] 科目作成時の読み・区分・預金フラグ自動推定 (`1d6c2fec`, p=3)
+    - [C2] 仕訳生成時に摘要が空になるケースの解消 (`d682b784`, p=3)
+    - [C3] 端数・微差の入出金消し込み精度向上 507/1196 (`7c47c569`, p=3)
+    - [C4] マスタ画面の client_id 横断表示を絞り込みオン化 (`caddcccc`, p=3)
+    - [C5] クライアント設定に課税事業者フラグ + 設定 UI (`5b35540e`, p=3)
+    - [C6] 法人選択ミスで作成した仕訳の救済動線（一括クライアント変更）(`21179992`, p=3)
+    - [C7] 直接仕訳登録した後の事後証憑紐付け 24e9102a (`01ffa3ba`, p=3)
+    - [7] 証憑なし入出金から直接仕訳登録 (実装 Phase 1-3) (`a1c0e166`, p=2)
+  - TaskHub `/api/cli/*` の応答も復旧確認済み (HTTP 200 / 2.9s) — 5/20 朝の不能事象は自然解消、グローバル CLAUDE.md 冒頭セクションどおり
+
+- 背景/理由:
+  - 5/20 午前の error_reports A/B バケツ 6件対応 + pelesteia 過負荷インシデント止血の続き
+  - onConflict バグは account_rules の修正と同根（COALESCE 式 unique index + PostgREST 仕様）であり、aiocr 全体で同パターンを潰し切る必要があった
+  - pelesteia /hotels はメンテ stub のままだとペット宿 SEO がダウンしっぱなしになるので、ボット過負荷耐性を持たせた上で正規復旧
+  - [7] 設計と C バケツ整理は「次セッションで実装に入れる準備」までを今セッションのスコープに
+
+- 次にやること:
+  - 本番 (Vercel auto-deploy) で pelesteia /hotels と aiocr の company-settings 更新動作を目視確認
+  - [7] / [C1〜C7] の中から優先実装する 1〜2 件をユーザー判断で選ぶ
+  - aiocr の残 open error_reports 8 件は [7] + [C1〜C7] でカバー済み（status='open' は実装着手まで残置）
+
