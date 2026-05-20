@@ -342,3 +342,40 @@
 
 - 学び:
   - TaskHub API `/api/cli/tasks?project_id=...&completed=false` のフィルタ組合せにバグ。`&completed=false` を付けると別プロジェクトのタスクが返ってきて、本来の生成AIOCRタスクが取得できない。`&completed=false` を外して全件取得 → クライアント側で `project_id` 一致を絞り込むのが正解
+
+## 2026-05-20 13:00 [error_reports A/B バケツ 6件対応 + 共有 Supabase 過負荷インシデント対応]
+
+- やったこと:
+  - 共有 Supabase project `lonmddwpcfalgtddaksg` が 522/504 で全 9 サイトダウン状態（pelesteia /hotels の bot による offset=29980 級の深いページネーションが原因）を発見・止血
+    - `C:\Dev\260411_pelesteia\src\app\hotels\page.tsx` を `force-static` メンテ stub に差し替え（commit 6c146b5 in pelesteia repo）
+    - push 後 60 秒以内に Supabase REST が 200 復帰、9 サイト復旧
+  - VERCEL_TOKEN を永続化（setx + master_API一覧.xlsx 新規 Vercel シート + グローバル CLAUDE.md セクション追記）
+  - aiocr の error_reports 14 件のうち A/B バケツ 6 件を修正（commit b82915a）
+    - [1] d147469f: ErrorReportFab を bottom-left に移動（新規仕訳ボタンと完全重なりを解消）
+    - [3] 47e8a03a: AccountCombobox 候補を name でデデュープ
+    - [4] 12980b73: account_rules upsert ON CONFLICT エラー修正（SELECT→INSERT/UPDATE 分解）+ 「🏷️ ルール登録」にラベル改善
+    - [6] 1b3097a2: 請求書/通帳 PDF ボタンを「📄 請求書」「🏦 通帳」ラベル付きチップ化
+    - [10] d1a1729c: 自動仕訳モード時のクライアント選択「未選択（個人）」非表示化
+    - [13] 8397b5f6: JournalSidebarNav から「仕訳日記帳」項目削除（上タブと重複）
+  - error_reports テーブルの上記 6 件を `status='resolved'` に更新
+
+- 背景/理由:
+  - ユーザーから「エラー報告を改善して」依頼 → 未対応 error_reports の処理が本来のタスク
+  - 着手直後に Supabase が全面ダウンしていることが発覚、根本原因が pelesteia の SEO 配慮不足な /hotels ページャー（force-dynamic + 全1500ページのリンク描画 + count:exact + offset+order avg_rating sort）でクローラ供給機に化けていた
+  - Vercel CLI/MCP のいずれも認証なし状態だったため、Vercel ダッシュボード経由停止ではなく aiocr リポへ stub を push する形で止血
+  - 「同じ Vercel トークン何回も作らされている」とのユーザー指摘でグローバル CLAUDE.md に Vercel Access Token 管理セクションを追加（Expo と同じ運用パターン）
+
+- 残課題 / 未解決:
+  - [7] b6dd7f57: 「証憑なし入出金から直接仕訳登録」機能要望 — 借方/貸方の自動補完設計（普通預金デフォルトの決定方法）が必要、C bucket として保留
+  - C バケツ機能要望 7 件（[2][5][8][9][11][12][14]）の取り組み未着手
+  - pelesteia /hotels を stub のままにしているため、ペット宿 SEO がダウン。**proper rewrite が必要**:
+    - ウィンドウ化ページャー（1500件全リンクではなく前後±2 + 先頭/末尾）
+    - `page > 50` を 404 で短絡
+    - `page > 1` に robots noindex
+    - `count: exact` をやめて approximate count or 別 API
+    - `force-dynamic` を外して ISR 化（or RSC キャッシュ）
+  - aiocr の同種 onConflict バグが match-journal/route.ts:88 と company-settings/route.ts:50 にも残存（COALESCE 式 unique index 問題）
+  - **TaskHub `/api/cli/*` 全エンドポイント応答不能（5/20 発覚、グローバル CLAUDE.md 冒頭参照）** のため、当エントリは TaskHub 同期未実施
+
+<!-- TODO: TaskHub 同期未実施: 上記の各タスクを TaskHub に正式登録する -->
+
