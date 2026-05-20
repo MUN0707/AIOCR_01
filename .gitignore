@@ -50,3 +50,6 @@ __pycache__/
 
 .vercel
 .env*.local
+
+# Playwright MCP outputs
+/.playwright-mcp/

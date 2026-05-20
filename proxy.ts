@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
+import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
 
 // 営業ページのトークン保護
 const SALES_PROTECTED = ['/security', '/guide', '/faq'];
@@ -63,8 +64,10 @@ export async function proxy(request: NextRequest) {
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           supabaseResponse = NextResponse.next({ request });
+          // AUTH_COOKIE_OPTIONS をマージしないと middleware の refresh で
+          // domain 属性なしの cookie が並列に書かれ、後段の getUser() が混乱する
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, { ...options, ...AUTH_COOKIE_OPTIONS })
           );
         },
       },
