@@ -17,6 +17,7 @@ import {
   SMALL_ASSET_ADVICE_DETAIL,
 } from '@/lib/small-asset-advice';
 import { JournalSidebarNav } from '@/components/JournalSidebarNav';
+import { normalizeVendorKey } from '@/lib/vendor-normalize';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
@@ -2821,6 +2822,7 @@ export default function Home() {
                   bulkDescription={unmatchedBulkDescription}
                   setBulkDescription={setUnmatchedBulkDescription}
                   accountsList={accountsList}
+                  vendorsList={vendorsList}
                   addAccountLocal={addAccountLocal}
                   onShowPdf={showTransactionPdf}
                   onGoExecute={() => setJournalSubView('execute')}
@@ -4593,6 +4595,29 @@ function computeBalances(entries: LedgerEntry[]) {
   return { accounts, accountBalances, vendorBreakdownByAccount };
 }
 
+// ─── 振込手数料判定 ────────────────────────────────────────────────────────
+// 通帳の未マッチ出金行が振込手数料に該当する候補かを判定する。
+// 条件: 出金額が 100〜880円 / 1.1 で割って整数（= 11 の倍数）/ 摘要に既存vendor名を含まない
+// （税抜 100/150/200/...800 × 1.1 を網羅。実銀行手数料の 110/165/220/275/330/440/495/550/660/770/880 等）
+function isBankFeeCandidate(
+  tx: TransactionInput,
+  vendorsList: { name: string; normalized_key?: string }[]
+): boolean {
+  const debit = tx.debit ?? 0;
+  if (debit <= 0) return false;
+  if (debit < 100 || debit > 880) return false;
+  if (debit % 11 !== 0) return false;
+  const normDesc = normalizeVendorKey(tx.description ?? '');
+  if (!normDesc) return true;
+  for (const v of vendorsList) {
+    const key = (v.normalized_key && v.normalized_key.length > 0)
+      ? v.normalized_key
+      : normalizeVendorKey(v.name);
+    if (key && key.length >= 2 && normDesc.includes(key)) return false;
+  }
+  return true;
+}
+
 // ─── 未照合入出金ビュー（一括選択 + 一括適用） ─────────────────────────────
 
 function UnmatchedView({
@@ -4608,6 +4633,7 @@ function UnmatchedView({
   bulkDescription,
   setBulkDescription,
   accountsList,
+  vendorsList,
   addAccountLocal,
   onShowPdf,
   onGoExecute,
@@ -4624,10 +4650,25 @@ function UnmatchedView({
   bulkDescription: string;
   setBulkDescription: (v: string) => void;
   accountsList: AccountOption[];
+  vendorsList: { name: string; normalized_key?: string }[];
   addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null> | void;
   onShowPdf: (tx: TransactionInput) => void;
   onGoExecute: () => void;
 }) {
+  // ─── 振込手数料 自動判定（Hooks は early return より前で宣言） ─────────────
+  // 候補抽出: 100-880円 / 11の倍数 / 摘要に既存vendor名なし、かつ未割当な行
+  const bankFeeCandidateIdx = useMemo(() => {
+    const result: number[] = [];
+    transactions.forEach((tx, i) => {
+      if (accounts[i]) return;
+      if (isBankFeeCandidate(tx, vendorsList)) result.push(i);
+    });
+    return result;
+  }, [transactions, accounts, vendorsList]);
+
+  const [bankFeeExcluded, setBankFeeExcluded] = useState<Set<number>>(new Set());
+  const [bankFeeDismissed, setBankFeeDismissed] = useState(false);
+
   if (transactions.length === 0) {
     return (
       <div className="bg-white border border-slate-100 rounded-2xl p-12 text-center shadow-sm">
@@ -4675,7 +4716,27 @@ function UnmatchedView({
     });
   };
 
+  const applyBankFee = () => {
+    const targets = bankFeeCandidateIdx.filter((i) => !bankFeeExcluded.has(i));
+    if (targets.length === 0) return;
+    setAccounts((prev) => {
+      const next = { ...prev };
+      targets.forEach((i) => { next[i] = '支払手数料'; });
+      return next;
+    });
+    setDescriptions((prev) => {
+      const next = { ...prev };
+      targets.forEach((i) => {
+        if (!next[i]) next[i] = '振込手数料';
+      });
+      return next;
+    });
+    setBankFeeExcluded(new Set());
+    setBankFeeDismissed(true);
+  };
+
   const assignedCount = transactions.filter((_, i) => accounts[i]).length;
+  const showBankFeeBanner = !bankFeeDismissed && bankFeeCandidateIdx.length > 0;
 
   return (
     <div className="space-y-4">
@@ -4691,6 +4752,77 @@ function UnmatchedView({
         </div>
         <p className="text-[11px] text-slate-400">例：銀行手数料 → 支払手数料</p>
       </div>
+
+      {/* 振込手数料 自動判定バナー */}
+      {showBankFeeBanner && (
+        <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div>
+              <p className="text-sm font-semibold text-amber-800">
+                💡 振込手数料の候補が <span className="font-bold">{bankFeeCandidateIdx.length}</span> 件あります
+              </p>
+              <p className="text-[11px] text-amber-700 mt-0.5">
+                100〜880円・1.1で割って整数・摘要に既存取引先名なし。違うものはチェックを外してください。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBankFeeDismissed(true)}
+              className="text-[11px] text-amber-700 hover:text-amber-900 underline whitespace-nowrap"
+            >
+              閉じる
+            </button>
+          </div>
+          <div className="bg-white rounded-xl border border-amber-100 divide-y divide-amber-50 max-h-60 overflow-y-auto">
+            {bankFeeCandidateIdx.map((i) => {
+              const tx = transactions[i];
+              const excluded = bankFeeExcluded.has(i);
+              return (
+                <label
+                  key={i}
+                  className={`flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-amber-50/40 ${excluded ? 'opacity-50' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!excluded}
+                    onChange={() => {
+                      setBankFeeExcluded((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(i)) next.delete(i);
+                        else next.add(i);
+                        return next;
+                      });
+                    }}
+                    className="w-4 h-4 accent-amber-500"
+                  />
+                  <span className="font-mono text-slate-500 w-20 shrink-0">{tx.transactionDate}</span>
+                  <span className="flex-1 text-slate-700 truncate">{tx.description || '（摘要なし）'}</span>
+                  <span className="tabular-nums font-semibold text-slate-800 w-20 text-right shrink-0">
+                    ¥{(tx.debit ?? 0).toLocaleString()}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-end gap-2 mt-3">
+            <button
+              type="button"
+              onClick={() => setBankFeeDismissed(true)}
+              className="text-xs px-3 py-1.5 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-50"
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              onClick={applyBankFee}
+              disabled={bankFeeCandidateIdx.filter((i) => !bankFeeExcluded.has(i)).length === 0}
+              className="text-xs font-semibold px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-sm disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              OK：振込手数料として一括計上（{bankFeeCandidateIdx.filter((i) => !bankFeeExcluded.has(i)).length}件）
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 一括適用バー */}
       <div className={`sticky top-2 z-10 bg-white border rounded-2xl p-4 shadow-sm transition-all ${
