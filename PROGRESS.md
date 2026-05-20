@@ -465,6 +465,26 @@
 - 次にやること:
   - `app/api/journal-entries/route.ts:114` の `'created'` 用 void insert は別タスク化（INSERT トリガ追加 or await 化）
 
+## 2026-05-20 21:35
+- やったこと: メインドメイン (`ocr.taxbestsearch.com`) での password ログイン後に /login に戻される問題への cookie 修正 (commit 6329a21)
+  - `utils/supabase/cookie-options.ts`: `VERCEL_ENV` 判定を `NEXT_PUBLIC_VERCEL_ENV` 優先に変更
+    - `process.env.VERCEL_ENV` は server runtime のみで設定され browser bundle には展開されない仕様 → client 側で常に `secure: false` / `domain: undefined` になっていた
+    - `Domain` 属性付き cookie を `Secure` 無しで書く形になり、ブラウザによっては `SameSite=Lax` + `Domain` 付きで保存拒否される
+  - `proxy.ts` middleware: `setAll` の `supabaseResponse.cookies.set` で `AUTH_COOKIE_OPTIONS` をマージするように修正
+    - refresh 時に domain なし cookie が並列で書かれ、後段の `getUser()` が混乱する状態を解消
+  - Vercel env に `NEXT_PUBLIC_VERCEL_ENV=production` を追加 (vercel CLI で改行混入したため API 経由で再投入)
+  - shared-memory `supabase_magic_link_auth.md` を最初に読まずに Magic Link 化を提案した件は反省、`memory/feedback_read_shared_memory_first.md` に再発防止メモを保存
+- 背景/理由:
+  - サブ (`invoice-ocr-tawny.vercel.app`) では /admin に入れたがメインでは login 画面のままループ
+  - Playwright クリーンセッションでは loop も再現せず、ユーザー Chrome 固有の壊れ cookie + コード側の secure/domain 未設定バグの複合と判定
+  - shared-memory は Magic Link 文脈の落とし穴 (Redirect URLs allowlist の `?**` サフィックス必須等) を集約しているが、AIOCR は subscriptions ベースゲートで Magic Link 採用対象外。今回の cookie 問題は password 認証側のバグだったので shared-memory の手順とは別経路で対応
+- 検証:
+  - tsc --noEmit EXIT=0
+  - Vercel 本番デプロイ走行中 (commit 6329a21)
+- 次にやること:
+  - ユーザーがメイン側で site data clear → ログイン → /admin の流れを再テスト
+  - 解消しなければ Playwright + Google OAuth (or password) で実際の Set-Cookie ヘッダを観察して仮説検証
+
 ## 2026-05-20 17:30
 - やったこと: [MU🔴5] 管理者ロールを DB 化（TaskHub 3ac8c94e 対応）
   - migration `20260520_aiocr_admins_table` 適用済み
