@@ -1,25 +1,51 @@
-// サブドメイン横断（ocr.taxbestsearch.com / mail.taxbestsearch.com）で
-// Supabase 認証セッションを共有するための cookie オプション。
-// 本番（Vercel production）でのみ親ドメインに発行する。
-// preview / localhost ではドメイン未指定にして既存の挙動を保つ。
+// Supabase 認証 cookie のオプションを「アクセス中のホスト」から動的に決める。
 //
-// 重要: `process.env.VERCEL_ENV` は server runtime のみで設定され、Next.js の
-// client bundle には展開されない（NEXT_PUBLIC_ プレフィックスが必須）。
-// browser 側で常に `secure: false` / `domain: undefined` になっていたため、
-// `Domain` 属性付き cookie を `Secure` 無しで書く形になり、ブラウザによっては
-// `SameSite=Lax` + `Domain` 属性付き cookie の保存が拒否されていた。
-// `NEXT_PUBLIC_VERCEL_ENV` を Vercel env に明示的に追加して両方の runtime で
-// 同じ値を読めるようにしている。
+// このアプリは本番で 2 つのドメインに同時公開している:
+//   - ocr.taxbestsearch.com         … メイン（会社フィルタを通る顧客向け）
+//   - invoice-ocr-tawny.vercel.app  … サブ（会社 Web フィルタ回避用）
+//
+// taxbestsearch.com 配下のサブドメイン間（ocr. / mail. 等）でセッションを共有
+// したいので、その場合だけ cookie に `Domain=.taxbestsearch.com` を付ける。
+// 一方 invoice-ocr-tawny.vercel.app では Domain を付けてはいけない。ブラウザは
+// 自分のホストに一致しない Domain 属性の cookie を「丸ごと」拒否するため、
+// Domain を `.taxbestsearch.com` 固定にすると vercel.app 側で PKCE verifier や
+// セッション cookie が一切保存できず、ログイン不能になる（2026-05-22 実害）。
+//
+// secure はプロトコルではなくホストで判定（localhost のみ非 secure）。
+// 本番の 2 ドメインはどちらも https なので secure: true で問題ない。
 
-const VERCEL_ENV = process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.VERCEL_ENV;
-const IS_PRODUCTION = VERCEL_ENV === 'production';
+const SHARED_PARENT_DOMAIN = 'taxbestsearch.com';
 
-export const AUTH_COOKIE_DOMAIN: string | undefined =
-  IS_PRODUCTION ? '.taxbestsearch.com' : undefined;
+function hostnameOf(host: string | null | undefined): string {
+  // "ocr.taxbestsearch.com:443" のようなポート付きや大文字を正規化する
+  return (host ?? '').split(':')[0].trim().toLowerCase();
+}
 
-export const AUTH_COOKIE_OPTIONS = {
-  domain: AUTH_COOKIE_DOMAIN,
-  path: '/',
-  sameSite: 'lax' as const,
-  secure: IS_PRODUCTION,
-};
+/**
+ * host から cookie の `Domain` 属性を決める。
+ * taxbestsearch.com とそのサブドメインのみ `.taxbestsearch.com`、
+ * それ以外（vercel.app / localhost / preview）は undefined（host-only cookie）。
+ */
+export function cookieDomainForHost(host: string | null | undefined): string | undefined {
+  const hostname = hostnameOf(host);
+  if (hostname === SHARED_PARENT_DOMAIN || hostname.endsWith('.' + SHARED_PARENT_DOMAIN)) {
+    return '.' + SHARED_PARENT_DOMAIN;
+  }
+  return undefined;
+}
+
+/**
+ * host から Supabase SSR 用の cookieOptions を組み立てる。
+ * host が不明なときは本番想定（secure: true / Domain なし）にフォールバックする。
+ */
+export function authCookieOptions(host: string | null | undefined) {
+  const hostname = hostnameOf(host);
+  const isLocal =
+    hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.local');
+  return {
+    domain: cookieDomainForHost(host),
+    path: '/' as const,
+    sameSite: 'lax' as const,
+    secure: !isLocal,
+  };
+}

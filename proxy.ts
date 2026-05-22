@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
-import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
+import { authCookieOptions } from '@/utils/supabase/cookie-options';
 
 // 営業ページのトークン保護
 const SALES_PROTECTED = ['/security', '/guide', '/faq'];
@@ -53,6 +53,10 @@ export async function proxy(request: NextRequest) {
   // セッションクッキーのリフレッシュ用レスポンス（Supabase SSR 必須パターン）
   let supabaseResponse = NextResponse.next({ request });
 
+  // アクセス中のホストから cookie の Domain / secure を決める
+  // （taxbestsearch.com 配下のみ Domain 付き、vercel.app は host-only）
+  const cookieOptions = authCookieOptions(request.headers.get('host'));
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -64,10 +68,10 @@ export async function proxy(request: NextRequest) {
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           supabaseResponse = NextResponse.next({ request });
-          // AUTH_COOKIE_OPTIONS をマージしないと middleware の refresh で
-          // domain 属性なしの cookie が並列に書かれ、後段の getUser() が混乱する
+          // cookieOptions をマージしないと middleware の refresh で
+          // domain 属性が不一致の cookie が並列に書かれ、後段の getUser() が混乱する
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, { ...options, ...AUTH_COOKIE_OPTIONS })
+            supabaseResponse.cookies.set(name, value, { ...options, ...cookieOptions })
           );
         },
       },

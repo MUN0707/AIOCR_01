@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServiceClient } from '@/utils/supabase/service';
-import { AUTH_COOKIE_OPTIONS } from '@/utils/supabase/cookie-options';
+import { authCookieOptions } from '@/utils/supabase/cookie-options';
 import { isAdmin } from '@/lib/auth-admin';
 
 export async function GET(request: NextRequest) {
@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const cookieStore = await cookies();
+    // アクセス中のホストから cookie の Domain / secure を決める
+    const cookieOptions = authCookieOptions(request.headers.get('host'));
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -23,7 +25,7 @@ export async function GET(request: NextRequest) {
           },
           setAll(cookiesToSet) {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, { ...options, ...AUTH_COOKIE_OPTIONS })
+              cookieStore.set(name, value, { ...options, ...cookieOptions })
             );
           },
         },

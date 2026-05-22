@@ -1,9 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { AUTH_COOKIE_OPTIONS } from './cookie-options';
+import { serverAuthCookieOptions } from './cookie-options.server';
 
 export async function createClient() {
   const cookieStore = await cookies();
+  // リクエストの Host から cookie の Domain / secure を決める
+  const cookieOptions = await serverAuthCookieOptions();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,7 +18,7 @@ export async function createClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, { ...options, ...AUTH_COOKIE_OPTIONS })
+              cookieStore.set(name, value, { ...options, ...cookieOptions })
             );
           } catch {
             // Server Component からの呼び出しの場合は無視（middleware がセッションを更新する）
