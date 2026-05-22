@@ -512,3 +512,24 @@
   - 本番デプロイ後、admin として /admin にアクセスして閲覧可否を目視確認
   - 通知用 `ADMIN_EMAIL` env はそのまま残しているので Vercel env からは削除しなくてよい
 
+## 2026-05-22 16:46
+- やったこと: cookie の Domain をアクセス中ホストから動的決定するよう修正（commit 7d44074）
+  - error_report `71edbc56`（村田・会社PCからログイン不可）/ `0536626f`（「認証エラーが発生しました」表示）対応 → 両方 status=resolved 済
+  - `utils/supabase/cookie-options.ts`: `AUTH_COOKIE_OPTIONS` 固定定数を廃止し `authCookieOptions(host)` 関数化。`taxbestsearch.com` 配下のホストのみ `Domain=.taxbestsearch.com`、それ以外（vercel.app / localhost）は host-only cookie
+  - `utils/supabase/cookie-options.server.ts` 新設: Host ヘッダから cookieOptions を解決する server 専用ヘルパー（next/headers 依存をブラウザバンドルから隔離）
+  - `client.ts`（window.location.host）/ `server.ts`（headers）/ `proxy.ts`（request.headers）/ `auth/callback/route.ts`（request.headers）を実ホスト参照に変更
+  - 同型の inline supabase client を持つ API ルート 6 本（subscription/status・subscription/bank-transfer・admin/error-reports・admin/subscriptions・invoice/[id]/download・subscribe）を共有 `createClient()` に統合（重複 141 行削減）
+- 背景/理由:
+  - このアプリは `ocr.taxbestsearch.com`（メイン）と `invoice-ocr-tawny.vercel.app`（会社フィルタ回避サブ）の 2 ドメイン同時公開
+  - 5/20 commit 6329a21 で `NEXT_PUBLIC_VERCEL_ENV=production` を追加 → client bundle でも `Domain=.taxbestsearch.com` 固定が効くようになった
+  - ブラウザは自ホストに一致しない Domain 属性の cookie を「丸ごと拒否」する。vercel.app 上で PKCE verifier・セッション cookie が一切保存できず、Google OAuth callback が `exchangeCodeForSession` で verifier を見つけられず `/login?error=auth` →「認証エラーが発生しました」、password ログインも /login ループ
+  - 村田さんの「会社PC」は会社 Web フィルタ回避のため vercel.app 側を使う運用 → サブ URL が今回壊れていた。5/20 のメイン側 cookie 修正がサブ側を壊した形
+  - `NEXT_PUBLIC_VERCEL_ENV` env はもう参照していない（残しても無害なので Vercel env からの削除は不要）
+- 検証:
+  - tsc --noEmit EXIT=0 / next build EXIT=0
+  - ホスト別の cookie 属性をロジック追跡で確認（taxbestsearch.com→Domain付き / vercel.app→host-only secure / localhost→host-only 非secure）
+- 次にやること:
+  - 本番デプロイ後、村田さんに会社PC（vercel.app 側）で site data クリア → ログイン再テストを依頼
+  - 解消しなければ Playwright で実際の Set-Cookie ヘッダを vercel.app 上で観察
+  - 5/18 起票の aiocr error_report（b6dd7f57 / 24e9102a 等の証憑→仕訳系）は別タスク（C バケツ設計）として未着手のまま残存
+
