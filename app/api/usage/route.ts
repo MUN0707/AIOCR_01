@@ -1,13 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
-
-const PLAN_LIMITS: Record<string, number> = {
-  lite: 30,
-  standard: 100,
-  pro: 300,
-  enterprise: 1000,
-  trial: 10,
-};
+import { getPlanLimit } from '@/lib/plan-limits';
 
 export async function GET() {
   const supabase = await createClient();
@@ -35,7 +28,7 @@ export async function GET() {
 
   const plan = subscription?.plan ?? 'lite';
   const status = subscription?.status ?? 'trial';
-  const limit = PLAN_LIMITS[status === 'active' ? plan : 'trial'] ?? 50;
+  const limit = await getPlanLimit(plan, status);
   const count = usage?.count ?? 0;
 
   return NextResponse.json({ count, limit, plan, status, yearMonth });

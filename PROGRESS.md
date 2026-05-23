@@ -533,3 +533,23 @@
   - 解消しなければ Playwright で実際の Set-Cookie ヘッダを vercel.app 上で観察
   - 5/18 起票の aiocr error_report（b6dd7f57 / 24e9102a 等の証憑→仕訳系）は別タスク（C バケツ設計）として未着手のまま残存
 
+
+## 2026-05-24 07:00
+- やったこと: TaskHub 未了10件のうち即実装系5件を片付け
+  - 65ed6c17（共通レイアウト・サイドナビ導入）→ working_memo 通り bc3d3599（横展開タスク）に切り出し済みとして TaskHub 上で close
+  - 2edea0c9（target=_blank 見直し）→ components/JournalSidebarNav.tsx を Next.js `<Link>` 化（9リンクすべて SPA 遷移）、freee CSV出力のみ `<a download>` で残す。app/page.tsx:7848 の固定資産行リンクも `<Link>` 化
+  - be61c92d（MU🟡6 process-pdf clientId 検証）→ app/api/process-pdf/route.ts 冒頭で `clients.user_id == auth.uid() AND clients.id == clientId` を maybeSingle で検証、未所有なら 403、ゲストの clientId 指定は 401
+  - 49d88d8c（MU🟡8 accounts 科目名変更 N+1 解消）→ migration `20260524_rename_account_in_journals_rpc.sql` で SECURITY DEFINER 関数 `rename_account_in_journal_entries(uuid,text,text)` を作成（CASE WHEN で 1 UPDATE 集約）、`app/api/accounts/[id]/route.ts` を `service.rpc(...)` 呼び出しに置換
+  - 601ad4d4（MU🟡10 PLAN_LIMITS DB化）→ migration `20260524_plans_table.sql` で `public.plans (plan_key, monthly_limit, display_name)` テーブル作成 + 5プラン seed、`lib/plan-limits.ts` 新設（5分 in-process キャッシュ + DB 失敗時はハードコードフォールバック）、`app/api/process-pdf/route.ts` / `app/api/usage/route.ts` から PLAN_LIMITS 定数を削除して `getPlanLimit(plan, status)` に置換、`app/api/plans/route.ts` を新設し `app/admin/page.tsx` は mount 時に `/api/plans` から取得（クライアント側）
+- 背景/理由:
+  - 5件は技術判断のみで完了するもので、残り5件（MU🔴4 / MU🔴2 / モバイル / audit-INSERT トリガ / SALES⚡B）は別セッションで方針合意してから着手
+  - JournalSidebarNav は全リンクに `external: true` がベタ付けされていて新規タブが乱立する構造だった（タスク description「操作バーリンク9個」の正体）
+  - process-pdf は formData.clientId を無検証で `ocr_uploads.client_id` に insert していた。他人の顧問先 ID を投げれば課金カウントを相手に押し付けられる脆弱性
+  - 科目名変更は journal_entries の借方/貸方を別 UPDATE で叩いていてフルスキャン2回。SECURITY DEFINER 関数で 1 SQL に
+  - PLAN_LIMITS は 3 ファイル（process-pdf / usage / admin）に散在。プラン変更のたびにコード+デプロイが必要だった
+- 検証:
+  - tsc --noEmit EXIT=0
+  - next build EXIT=0（`/api/plans` ルート登録確認済み）
+  - Supabase migration `rename_account_in_journals_rpc` / `plans_table` 適用済み
+- 次にやること:
+  - 残り未対応 5件（別セッション）: MU🔴4 client_id=NULL 廃止 / MU🔴2 client_members 実権限化（Magic Link + Resend）/ a8bbfc27 モバイル3画面 / 39eb3896 audit log INSERT 対応 / ed80fc21 SALES⚡B e-Tax 線引き

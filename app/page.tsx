@@ -17,6 +17,7 @@ import {
   SMALL_ASSET_ADVICE_DETAIL,
 } from '@/lib/small-asset-advice';
 import { JournalSidebarNav } from '@/components/JournalSidebarNav';
+import Link from 'next/link';
 import { normalizeVendorKey } from '@/lib/vendor-normalize';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
@@ -7845,10 +7846,10 @@ function FixedAssetSection({
                         <tr key={a.id} className="hover:bg-slate-50/40">
                           <td className="px-3 py-2 text-slate-400 font-mono">#{a.asset_number}</td>
                           <td className="px-3 py-2">
-                            <a href={`/fixed-assets/${a.id}`} target="_blank" rel="noopener noreferrer"
+                            <Link href={`/fixed-assets/${a.id}`}
                               className="text-slate-700 font-medium hover:text-sky-600">
                               {a.name}
-                            </a>
+                            </Link>
                             <span className="ml-2 text-slate-400">{a.account_name}</span>
                           </td>
                           <td className="px-3 py-2 font-mono text-slate-500">{a.acquisition_date ?? '—'}</td>

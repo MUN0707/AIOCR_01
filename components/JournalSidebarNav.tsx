@@ -1,9 +1,11 @@
 'use client';
 
+import Link from 'next/link';
+
 type NavItem = {
   label: string;
   href?: string;
-  external?: boolean;
+  download?: boolean;
   active?: boolean;
 };
 
@@ -25,32 +27,32 @@ export function JournalSidebarNav({
     {
       title: '仕訳・帳簿',
       items: [
-        { label: '総勘定元帳', href: `/general-ledger${q}`, external: true, active: active === 'general-ledger' },
+        { label: '総勘定元帳', href: `/general-ledger${q}`, active: active === 'general-ledger' },
       ],
     },
     {
       title: 'レポート',
       items: [
-        { label: '消費税集計', href: `/tax-summary${q}`, external: true, active: active === 'tax-summary' },
-        { label: '予算管理', href: `/budget${q}`, external: true, active: active === 'budget' },
-        { label: '資金繰り', href: `/cash-projection${q}`, external: true, active: active === 'cash-projection' },
+        { label: '消費税集計', href: `/tax-summary${q}`, active: active === 'tax-summary' },
+        { label: '予算管理', href: `/budget${q}`, active: active === 'budget' },
+        { label: '資金繰り', href: `/cash-projection${q}`, active: active === 'cash-projection' },
       ],
     },
     {
       title: 'マスタ管理',
       items: [
-        { label: '部門管理', href: `/departments${q}`, external: true, active: active === 'departments' },
-        { label: 'テンプレート', href: `/templates${q}`, external: true, active: active === 'templates' },
-        { label: 'ユーザー管理', href: `/user-roles${q}`, external: true, active: active === 'user-roles' },
+        { label: '部門管理', href: `/departments${q}`, active: active === 'departments' },
+        { label: 'テンプレート', href: `/templates${q}`, active: active === 'templates' },
+        { label: 'ユーザー管理', href: `/user-roles${q}`, active: active === 'user-roles' },
       ],
     },
     {
       title: 'その他',
       items: [
-        { label: '消込管理', href: `/ar-ap${q}`, external: true, active: active === 'ar-ap' },
-        { label: '電子帳票', href: `/edocuments${q}`, external: true, active: active === 'edocuments' },
-        { label: '監査証跡', href: `/audit-log${q}`, external: true, active: active === 'audit-log' },
-        { label: 'freee CSV出力', href: `/api/export?format=freee${clientId ? `&clientId=${clientId}` : ''}`, external: true },
+        { label: '消込管理', href: `/ar-ap${q}`, active: active === 'ar-ap' },
+        { label: '電子帳票', href: `/edocuments${q}`, active: active === 'edocuments' },
+        { label: '監査証跡', href: `/audit-log${q}`, active: active === 'audit-log' },
+        { label: 'freee CSV出力', href: `/api/export?format=freee${clientId ? `&clientId=${clientId}` : ''}`, download: true },
       ],
     },
   ];
@@ -76,16 +78,20 @@ export function JournalSidebarNav({
                     </li>
                   );
                 }
+                if (item.download) {
+                  return (
+                    <li key={item.label}>
+                      <a href={item.href} className={cls} download>
+                        {item.label}
+                      </a>
+                    </li>
+                  );
+                }
                 return (
                   <li key={item.label}>
-                    <a
-                      href={item.href}
-                      target={item.external ? '_blank' : undefined}
-                      rel={item.external ? 'noopener noreferrer' : undefined}
-                      className={cls}
-                    >
+                    <Link href={item.href} className={cls}>
                       {item.label}
-                    </a>
+                    </Link>
                   </li>
                 );
               })}

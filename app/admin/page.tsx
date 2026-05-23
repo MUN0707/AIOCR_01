@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
-const PLAN_LIMITS: Record<string, number> = { lite: 30, standard: 100, pro: 300, enterprise: 1000, trial: 10 };
+const FALLBACK_PLAN_LIMITS: Record<string, number> = { lite: 30, standard: 100, pro: 300, enterprise: 1000, trial: 10 };
+const FALLBACK_LIMIT = 50;
 
 interface Subscription {
   id: string;
@@ -44,9 +45,17 @@ function formatDate(d: string | null) {
 export default function AdminPage() {
   const router = useRouter();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [planLimits, setPlanLimits] = useState<Record<string, number>>(FALLBACK_PLAN_LIMITS);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/plans')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.limits) setPlanLimits(d.limits); })
+      .catch(() => { /* fallback の定数値をそのまま使う */ });
+  }, []);
 
   const fetchSubscriptions = useCallback(async () => {
     const res = await fetch('/api/admin/subscriptions');
@@ -192,7 +201,7 @@ export default function AdminPage() {
                     </td>
                     <td className="px-5 py-4 text-xs">
                       {(() => {
-                        const limit = PLAN_LIMITS[sub.status === 'active' ? sub.plan : 'trial'] ?? 50;
+                        const limit = planLimits[sub.status === 'active' ? sub.plan : 'trial'] ?? FALLBACK_LIMIT;
                         const pct = Math.min((sub.monthly_usage / limit) * 100, 100);
                         const color = pct >= 90 ? 'bg-red-400' : pct >= 70 ? 'bg-amber-400' : 'bg-sky-400';
                         return (

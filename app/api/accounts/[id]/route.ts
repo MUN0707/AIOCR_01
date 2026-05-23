@@ -58,18 +58,13 @@ export async function PATCH(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // 既存仕訳の借方・貸方科目名も連動更新
+  // 既存仕訳の借方・貸方科目名も連動更新（CASE WHEN で 1 UPDATE に集約。10万件規模で旧実装はフルスキャン2回だった）
   if (previousName && update.name && previousName !== update.name) {
-    await service
-      .from('journal_entries')
-      .update({ debit_account: update.name })
-      .eq('user_id', user.id)
-      .eq('debit_account', previousName);
-    await service
-      .from('journal_entries')
-      .update({ credit_account: update.name })
-      .eq('user_id', user.id)
-      .eq('credit_account', previousName);
+    await service.rpc('rename_account_in_journal_entries', {
+      p_user_id: user.id,
+      p_previous_name: previousName,
+      p_new_name: update.name as string,
+    });
   }
 
   return NextResponse.json({ account: data });

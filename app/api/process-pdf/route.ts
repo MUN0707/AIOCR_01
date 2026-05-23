@@ -7,16 +7,9 @@ import { processBankStatementPdf } from '@/lib/ocr/bank-statement-ocr';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { isAdmin } from '@/lib/auth-admin';
+import { getPlanLimit } from '@/lib/plan-limits';
 
 export const maxDuration = 60;
-
-const PLAN_LIMITS: Record<string, number> = {
-  lite: 30,
-  standard: 100,
-  pro: 300,
-  enterprise: 1000,
-  trial: 10,
-};
 
 const GUEST_MAX_USES = 5;
 
@@ -62,6 +55,29 @@ export async function POST(request: NextRequest) {
 
     const service = createServiceClient();
 
+    // clientId が渡された場合、所有者検証を実施
+    // (他人の顧問先 ID を送って課金カウントや OCR upload を相手に紛れ込ませる攻撃の防止)
+    if (clientId) {
+      if (!user) {
+        return NextResponse.json(
+          { error: '顧問先を指定する場合はログインが必要です' },
+          { status: 401 }
+        );
+      }
+      const { data: ownedClient } = await service
+        .from('clients')
+        .select('id')
+        .eq('id', clientId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (!ownedClient) {
+        return NextResponse.json(
+          { error: '指定された顧問先にアクセスする権限がありません' },
+          { status: 403 }
+        );
+      }
+    }
+
     // ゲストユーザーの場合：fingerprintIdでサーバーサイド制限
     if (!user) {
       if (!fingerprintId) {
@@ -93,7 +109,7 @@ export async function POST(request: NextRequest) {
 
       const plan = subscription?.plan ?? 'lite';
       const status = subscription?.status ?? 'trial';
-      const limit = PLAN_LIMITS[status === 'active' ? plan : 'trial'] ?? 50;
+      const limit = await getPlanLimit(plan, status);
 
       const { data: usage } = await supabase
         .from('usage_logs')
