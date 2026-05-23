@@ -553,3 +553,17 @@
   - Supabase migration `rename_account_in_journals_rpc` / `plans_table` 適用済み
 - 次にやること:
   - 残り未対応 5件（別セッション）: MU🔴4 client_id=NULL 廃止 / MU🔴2 client_members 実権限化（Magic Link + Resend）/ a8bbfc27 モバイル3画面 / 39eb3896 audit log INSERT 対応 / ed80fc21 SALES⚡B e-Tax 線引き
+
+## 2026-05-24 07:30
+- やったこと: 残5件のうち自走可能な2件を追加対応
+  - 39eb3896（MU🟡 audit log INSERT 対応）→ migration `20260524_journal_entries_audit_insert_trigger.sql` で AFTER INSERT トリガを追加。`log_journal_entry_changes` 関数に INSERT 分岐を追加し全 INSERT 経路（OCR/depreciation/import/match/manual）を audit_logs に記録。`app/api/journal-entries/route.ts` の `void service.from('journal_audit_logs').insert(...)` を撤去（トリガと二重記録回避）
+  - ed80fc21（SALES⚡B e-Tax 線引き）→ `app/faq/page.tsx` の e-Tax/会計ソフト連携Q&A を拡張。「決算データを作るまでがサービス、申告は既存ソフト（TKC/JDL/弥生/freee）と役割分担」というポジショニングを明示。CSV/PDF 出力での接続方法も追記
+- 背景/理由:
+  - audit INSERT 対応は journal_entries.user_id IS NULL の行が 0 件で安全（trigger は user_id NOT NULL の journal_audit_logs に挿す）
+  - journal_audit_logs 肥大化のリスクは task description に明記。当面は容量・性能を実測しながら運用
+  - 残3件（16ee3b62 / a8bbfc27 / b6e0eb14）は設計判断要のため別セッション
+- 検証:
+  - tsc --noEmit EXIT=0
+  - migration `journal_entries_audit_insert_trigger` 適用済み
+- 次にやること:
+  - 別セッション: MU🔴4 client_id=NULL 廃止 / モバイル3画面 / MU🔴2 client_members 実権限化

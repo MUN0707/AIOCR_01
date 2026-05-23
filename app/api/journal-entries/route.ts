@@ -111,22 +111,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
-  void service.from('journal_audit_logs').insert({
-    user_id: user.id,
-    entry_id: inserted.id,
-    client_id: clientId,
-    action: 'created',
-    before_data: null,
-    after_data: {
-      entry_date: row.entry_date,
-      debit_account: row.debit_account,
-      credit_account: row.credit_account,
-      amount: row.amount,
-      description: row.description,
-      tax_category: row.tax_category,
-      vendor_name: row.vendor_name,
-    },
-  });
-
+  // journal_audit_logs への created 記録は AFTER INSERT トリガ (log_journal_entry_changes) で実施
   return NextResponse.json({ success: true, id: inserted.id });
 }
