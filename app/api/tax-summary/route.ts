@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -18,6 +19,13 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
   // 対象期間の仕訳を tax_category 別に集計
   const fromYmd = from.replace(/-/g, '');
   const toYmd = to.replace(/-/g, '');
@@ -25,7 +33,7 @@ export async function GET(request: NextRequest) {
   let q = service
     .from('journal_entries')
     .select('tax_category, amount, debit_amount, credit_amount')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .gte('entry_date', fromYmd)
     .lte('entry_date', toYmd);
 

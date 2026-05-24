@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { theoreticalInPeriod, monthlyDepreciation, type AssetForCalc, type DepreciationMethod } from '@/lib/depreciation/calculator';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -35,11 +36,20 @@ export async function POST(request: NextRequest) {
 
     const service = createServiceClient();
 
+    let ownerUserId = user.id;
+    if (clientId) {
+      const scope = await resolveClientScope(service, user.id, clientId);
+      if (!scope || !canWrite(scope.role)) {
+        return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+      }
+      ownerUserId = scope.ownerUserId;
+    }
+
     // 対象資産
     let assetQuery = service
       .from('fixed_assets')
       .select('*')
-      .eq('user_id', user.id);
+      .eq('user_id', ownerUserId);
     if (clientId) assetQuery = assetQuery.eq('client_id', clientId);
     else assetQuery = assetQuery.is('client_id', null);
     const { data: assets } = await assetQuery;
@@ -48,7 +58,7 @@ export async function POST(request: NextRequest) {
     let ruleQuery = service
       .from('accounting_rules')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .lte('effective_from_date', toDate)
       .order('effective_from_date', { ascending: false })
       .limit(1);
@@ -81,7 +91,7 @@ export async function POST(request: NextRequest) {
         const { count } = await service
           .from('journal_entries')
           .delete({ count: 'exact' })
-          .eq('user_id', user.id)
+          .eq('user_id', ownerUserId)
           .eq('entry_type', 'depreciation')
           .in('source_fixed_asset_id', assetIds)
           .gte('entry_date', startYmd)
@@ -118,7 +128,7 @@ export async function POST(request: NextRequest) {
               const ymd = `${y}${String(m).padStart(2, '0')}${String(lastDay.getDate()).padStart(2, '0')}`;
               const periodLabel = `${y}-${String(m).padStart(2, '0')}`;
               rows.push({
-                user_id: user.id, client_id: clientId, entry_type: 'depreciation', entry_date: ymd,
+                user_id: ownerUserId, client_id: clientId, entry_type: 'depreciation', entry_date: ymd,
                 debit_account: '減価償却費', credit_account: creditAccount, amount: amt,
                 description: `${asset.name} 減価償却 ${periodLabel}`, tax_type: '対象外',
                 vendor_name: '', match_status: 'closing',
@@ -136,7 +146,7 @@ export async function POST(request: NextRequest) {
             const endD = periodEnd.getDate();
             const ymd = `${endY}${String(endM).padStart(2, '0')}${String(endD).padStart(2, '0')}`;
             rows.push({
-              user_id: user.id, client_id: clientId, entry_type: 'depreciation', entry_date: ymd,
+              user_id: ownerUserId, client_id: clientId, entry_type: 'depreciation', entry_date: ymd,
               debit_account: '減価償却費', credit_account: creditAccount, amount: total,
               description: `${asset.name} 減価償却 ${endY}年度 (再計算)`, tax_type: '対象外',
               vendor_name: '', match_status: 'closing',
@@ -174,7 +184,7 @@ export async function POST(request: NextRequest) {
         const { data: posted } = await service
           .from('journal_entries')
           .select('amount')
-          .eq('user_id', user.id)
+          .eq('user_id', ownerUserId)
           .eq('entry_type', 'depreciation')
           .eq('source_fixed_asset_id', asset.id)
           .gte('entry_date', startYmd)
@@ -190,7 +200,7 @@ export async function POST(request: NextRequest) {
         if (diff > 0) {
           // 不足: 追加計上
           adjustRows.push({
-            user_id: user.id, client_id: clientId, entry_type: 'depreciation', entry_date: startYmd,
+            user_id: ownerUserId, client_id: clientId, entry_type: 'depreciation', entry_date: startYmd,
             debit_account: '減価償却費', credit_account: creditAccount, amount: diff,
             description: `${asset.name} 減価償却 修正計上 (会計ルール変更)`, tax_type: '対象外',
             vendor_name: '', match_status: 'closing',
@@ -199,7 +209,7 @@ export async function POST(request: NextRequest) {
         } else {
           // 過剰: 戻し入れ (借方貸方を逆に)
           adjustRows.push({
-            user_id: user.id, client_id: clientId, entry_type: 'depreciation', entry_date: startYmd,
+            user_id: ownerUserId, client_id: clientId, entry_type: 'depreciation', entry_date: startYmd,
             debit_account: creditAccount, credit_account: '減価償却費', amount: -diff,
             description: `${asset.name} 減価償却 修正戻入 (会計ルール変更)`, tax_type: '対象外',
             vendor_name: '', match_status: 'closing',

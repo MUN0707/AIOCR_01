@@ -567,3 +567,40 @@
   - migration `journal_entries_audit_insert_trigger` 適用済み
 - 次にやること:
   - 別セッション: MU🔴4 client_id=NULL 廃止 / モバイル3画面 / MU🔴2 client_members 実権限化
+
+## 2026-05-24 (続き)
+- やったこと: 残3件（16ee3b62 / a8bbfc27 / b6e0eb14）を一気に完了
+  - **MU🔴4 client_id=NULL 廃止**（16ee3b62）
+    - migration `20260524_drop_null_client_id_masters.sql` 適用: backfill (NULL レコードを user 所有の全 client に複製、衝突は ON CONFLICT DO NOTHING) → NULL レコード削除 → NOT NULL 制約 → UNIQUE INDEX 再構築（COALESCE 削除）→ FK SET NULL→CASCADE
+    - 実データ移行: accounts 146→240, vendors 96→112, account_rules 2→10。NULL 残 0
+    - `seed_client_masters(p_client_id, p_source_client_id)` RPC 追加。新規 client 作成時に他 client からマスタを自動 copy
+    - `lib/seed-client-masters.ts`: ソース無し（user 初の client）時は DEFAULT_ACCOUNTS を投入
+    - `/api/clients` POST で seed 呼び出し追加、`/api/accounts` `/api/vendors` `/api/account-rules` で client_id 必須化、NULL ハンドリング除去
+    - `app/page.tsx` MasterView の「未割当のみ」フィルタ・一括割当 UI を削除、各 add ヘルパーは selectedClientId 必須に
+  - **モバイル3画面カード化**（a8bbfc27）
+    - LedgerView / BalanceView / UnmatchedView (journal execute) の各テーブルに `hidden lg:table` / `hidden md:block` を付け、`lg:hidden` / `md:hidden` のカード一覧を併設
+    - 日記帳: 日付 + 借/貸科目 + 金額 + 摘要のカード
+    - 残高: カテゴリヘッダ + 科目カード（タップで総勘定元帳起動）
+    - 仕訳実行: チェック + 日付 + 説明 + 金額 + AccountCombobox + 摘要上書き input
+  - **MU🔴2 client_members 実権限化**（b6e0eb14）フルスコープ
+    - migration `20260524_client_members_invite_and_membership.sql`: invite_token / invite_expires_at / member_user_id / accepted_at カラム追加、RLS で member 自身の SELECT 許可、`user_has_client_access(uid, cid)` / `user_client_role(uid, cid)` RPC 追加
+    - `lib/client-access.ts`: `resolveClientScope` / `userHasClientAccess` / `userClientRole` / `canWrite` / `canApprove` / `listAccessibleClientIds` / `ownerScopedClientGroups`
+    - `lib/invite-email.ts`: Resend で承諾用 URL を送信（既存 RESEND_API_KEY / RESEND_SALES_FROM 利用、7日有効）
+    - `/api/client-members` POST: 招待トークン発行 + メール送信 / `/resend` で再送 / `/accept` (GET=妥当性確認, POST=承諾)
+    - `/invite/[token]/page.tsx`: 承諾画面（未ログインなら login へ誘導、メール不一致なら再ログイン依頼）
+    - 全 API 50 ファイルに `resolveClientScope` 適用（accounts/vendors/journal-entries/balance/ledger/budgets/departments/fiscal-periods/fixed-assets/bank-* /company-settings/journal-templates/closings/match-* /reports/exports/edocuments/ocr-uploads/history/audit-log/ar-ap）。owner 本人 → 自身、member → 真の owner の user_id で query
+    - 重要な挙動変更: `bank-accounts` `departments` `history` `audit-log` `journal-csv` の GET (clientId 無し) は「personal_scope + 全 accessible clients」の union を返すように。member 視点で見える行が増える
+    - `accounts/merge` `vendors/merge`: cross-owner / cross-client マージを明示エラー化
+    - `journal-closings` POST/DELETE と `zengin-export` POST は `canApprove` / `canWrite` で gate
+    - viewer は読み取りのみ、entry は書き込み OK、approver は承認・締めも可能、owner は何でも
+- 背景/理由:
+  - NULL 共有マスタは「user の全 client 横断」を意味し、編集が他 client に波及する相互汚染源だった
+  - モバイルは画面押し→反応無し→離脱 のループが ADHD ユーザーに刺さる UX なのでとにかく「動く何か」を出す
+  - client_members 飾り状態は「招待しても何も見えない」最大の落とし穴。invite→accept→真の owner 経由で API が叩ける形が完成
+- 検証:
+  - tsc --noEmit EXIT=0
+  - migration 2件 適用済み (`drop_null_client_id_masters`, `client_members_invite_and_membership`)
+- 次にやること:
+  - 動作確認: member 招待→accept→API 叩ける/叩けない の経路チェック（実機、本番デプロイ後）
+  - viewer の UI 側 disable（書き込みボタンの hide）は別タスクで追跡
+  - lint warning ~30 件は既存・本セッション無関係（admin/page.tsx の set-state-in-effect、page.tsx の未使用変数など）

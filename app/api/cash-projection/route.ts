@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -20,11 +21,18 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
   // 科目カテゴリマップ
   const { data: accountsRaw } = await service
     .from('accounts')
     .select('name, category, sub_category')
-    .eq('user_id', user.id);
+    .eq('user_id', ownerUserId);
 
   const categoryMap = new Map<string, string>();
   const subCategoryMap = new Map<string, string>();
@@ -40,7 +48,7 @@ export async function GET(request: NextRequest) {
   let jeQuery = service
     .from('journal_entries')
     .select('entry_date, debit_account, credit_account, debit_amount, credit_amount, amount')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .lte('entry_date', periodEnd);
   if (clientId) jeQuery = jeQuery.eq('client_id', clientId);
   const { data: allEntries, error: jeError } = await jeQuery;

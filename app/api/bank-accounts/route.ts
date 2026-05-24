@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, listAccessibleClientIds, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -11,15 +12,44 @@ export async function GET(request: NextRequest) {
 
   const clientId = request.nextUrl.searchParams.get('clientId');
   const service = createServiceClient();
-  let query = service
-    .from('bank_accounts')
-    .select('id, client_id, bank_name, account_number, account_label, deposit_account, updated_at')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true });
-  if (clientId) query = query.eq('client_id', clientId);
-  const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ accounts: data ?? [] });
+
+  const SELECT_COLS = 'id, client_id, bank_name, account_number, account_label, deposit_account, updated_at';
+
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    const { data, error } = await service
+      .from('bank_accounts')
+      .select(SELECT_COLS)
+      .eq('user_id', scope.ownerUserId)
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ accounts: data ?? [] });
+  }
+
+  // clientId 未指定: 個人スコープ (caller の user_id + client_id null) と
+  // アクセス可能な全 client の bank_accounts を union して返す
+  const accessible = await listAccessibleClientIds(service, user.id);
+  const [personalRes, clientRes] = await Promise.all([
+    service
+      .from('bank_accounts')
+      .select(SELECT_COLS)
+      .eq('user_id', user.id)
+      .is('client_id', null)
+      .order('created_at', { ascending: true }),
+    accessible.length > 0
+      ? service
+          .from('bank_accounts')
+          .select(SELECT_COLS)
+          .in('client_id', accessible)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null }),
+  ]);
+  if (personalRes.error) return NextResponse.json({ error: personalRes.error.message }, { status: 500 });
+  if (clientRes.error) return NextResponse.json({ error: clientRes.error.message }, { status: 500 });
+  const merged = [...(personalRes.data ?? []), ...(clientRes.data ?? [])];
+  return NextResponse.json({ accounts: merged });
 }
 
 export async function POST(request: NextRequest) {
@@ -40,11 +70,21 @@ export async function POST(request: NextRequest) {
 
   const service = createServiceClient();
 
+  // 権限解決: client 指定があれば member 含めて書込権限確認、無ければ owner 本人として処理
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  }
+
   // 既存レコードを検索（client_id が null の場合も含めて手動マッチ）
   const { data: existing } = await service
     .from('bank_accounts')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .eq('bank_name', bankName)
     .eq('account_number', accountNumber)
     .is('client_id', clientId === null ? null : undefined)
@@ -69,7 +109,7 @@ export async function POST(request: NextRequest) {
   const { data: inserted, error: insertError } = await service
     .from('bank_accounts')
     .insert({
-      user_id: user.id,
+      user_id: ownerUserId,
       client_id: clientId,
       bank_name: bankName,
       account_number: accountNumber,

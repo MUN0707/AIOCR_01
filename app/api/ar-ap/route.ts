@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -62,6 +63,13 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
   const targetAccounts: string[] = type === 'ar' ? [...AR_ACCOUNTS] : [...AP_ACCOUNTS];
   const targetSet = new Set(targetAccounts);
 
@@ -69,7 +77,7 @@ export async function GET(request: NextRequest) {
   let q = service
     .from('journal_entries')
     .select('id, entry_date, debit_account, credit_account, amount, debit_amount, credit_amount, vendor_id, vendor_name, description, client_id')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .or(
       `debit_account.in.(${targetAccounts.map((a) => `"${a}"`).join(',')}),credit_account.in.(${targetAccounts.map((a) => `"${a}"`).join(',')})`,
     )

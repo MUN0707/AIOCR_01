@@ -7,6 +7,7 @@ import { CSV_PRESETS, parseCsvWithPreset, type NormalizedJournalRow } from '@/li
 import { classifyAccount } from '@/lib/account-category-classifier';
 import { normalizeVendorKey } from '@/lib/vendor-normalize';
 import { resolveVendorsBatch } from '@/lib/vendor-resolve';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 60;
 
@@ -54,6 +55,16 @@ export async function POST(request: NextRequest) {
     }
 
     const service = createServiceClient();
+
+    // 権限解決: client 指定があれば member 含めてアクセス確認、無ければ owner 本人として処理
+    let ownerUserId = user.id;
+    if (clientId) {
+      const scope = await resolveClientScope(service, user.id, clientId);
+      if (!scope || !canWrite(scope.role)) {
+        return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+      }
+      ownerUserId = scope.ownerUserId;
+    }
 
     const { data: blob, error: downloadError } = await service.storage
       .from(STORAGE_BUCKET)
@@ -112,12 +123,12 @@ export async function POST(request: NextRequest) {
 
     // ── 借方・貸方科目を集約して、未登録分を accounts に自動登録 ──
     const newAccountsCount = await ensureAccountsForRows(
-      service, user.id, clientId ?? null, result.rows,
+      service, ownerUserId, clientId ?? null, result.rows,
     );
 
     // ── 取引先名を解決（vendors マスタへの id を取得・無ければ新規 insert） ──
     const resolvedVendors = await resolveVendorsBatch(
-      service, user.id, clientId ?? null,
+      service, ownerUserId, clientId ?? null,
       result.rows.map((r) => r.vendor_name ?? ''),
     );
     const newVendorsCount = resolvedVendors.filter(
@@ -126,7 +137,7 @@ export async function POST(request: NextRequest) {
 
     // ── insert 用に整形 ──
     const insertRows = result.rows.map((r, i) => ({
-      user_id: user.id,
+      user_id: ownerUserId,
       client_id: clientId || null,
       entry_type: 'manual' as const,
       entry_date: r.entry_date,

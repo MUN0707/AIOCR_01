@@ -12,6 +12,7 @@ import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { normalizeVendorKey } from '@/lib/vendor-normalize';
 import { resolveVendorsBatch } from '@/lib/vendor-resolve';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -54,6 +55,16 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     const service = createServiceClient();
 
+    // 権限解決: client 指定があれば member 含めて確認、無ければ owner 本人として処理
+    let ownerUserId = user?.id ?? '';
+    if (user && clientId) {
+      const scope = await resolveClientScope(service, user.id, clientId);
+      if (!scope || !canWrite(scope.role)) {
+        return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+      }
+      ownerUserId = scope.ownerUserId;
+    }
+
     // ─── 取引先の名寄せ（resolveVendorsBatch で一括解決・canonical name + vendor_id） ───
     let vouchers: VoucherInput[] = rawVouchers;
     let rules: AccountRule[] = [];
@@ -63,7 +74,7 @@ export async function POST(request: NextRequest) {
     if (user) {
       const resolved = await resolveVendorsBatch(
         service,
-        user.id,
+        ownerUserId,
         clientId,
         rawVouchers.map((v) => v.vendorName ?? ''),
       );
@@ -78,7 +89,7 @@ export async function POST(request: NextRequest) {
       const { data: ruleRows } = await service
         .from('account_rules')
         .select('id, pattern_type, pattern, debit_account')
-        .eq('user_id', user.id);
+        .eq('user_id', ownerUserId);
       rules = (ruleRows ?? []) as AccountRule[];
     }
 
@@ -275,7 +286,7 @@ export async function POST(request: NextRequest) {
         const { data: logRow } = await service
           .from('journal_match_logs')
           .insert({
-            user_id: user.id,
+            user_id: ownerUserId,
             user_email: user.email ?? null,
             client_id: clientId,
             vouchers,
@@ -298,7 +309,7 @@ export async function POST(request: NextRequest) {
       for (const v of voucherVendorMap.values()) {
         if (v.canonicalName && v.vendorId) vendorIdByName.set(v.canonicalName, v.vendorId);
       }
-      await saveResultsToJournalEntries(service, user, clientId, logId, vouchers, transactions, results, summary, vendorIdByName);
+      await saveResultsToJournalEntries(service, { id: ownerUserId, email: user.email }, clientId, logId, vouchers, transactions, results, summary, vendorIdByName);
     }
 
     return NextResponse.json({ results, summary, suggestedUnmatchedAccounts, logId });

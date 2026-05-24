@@ -861,11 +861,15 @@ export default function Home() {
   }, []);
 
   const addRule = useCallback(async (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => {
+    if (!selectedClientId) {
+      alert('先に会社を選択してください');
+      return null;
+    }
     try {
       const res = await fetch('/api/account-rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pattern_type, pattern, debit_account }),
+        body: JSON.stringify({ pattern_type, pattern, debit_account, client_id: selectedClientId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -881,7 +885,7 @@ export default function Home() {
       alert('ルール追加に失敗しました');
       return null;
     }
-  }, []);
+  }, [selectedClientId]);
 
   const deleteRule = useCallback(async (id: string) => {
     try {
@@ -911,8 +915,12 @@ export default function Home() {
   const addAccountLocal = useCallback(async (name: string, reading?: string, sub_category?: string): Promise<AccountItem | null> => {
     const trimmed = name.trim();
     if (!trimmed) return null;
+    if (!selectedClientId) {
+      alert('先に会社を選択してください');
+      return null;
+    }
     // 既存に同名があれば再利用
-    const existing = accountsList.find((a) => a.name === trimmed);
+    const existing = accountsList.find((a) => a.name === trimmed && a.client_id === selectedClientId);
     if (existing) return existing;
     // sub_category から大区分(category)を逆引き
     const SUB_TO_CATEGORY: Record<string, string> = {
@@ -926,7 +934,7 @@ export default function Home() {
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: trimmed, reading: reading?.trim() ?? '', sub_category: sub_category ?? '', category }),
+      body: JSON.stringify({ name: trimmed, reading: reading?.trim() ?? '', sub_category: sub_category ?? '', category, client_id: selectedClientId }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -935,7 +943,7 @@ export default function Home() {
     }
     setAccountsList((prev) => [...prev, data.account].sort((a, b) => a.name.localeCompare(b.name)));
     return data.account;
-  }, [accountsList]);
+  }, [accountsList, selectedClientId]);
 
   // ─── 取引先マスタ State ──────────────────────────────────────────────────
   interface VendorItem { id: string; name: string; normalized_key: string; reading: string; client_id?: string | null }
@@ -955,10 +963,14 @@ export default function Home() {
   const addVendorLocal = useCallback(async (name: string, reading?: string): Promise<VendorItem | null> => {
     const trimmed = name.trim();
     if (!trimmed) return null;
+    if (!selectedClientId) {
+      alert('先に会社を選択してください');
+      return null;
+    }
     const res = await fetch('/api/vendors', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: trimmed, reading: reading?.trim() ?? '' }),
+      body: JSON.stringify({ name: trimmed, reading: reading?.trim() ?? '', client_id: selectedClientId }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -970,7 +982,7 @@ export default function Home() {
       return [...prev, data.vendor].sort((a, b) => a.name.localeCompare(b.name));
     });
     return data.vendor;
-  }, []);
+  }, [selectedClientId]);
 
   // ─── 部門マスタ State ───────────────────────────────────────────────────────
   interface DepartmentItem { id: string; name: string; code: string | null; client_id: string | null }
@@ -4895,7 +4907,63 @@ function UnmatchedView({
 
       {/* 明細テーブル */}
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* モバイル: 仕訳実行カード一覧 */}
+        <div className="lg:hidden divide-y divide-slate-100">
+          {transactions.length === 0 && (
+            <div className="px-4 py-8 text-center text-xs text-slate-400">対象の取引がありません</div>
+          )}
+          {transactions.map((tx, i) => {
+            const isSelected = selected.has(i);
+            return (
+              <div key={`m-tx-${i}`} className={`px-4 py-3 ${isSelected ? 'bg-sky-50/40' : 'bg-white'}`}>
+                <div className="flex items-start gap-2 mb-2">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleOne(i)}
+                    className="w-5 h-5 accent-sky-500 cursor-pointer mt-0.5 shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-mono text-slate-500">
+                        {tx.transactionDate.length === 8
+                          ? `${tx.transactionDate.slice(0,4)}/${tx.transactionDate.slice(4,6)}/${tx.transactionDate.slice(6,8)}`
+                          : tx.transactionDate}
+                      </span>
+                      <span className={`text-xs font-semibold tabular-nums shrink-0 ${tx.credit != null ? 'text-lime-600' : 'text-slate-900'}`}>
+                        {tx.credit != null
+                          ? `+¥${tx.credit.toLocaleString()}`
+                          : tx.debit != null ? `-¥${tx.debit.toLocaleString()}` : '—'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-1 line-clamp-2" onClick={() => onShowPdf(tx)}>
+                      {tx.description}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-1.5 pl-7">
+                  <AccountCombobox
+                    value={accounts[i] ?? ''}
+                    onChange={(v) => setAccounts((prev) => ({ ...prev, [i]: v }))}
+                    accounts={accountsList}
+                    onCreate={addAccountLocal}
+                    placeholder="借方科目"
+                    dense
+                  />
+                  <input
+                    type="text"
+                    value={descriptions[i] ?? ''}
+                    onChange={(e) => setDescriptions((prev) => ({ ...prev, [i]: e.target.value }))}
+                    placeholder="摘要（上書き）"
+                    className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:border-sky-400"
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="overflow-x-auto hidden lg:block">
           <table className="w-full text-sm min-w-[900px]">
             <thead className="bg-slate-50/80">
               <tr className="border-b border-slate-100">
@@ -5845,7 +5913,45 @@ function LedgerView({
             </button>
           )}
         </div>
-        <table className="w-full text-sm table-fixed" style={{ minWidth: '1260px' }}>
+        {/* モバイル: 読み取り専用カード一覧（編集は lg 以上のテーブルで） */}
+        <div className="lg:hidden divide-y divide-slate-100">
+          {displayed.length === 0 && (
+            <div className="px-4 py-8 text-center text-xs text-slate-400">
+              該当する仕訳がありません
+            </div>
+          )}
+          {displayed.map((e) => (
+            <div key={`m-${e.id}_${e.updated_at}`} className="px-4 py-3 bg-white">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-[11px] font-mono text-slate-500">{e.entry_date || '日付不明'}</span>
+                {e.vendor_name && (
+                  <span className="text-[11px] text-slate-600 truncate max-w-[55%]" title={e.vendor_name}>
+                    {e.vendor_name}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5 text-[12px]">
+                <span className="text-amber-700 font-semibold">借</span>
+                <span className="text-slate-700 truncate">{e.debit_account || '—'}</span>
+                <span className="text-slate-900 tabular-nums font-semibold">
+                  ¥{Number(e.debit_amount ?? e.amount ?? 0).toLocaleString()}
+                </span>
+                <span className="text-sky-700 font-semibold">貸</span>
+                <span className="text-slate-700 truncate">{e.credit_account || '—'}</span>
+                <span className="text-slate-900 tabular-nums font-semibold">
+                  ¥{Number(e.credit_amount ?? e.amount ?? 0).toLocaleString()}
+                </span>
+              </div>
+              {e.description && (
+                <p className="mt-1.5 text-[11px] text-slate-500 line-clamp-2" title={e.description}>
+                  {e.description}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <table className="w-full text-sm table-fixed hidden lg:table" style={{ minWidth: '1260px' }}>
           <colgroup>
             <col style={{ width: '36px' }} />   {/* チェック */}
             <col style={{ width: '150px' }} />  {/* 日付（input[type=date] の曜日表示込みで折り返さない幅） */}
@@ -7467,7 +7573,52 @@ function BalanceView({
                 </p>
               )}
             </div>
-            <div className="overflow-x-auto">
+            {/* モバイル: カテゴリ → 科目のカード一覧 */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {rows.length === 0 && (
+                <div className="px-4 py-8 text-center text-xs text-slate-400">表示するデータがありません</div>
+              )}
+              {(() => {
+                let prevCategory = '__init__';
+                const blocks: React.ReactNode[] = [];
+                for (const r of rows) {
+                  const cat = r.category || 'unknown';
+                  const catIsBs = isBs(cat);
+                  if (cat !== prevCategory) {
+                    const t = categoryTotals[cat] ?? { opening: 0, netChange: 0, ending: 0 };
+                    blocks.push(
+                      <div key={`m-cat-${cat}`} className="px-4 py-2 bg-sky-50/60 flex items-center justify-between text-[11px] font-bold text-sky-700">
+                        <span className="uppercase tracking-wider">{CATEGORY_LABEL[cat] ?? '未分類'}</span>
+                        <span className={`tabular-nums ${colorByNet(t.netChange)}`}>{fmtSigned(t.netChange)}</span>
+                      </div>
+                    );
+                    prevCategory = cat;
+                  }
+                  blocks.push(
+                    <button
+                      key={`m-acc-${r.name}`}
+                      type="button"
+                      onClick={() => onOpenGeneralLedger(r.name, null, startDate || null, endDate || null)}
+                      className="w-full text-left px-4 py-3 bg-white hover:bg-slate-50 active:bg-slate-100"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-xs text-slate-700 font-medium truncate">{r.name}</span>
+                        <span className={`text-xs font-semibold tabular-nums shrink-0 ${colorByNet(r.netChange)}`}>{fmtSigned(r.netChange)}</span>
+                      </div>
+                      {catIsBs && (
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 tabular-nums">
+                          <span>期首 ¥{r.opening.toLocaleString()}</span>
+                          <span>期末 ¥{r.ending.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </button>
+                  );
+                }
+                return blocks;
+              })()}
+            </div>
+
+            <div className="overflow-x-auto hidden md:block">
               <table className="w-full text-sm min-w-[760px]">
                 <thead>
                   <tr className="border-b border-slate-50">
@@ -8217,45 +8368,8 @@ function MasterView({
   onCreateRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
   onDeleteRule: (id: string) => Promise<void>;
 }) {
-  // 会社絞り込み: '' = 全件、'null' = 未割当のみ、uuid = その会社
+  // 会社絞り込み: '' = 全件、uuid = その会社
   const [scopeClientId, setScopeClientId] = useState<string>('');
-  // 一括割当先（未割当を一括でこの会社へ移すための選択）
-  const [bulkTargetClientId, setBulkTargetClientId] = useState<string>('');
-
-  const accUnassignedCount = useMemo(() =>
-    accountsList.filter((a) => !a.client_id).length, [accountsList]);
-  const venUnassignedCount = useMemo(() =>
-    vendorsList.filter((v) => !v.client_id).length, [vendorsList]);
-
-  const bulkAssignAccounts = async () => {
-    if (!bulkTargetClientId) return alert('割当先の会社を選択してください');
-    const target = accountsList.filter((a) => !a.client_id && a.id);
-    if (target.length === 0) return alert('未割当の勘定科目はありません');
-    if (!confirm(`未割当の勘定科目 ${target.length} 件をこの会社へ割り当てます。よろしいですか？`)) return;
-    await Promise.all(target.map((a) =>
-      fetch(`/api/accounts/${a.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: bulkTargetClientId }),
-      }),
-    ));
-    onReloadAccounts();
-  };
-
-  const bulkAssignVendors = async () => {
-    if (!bulkTargetClientId) return alert('割当先の会社を選択してください');
-    const target = vendorsList.filter((v) => !v.client_id && v.id);
-    if (target.length === 0) return alert('未割当の取引先はありません');
-    if (!confirm(`未割当の取引先 ${target.length} 件をこの会社へ割り当てます。よろしいですか？`)) return;
-    await Promise.all(target.map((v) =>
-      fetch(`/api/vendors/${v.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: bulkTargetClientId, previousName: v.name }),
-      }),
-    ));
-    onReloadVendors();
-  };
 
   // ── あいまい重複候補の検出（同一会社スコープ内で Levenshtein ≤2） ──
   const accSimilarPairs: SimilarPair<AccountOption>[] = useMemo(
@@ -8351,7 +8465,6 @@ function MasterView({
     const q = accSearch.trim().toLowerCase();
     const inScope = (a: AccountOption): boolean => {
       if (scopeClientId === '') return true;
-      if (scopeClientId === 'null') return !a.client_id;
       return a.client_id === scopeClientId;
     };
     return sortedAccounts.filter((a) => {
@@ -8369,7 +8482,6 @@ function MasterView({
     const q = venSearch.trim().toLowerCase();
     const inScope = (v: AccountOption): boolean => {
       if (scopeClientId === '') return true;
-      if (scopeClientId === 'null') return !v.client_id;
       return v.client_id === scopeClientId;
     };
     return vendorsList.filter((v) => {
@@ -8440,15 +8552,16 @@ function MasterView({
   const handleAddSubAccount = async (parentId: string) => {
     if (!subAccName.trim()) return;
     const parent = accountsList.find((a) => a.id === parentId);
+    if (!parent?.client_id) { alert('親科目に会社が紐付いていません'); return; }
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: subAccName.trim(),
         parent_account_id: parentId,
-        sub_category: parent?.sub_category ?? '',
-        category: parent?.category ?? '',
-        client_id: parent?.client_id ?? null,
+        sub_category: parent.sub_category ?? '',
+        category: parent.category ?? '',
+        client_id: parent.client_id,
       }),
     });
     if (!res.ok) { const j = await res.json(); alert(j.error || '追加失敗'); return; }
@@ -8507,7 +8620,7 @@ function MasterView({
 
   return (
     <div className="space-y-5">
-    {/* 会社フィルタ + 未割当の一括割当 UI */}
+    {/* 会社フィルタ */}
     <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 flex flex-wrap items-center gap-3">
       <div className="flex items-center gap-2">
         <span className="text-xs text-slate-500 font-semibold">会社で絞り込む:</span>
@@ -8517,42 +8630,10 @@ function MasterView({
           className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-sky-400"
         >
           <option value="">全件表示</option>
-          <option value="null">未割当のみ</option>
           {clients.map((c) => (
             <option key={c.id} value={c.id}>{clientDisplayLabel(c)}</option>
           ))}
         </select>
-      </div>
-      <div className="flex items-center gap-2 ml-auto">
-        <span className="text-xs text-slate-500">
-          未割当: 勘定科目 {accUnassignedCount} 件 / 取引先 {venUnassignedCount} 件
-        </span>
-        <select
-          value={bulkTargetClientId}
-          onChange={(e) => setBulkTargetClientId(e.target.value)}
-          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-sky-400"
-        >
-          <option value="">割当先を選択</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>{clientDisplayLabel(c)}</option>
-          ))}
-        </select>
-        <button
-          onClick={bulkAssignAccounts}
-          disabled={!bulkTargetClientId || accUnassignedCount === 0}
-          className="text-[10px] text-white bg-sky-500 rounded-lg px-2.5 py-1.5 font-semibold hover:bg-sky-600 disabled:opacity-40"
-          title="未割当の勘定科目を一括で選択中の会社へ割り当て"
-        >
-          科目を一括割当
-        </button>
-        <button
-          onClick={bulkAssignVendors}
-          disabled={!bulkTargetClientId || venUnassignedCount === 0}
-          className="text-[10px] text-white bg-lime-500 rounded-lg px-2.5 py-1.5 font-semibold hover:bg-lime-600 disabled:opacity-40"
-          title="未割当の取引先を一括で選択中の会社へ割り当て"
-        >
-          取引先を一括割当
-        </button>
       </div>
     </div>
 
@@ -9006,12 +9087,11 @@ function MasterRow({
             value={item.client_id ?? ''}
             onChange={(e) => {
               const v = e.target.value;
-              onSave({ client_id: v || null });
+              if (v) onSave({ client_id: v });
             }}
             className="w-full text-[11px] border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:border-sky-400 bg-white text-slate-600"
             title="この科目を所属させる会社"
           >
-            <option value="">（未割当）</option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>{clientDisplayLabel(c)}</option>
             ))}

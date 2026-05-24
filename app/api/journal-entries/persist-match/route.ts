@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { resolveVendorsBatch } from '@/lib/vendor-resolve';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -68,9 +69,19 @@ export async function POST(request: NextRequest) {
 
     const service = createServiceClient();
 
+    // 権限解決
+    let ownerUserId = user.id;
+    if (clientId) {
+      const scope = await resolveClientScope(service, user.id, clientId);
+      if (!scope || !canWrite(scope.role)) {
+        return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+      }
+      ownerUserId = scope.ownerUserId;
+    }
+
     // 取引先解決（group ごとに 1 件）
     const resolvedVendors = await resolveVendorsBatch(
-      service, user.id, clientId, groups.map((g) => g.vendor_name ?? ''),
+      service, ownerUserId, clientId, groups.map((g) => g.vendor_name ?? ''),
     );
 
     const rows: Record<string, unknown>[] = [];
@@ -81,7 +92,7 @@ export async function POST(request: NextRequest) {
       const vendorId = resolvedVendors[gi].vendorId;
       for (const e of g.accrualEntries) {
         rows.push({
-          user_id: user.id,
+          user_id: ownerUserId,
           client_id: clientId,
           voucher_group_id: voucherGroupId,
           entry_type: 'accrual',
@@ -101,7 +112,7 @@ export async function POST(request: NextRequest) {
       if (g.paymentEntry) {
         const p = g.paymentEntry;
         rows.push({
-          user_id: user.id,
+          user_id: ownerUserId,
           client_id: clientId,
           voucher_group_id: voucherGroupId,
           entry_type: 'payment',
@@ -121,7 +132,7 @@ export async function POST(request: NextRequest) {
       if (g.withholdingPaymentEntry) {
         const p = g.withholdingPaymentEntry;
         rows.push({
-          user_id: user.id,
+          user_id: ownerUserId,
           client_id: clientId,
           voucher_group_id: voucherGroupId,
           entry_type: 'payment',
@@ -154,7 +165,7 @@ export async function POST(request: NextRequest) {
       const { data: acctRows } = await service
         .from('accounts')
         .select('name, fixed_asset_type')
-        .eq('user_id', user.id)
+        .eq('user_id', ownerUserId)
         .in('name', debitAccounts);
       const fixedAcctMap = new Map<string, string>();
       for (const a of acctRows ?? []) {
@@ -168,7 +179,7 @@ export async function POST(request: NextRequest) {
         let nextNumQuery = service
           .from('fixed_assets')
           .select('asset_number')
-          .eq('user_id', user.id)
+          .eq('user_id', ownerUserId)
           .order('asset_number', { ascending: false })
           .limit(1);
         if (clientId) nextNumQuery = nextNumQuery.eq('client_id', clientId);
@@ -184,7 +195,7 @@ export async function POST(request: NextRequest) {
           const amt = Number(r.amount ?? 0);
           if (amt <= 0) continue;
           inserts.push({
-            user_id: user.id,
+            user_id: ownerUserId,
             client_id: clientId,
             asset_number: nextNum++,
             category,

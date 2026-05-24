@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -15,11 +16,18 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
   // 予算データ取得
   let budgetQuery = service
     .from('budgets')
     .select('account_name, month, amount')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .eq('year', year);
   if (clientId) budgetQuery = budgetQuery.eq('client_id', clientId);
   else budgetQuery = budgetQuery.is('client_id', null);
@@ -31,7 +39,7 @@ export async function GET(request: NextRequest) {
   let jeQuery = service
     .from('journal_entries')
     .select('entry_date, debit_account, credit_account, debit_amount, credit_amount, amount')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .gte('entry_date', startDate)
     .lte('entry_date', endDate);
   if (clientId) jeQuery = jeQuery.eq('client_id', clientId);
@@ -39,13 +47,12 @@ export async function GET(request: NextRequest) {
   if (jeError) return NextResponse.json({ error: jeError.message }, { status: 500 });
 
   // 科目カテゴリ取得
-  let accQuery = service.from('accounts').select('name, category').eq('user_id', user.id);
+  const accQuery = service.from('accounts').select('name, category').eq('user_id', ownerUserId);
   const { data: accountsRaw } = await accQuery;
   const categoryMap = new Map<string, string>();
   for (const a of accountsRaw ?? []) categoryMap.set(a.name, a.category);
 
   // 実績を account + month で集計
-  // actual[account_name][month] = net amount
   const actual: Map<string, Map<number, number>> = new Map();
 
   const addActual = (account: string, month: number, delta: number) => {
@@ -63,25 +70,20 @@ export async function GET(request: NextRequest) {
     const debitCat = categoryMap.get(e.debit_account ?? '') ?? '';
     const creditCat = categoryMap.get(e.credit_account ?? '') ?? '';
 
-    // 費用科目: 借方側に計上 → positive = expense
     if (debitCat === 'expense') addActual(e.debit_account!, month, debitAmt);
     if (creditCat === 'expense') addActual(e.credit_account!, month, -creditAmt);
-    // 収益科目: 貸方側に計上 → positive = revenue
     if (creditCat === 'revenue') addActual(e.credit_account!, month, creditAmt);
     if (debitCat === 'revenue') addActual(e.debit_account!, month, -debitAmt);
-    // 資産/負債も予算対象にできるが、まずは収益/費用のみ
   }
 
-  // 予算も同様に集計 (account_name → month → budget)
+  // 予算も同様に集計
   const budget: Map<string, Map<number, number>> = new Map();
   for (const b of budgetRows ?? []) {
     if (!budget.has(b.account_name)) budget.set(b.account_name, new Map());
     budget.get(b.account_name)!.set(b.month, Number(b.amount));
   }
 
-  // 全科目一覧（予算 OR 実績に登場するもの）
   const allAccounts = new Set([...budget.keys(), ...actual.keys()]);
-
   const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
   const rows = [...allAccounts].sort().map((acc) => {

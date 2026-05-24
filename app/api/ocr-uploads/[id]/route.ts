@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 /**
  * DELETE /api/ocr-uploads/:id
@@ -20,13 +21,23 @@ export async function DELETE(
   // アップロード情報を取得
   const { data: upload, error: fetchErr } = await service
     .from('ocr_uploads')
-    .select('id, user_id, storage_path')
+    .select('id, user_id, client_id, storage_path')
     .eq('id', id)
-    .eq('user_id', user.id)
     .single();
 
   if (fetchErr || !upload) {
     return NextResponse.json({ error: 'not found' }, { status: 404 });
+  }
+
+  if (upload.client_id) {
+    const scope = await resolveClientScope(service, user.id, upload.client_id);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'このアップロードの削除権限がありません' }, { status: 403 });
+    }
+  } else {
+    if (upload.user_id !== user.id) {
+      return NextResponse.json({ error: 'not found' }, { status: 404 });
+    }
   }
 
   // 仕訳が紐づいていないか確認

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -50,9 +51,17 @@ export async function GET(request: NextRequest) {
 
     const service = createServiceClient();
 
+    // 権限解決
+    let ownerUserId = user.id;
+    if (clientId) {
+      const scope = await resolveClientScope(service, user.id, clientId);
+      if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+      ownerUserId = scope.ownerUserId;
+    }
+
     // 集計 RPC
     const { data: rpcRows, error: rpcError } = await service.rpc('compute_journal_balance', {
-      p_user_id: user.id,
+      p_user_id: ownerUserId,
       p_client_id: clientId,
       p_start_date: startDate,
       p_end_date: endDate,
@@ -63,7 +72,7 @@ export async function GET(request: NextRequest) {
 
     // 件数
     const { data: countRows, error: countError } = await service.rpc('compute_journal_counts', {
-      p_user_id: user.id,
+      p_user_id: ownerUserId,
       p_client_id: clientId,
       p_start_date: startDate,
       p_end_date: endDate,
@@ -76,7 +85,7 @@ export async function GET(request: NextRequest) {
     let closingQuery = service
       .from('journal_closings')
       .select('closed_until')
-      .eq('user_id', user.id);
+      .eq('user_id', ownerUserId);
     if (clientId) {
       closingQuery = closingQuery.eq('client_id', clientId);
     } else {
@@ -89,7 +98,7 @@ export async function GET(request: NextRequest) {
     let depQuery = service
       .from('journal_entries')
       .select('id, source_fixed_asset_id, entry_date, amount')
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .not('source_fixed_asset_id', 'is', null);
     if (clientId) {
       depQuery = depQuery.eq('client_id', clientId);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { enumerateMonthly, type AssetForCalc, type DepreciationMethod } from '@/lib/depreciation/calculator';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -33,10 +34,19 @@ export async function POST(request: NextRequest) {
 
     const service = createServiceClient();
 
+    let ownerUserId = user.id;
+    if (clientId) {
+      const scope = await resolveClientScope(service, user.id, clientId);
+      if (!scope || !canWrite(scope.role)) {
+        return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+      }
+      ownerUserId = scope.ownerUserId;
+    }
+
     let assetQuery = service
       .from('fixed_assets')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .eq('status', 'active');
     if (clientId) assetQuery = assetQuery.eq('client_id', clientId);
     else assetQuery = assetQuery.is('client_id', null);
@@ -47,7 +57,7 @@ export async function POST(request: NextRequest) {
     let ruleQuery = service
       .from('accounting_rules')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .lte('effective_from_date', periodEnd)
       .order('effective_from_date', { ascending: false })
       .limit(1);
@@ -97,7 +107,7 @@ export async function POST(request: NextRequest) {
           const ymd = `${m.year}${String(m.month).padStart(2, '0')}${String(m.lastDay.getDate()).padStart(2, '0')}`;
           const periodLabel = `${m.year}-${String(m.month).padStart(2, '0')}`;
           rows.push({
-            user_id: user.id,
+            user_id: ownerUserId,
             client_id: clientId,
             entry_type: 'depreciation',
             entry_date: ymd,
@@ -122,7 +132,7 @@ export async function POST(request: NextRequest) {
         const ymd = `${endY}${String(endM).padStart(2, '0')}${String(endD).padStart(2, '0')}`;
         const periodLabel = `${endY}`;
         rows.push({
-          user_id: user.id,
+          user_id: ownerUserId,
           client_id: clientId,
           entry_type: 'depreciation',
           entry_date: ymd,
@@ -148,7 +158,7 @@ export async function POST(request: NextRequest) {
       await service
         .from('journal_entries')
         .delete()
-        .eq('user_id', user.id)
+        .eq('user_id', ownerUserId)
         .eq('entry_type', 'depreciation')
         .in('source_fixed_asset_id', targetAssetIds)
         .gte('entry_date', startYmd)
@@ -160,7 +170,7 @@ export async function POST(request: NextRequest) {
       const { data: existing } = await service
         .from('journal_entries')
         .select('source_fixed_asset_id, depreciation_period')
-        .eq('user_id', user.id)
+        .eq('user_id', ownerUserId)
         .eq('entry_type', 'depreciation')
         .in('source_fixed_asset_id', targetAssetIds)
         .gte('entry_date', startYmd)

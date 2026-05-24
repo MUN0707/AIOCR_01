@@ -8,8 +8,8 @@
  * journal_entries の vendor_id を埋める全 insert サイトから呼ぶ。
  *
  * normalized_key は vendor-normalize.ts と同じロジックで算出する。
- * unique は (user_id, COALESCE(client_id::text, ''), normalized_key) なので
- * client_id NULL / 非 NULL でレコードは分かれる仕様（既存設計を尊重）。
+ * unique は (user_id, client_id, normalized_key)。client_id は NOT NULL。
+ * clientId が null の場合は解決をスキップし vendorId=null を返す。
  */
 
 import { normalizeVendorKey } from '@/lib/vendor-normalize';
@@ -33,16 +33,15 @@ export async function resolveVendor(
   if (!trimmed) return { vendorId: null, canonicalName: '' };
   const key = normalizeVendorKey(trimmed);
   if (!key) return { vendorId: null, canonicalName: trimmed };
+  if (!clientId) return { vendorId: null, canonicalName: trimmed };
 
-  let query = service
+  const { data: existing } = await service
     .from('vendors')
     .select('id, name')
     .eq('user_id', userId)
     .eq('normalized_key', key)
+    .eq('client_id', clientId)
     .limit(1);
-  query = clientId ? query.eq('client_id', clientId) : query.is('client_id', null);
-
-  const { data: existing } = await query;
   if (existing && existing.length > 0) {
     return { vendorId: existing[0].id, canonicalName: existing[0].name };
   }
@@ -59,14 +58,13 @@ export async function resolveVendor(
   }
 
   // 競合時は再 select
-  let retry = service
+  const { data: retryRow } = await service
     .from('vendors')
     .select('id, name')
     .eq('user_id', userId)
     .eq('normalized_key', key)
+    .eq('client_id', clientId)
     .limit(1);
-  retry = clientId ? retry.eq('client_id', clientId) : retry.is('client_id', null);
-  const { data: retryRow } = await retry;
   if (retryRow && retryRow.length > 0) {
     return { vendorId: retryRow[0].id, canonicalName: retryRow[0].name };
   }
@@ -103,14 +101,18 @@ export async function resolveVendorsBatch(
     return rawNames.map((raw) => ({ vendorId: null, canonicalName: (raw ?? '').trim() }));
   }
 
+  // clientId 無しは vendor 解決不可
+  if (!clientId) {
+    return rawNames.map((raw) => ({ vendorId: null, canonicalName: (raw ?? '').trim() }));
+  }
+
   // 既存 vendor を一括取得
-  let existingQuery = service
+  const { data: existing } = await service
     .from('vendors')
     .select('id, name, normalized_key')
     .eq('user_id', userId)
+    .eq('client_id', clientId)
     .in('normalized_key', uniqueKeys);
-  existingQuery = clientId ? existingQuery.eq('client_id', clientId) : existingQuery.is('client_id', null);
-  const { data: existing } = await existingQuery;
 
   const keyToResolved = new Map<string, { id: string; name: string }>();
   for (const v of existing ?? []) {
@@ -137,13 +139,12 @@ export async function resolveVendorsBatch(
       }
     } else {
       // 競合時は再 select でカバー
-      let retry = service
+      const { data: retryRows } = await service
         .from('vendors')
         .select('id, name, normalized_key')
         .eq('user_id', userId)
+        .eq('client_id', clientId)
         .in('normalized_key', missingKeys);
-      retry = clientId ? retry.eq('client_id', clientId) : retry.is('client_id', null);
-      const { data: retryRows } = await retry;
       for (const v of retryRows ?? []) {
         keyToResolved.set(v.normalized_key, { id: v.id, name: v.name });
       }

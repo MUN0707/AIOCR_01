@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 /**
  * GET /api/bank-transactions?clientId=xxx
@@ -18,11 +19,15 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
+  const scope = await resolveClientScope(service, user.id, clientId);
+  if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+  const ownerUserId = scope.ownerUserId;
+
   // 通帳 OCR アップロードを取得
   const { data: uploads, error: upErr } = await service
     .from('ocr_uploads')
     .select('id, file_name, mode, ocr_result, created_at')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .eq('client_id', clientId)
     .eq('mode', 'bank-statement')
     .order('created_at', { ascending: false });
@@ -38,7 +43,7 @@ export async function GET(request: NextRequest) {
   const { data: entries } = await service
     .from('journal_entries')
     .select('id, entry_date, amount, credit_account, debit_account, description, bank_ocr_upload_id')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .in('bank_ocr_upload_id', uploadIds);
 
   // 仕訳をupload_idごとに整理

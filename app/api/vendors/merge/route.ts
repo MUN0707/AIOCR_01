@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -8,9 +9,6 @@ export const maxDuration = 30;
  * 取引先のマージ
  *
  * body: { keepId, mergeId }
- * 処理:
- *   1. journal_entries の vendor_name=merge.name → keep.name に置換
- *   2. merge レコードを DELETE
  */
 export async function POST(request: NextRequest) {
   try {
@@ -30,8 +28,7 @@ export async function POST(request: NextRequest) {
     const { data: rows, error: fetchErr } = await service
       .from('vendors')
       .select('id, name, user_id, client_id')
-      .in('id', [keepId, mergeId])
-      .eq('user_id', user.id);
+      .in('id', [keepId, mergeId]);
 
     if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
     if (!rows || rows.length !== 2) {
@@ -44,21 +41,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '対象の取引先が見つかりません' }, { status: 404 });
     }
 
-    // vendor_id で参照されている仕訳をマージ先に張り替え（canonical name も統一）
+    if (keep.user_id !== merge.user_id) {
+      return NextResponse.json({ error: '所有者が異なる取引先はマージできません' }, { status: 400 });
+    }
+    if ((keep.client_id ?? null) !== (merge.client_id ?? null)) {
+      return NextResponse.json({ error: '所属会社が異なる取引先はマージできません' }, { status: 400 });
+    }
+
+    let ownerUserId = user.id;
+    if (keep.client_id) {
+      const scope = await resolveClientScope(service, user.id, keep.client_id);
+      if (!scope || !canWrite(scope.role)) {
+        return NextResponse.json({ error: 'この会社の書き込み権限がありません' }, { status: 403 });
+      }
+      ownerUserId = scope.ownerUserId;
+    } else {
+      if (keep.user_id !== user.id) {
+        return NextResponse.json({ error: '対象の取引先が見つかりません' }, { status: 404 });
+      }
+    }
+
+    // vendor_id で参照されている仕訳をマージ先に張り替え
     const { data: byIdUpdated } = await service
       .from('journal_entries')
       .update({ vendor_id: keep.id, vendor_name: keep.name })
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .eq('vendor_id', merge.id)
       .select('id');
 
-    // vendor_id 未設定で vendor_name のみ merge.name の旧仕訳も拾う（既存表記揺れ救済）
     let byNameUpdated: { id: string }[] | null = null;
     if (keep.name !== merge.name) {
       const { data } = await service
         .from('journal_entries')
         .update({ vendor_name: keep.name, vendor_id: keep.id })
-        .eq('user_id', user.id)
+        .eq('user_id', ownerUserId)
         .is('vendor_id', null)
         .eq('vendor_name', merge.name)
         .select('id');
@@ -70,7 +86,7 @@ export async function POST(request: NextRequest) {
       .from('vendors')
       .delete()
       .eq('id', mergeId)
-      .eq('user_id', user.id);
+      .eq('user_id', ownerUserId);
 
     if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 

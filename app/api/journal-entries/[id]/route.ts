@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -39,26 +40,39 @@ export async function PATCH(
   const body = await request.json();
   const service = createServiceClient();
 
-  // 対象エントリ取得（所有権確認）
+  // 対象エントリ取得（id で取得し、client_id 経由で権限判定）
   const { data: existing, error: fetchError } = await service
     .from('journal_entries')
     .select('*')
     .eq('id', id)
-    .eq('user_id', user.id)
     .single();
 
   if (fetchError || !existing) {
     return NextResponse.json({ error: '該当の仕訳が見つかりません' }, { status: 404 });
   }
 
+  // 権限解決: client 指定があれば member 含めてアクセス確認、無ければ owner 本人として処理
+  let ownerUserId = user.id;
+  if (existing.client_id) {
+    const scope = await resolveClientScope(service, user.id, existing.client_id);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'この仕訳の書き込み権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  } else {
+    if (existing.user_id !== user.id) {
+      return NextResponse.json({ error: '該当の仕訳が見つかりません' }, { status: 404 });
+    }
+  }
+
   // 既存エントリの日付で締めチェック
-  const existingLockError = await assertNotLocked(service, user.id, existing.client_id, existing.entry_date);
+  const existingLockError = await assertNotLocked(service, ownerUserId, existing.client_id, existing.entry_date);
   if (existingLockError) {
     return NextResponse.json({ error: existingLockError }, { status: 403 });
   }
   // 新しい日付で再度チェック（締め期間に移動しようとする場合も禁止）
   if (body.entry_date) {
-    const newLockError = await assertNotLocked(service, user.id, existing.client_id, body.entry_date);
+    const newLockError = await assertNotLocked(service, ownerUserId, existing.client_id, body.entry_date);
     if (newLockError) {
       return NextResponse.json({ error: newLockError }, { status: 403 });
     }
@@ -79,7 +93,7 @@ export async function PATCH(
     .from('journal_entries')
     .update(update)
     .eq('id', id)
-    .eq('user_id', user.id);
+    .eq('user_id', ownerUserId);
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
@@ -102,16 +116,28 @@ export async function DELETE(
 
   const { data: existing, error: fetchError } = await service
     .from('journal_entries')
-    .select('client_id, entry_date, debit_account, credit_account, amount, description')
+    .select('user_id, client_id, entry_date, debit_account, credit_account, amount, description')
     .eq('id', id)
-    .eq('user_id', user.id)
     .single();
 
   if (fetchError || !existing) {
     return NextResponse.json({ error: '該当の仕訳が見つかりません' }, { status: 404 });
   }
 
-  const lockError = await assertNotLocked(service, user.id, existing.client_id, existing.entry_date);
+  let ownerUserId = user.id;
+  if (existing.client_id) {
+    const scope = await resolveClientScope(service, user.id, existing.client_id);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'この仕訳の削除権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  } else {
+    if (existing.user_id !== user.id) {
+      return NextResponse.json({ error: '該当の仕訳が見つかりません' }, { status: 404 });
+    }
+  }
+
+  const lockError = await assertNotLocked(service, ownerUserId, existing.client_id, existing.entry_date);
   if (lockError) {
     return NextResponse.json({ error: lockError }, { status: 403 });
   }
@@ -120,7 +146,7 @@ export async function DELETE(
     .from('journal_entries')
     .delete()
     .eq('id', id)
-    .eq('user_id', user.id);
+    .eq('user_id', ownerUserId);
 
   if (deleteError) {
     return NextResponse.json({ error: deleteError.message }, { status: 500 });

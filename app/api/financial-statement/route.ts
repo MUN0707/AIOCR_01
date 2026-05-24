@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -56,6 +57,13 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
   // 期首残高・法人税等（指定された期があれば取得）
   let openingBalances: Record<string, number> = {};
   let periodCorporateTax = 0;
@@ -64,7 +72,7 @@ export async function GET(request: NextRequest) {
       .from('fiscal_periods')
       .select('opening_balances, corporate_tax')
       .eq('id', periodId)
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .single();
     if (period?.opening_balances && typeof period.opening_balances === 'object') {
       openingBalances = period.opening_balances as Record<string, number>;
@@ -82,7 +90,7 @@ export async function GET(request: NextRequest) {
       .from('clients')
       .select('name, legal_name, short_name, company_code')
       .eq('id', clientId)
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .single();
     if (c) clientInfo = c;
   }
@@ -91,7 +99,7 @@ export async function GET(request: NextRequest) {
   const { data: accounts, error: accErr } = await service
     .from('accounts')
     .select('id, name, category, sub_category')
-    .eq('user_id', user.id);
+    .eq('user_id', ownerUserId);
   if (accErr) return NextResponse.json({ error: accErr.message }, { status: 500 });
 
   const accountMap = new Map<string, AccountRow>();
@@ -104,7 +112,7 @@ export async function GET(request: NextRequest) {
   let query = service
     .from('journal_entries')
     .select('debit_account, credit_account, amount, entry_date')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .lte('entry_date', endCompact);
 
   if (clientId) query = query.eq('client_id', clientId);

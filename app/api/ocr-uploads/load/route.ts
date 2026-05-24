@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { listAccessibleClientIds } from '@/lib/client-access';
 
 /**
  * POST /api/ocr-uploads/load
@@ -25,15 +26,21 @@ export async function POST(request: NextRequest) {
 
   const service = createServiceClient();
 
-  const { data: uploads, error } = await service
+  const { data: uploadsRaw, error } = await service
     .from('ocr_uploads')
-    .select('id, file_name, mode, ocr_result')
-    .eq('user_id', user.id)
+    .select('id, user_id, client_id, file_name, mode, ocr_result')
     .in('id', allIds);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const uploadMap = new Map((uploads ?? []).map((u) => [u.id, u]));
+  // 権限フィルタ: 個人 (caller user_id 一致, client_id null) OR アクセス可能 client に属する
+  const accessible = new Set(await listAccessibleClientIds(service, user.id));
+  const uploads = (uploadsRaw ?? []).filter((u) => {
+    if (u.client_id) return accessible.has(u.client_id);
+    return u.user_id === user.id;
+  });
+
+  const uploadMap = new Map(uploads.map((u) => [u.id, u]));
 
   // 通帳データを結合
   const bankData: Array<{

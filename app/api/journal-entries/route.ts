@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { resolveVendor } from '@/lib/vendor-resolve';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -69,9 +70,19 @@ export async function POST(request: NextRequest) {
 
   const service = createServiceClient();
 
+  // 権限解決: client 指定があれば member 含めてアクセス確認、無ければ owner 本人として処理
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  }
+
   // 締め日チェック
   {
-    let q = service.from('journal_closings').select('closed_until').eq('user_id', user.id);
+    let q = service.from('journal_closings').select('closed_until').eq('user_id', ownerUserId);
     if (clientId) q = q.eq('client_id', clientId);
     else q = q.is('client_id', null);
     const { data: closings } = await q.limit(1);
@@ -82,10 +93,10 @@ export async function POST(request: NextRequest) {
   }
 
   // 取引先を解決（vendor_id を埋め、canonical name に揃える）
-  const { vendorId, canonicalName } = await resolveVendor(service, user.id, clientId, vendorName);
+  const { vendorId, canonicalName } = await resolveVendor(service, ownerUserId, clientId, vendorName);
 
   const row = {
-    user_id: user.id,
+    user_id: ownerUserId,
     client_id: clientId,
     voucher_group_id: crypto.randomUUID(),
     entry_type: 'manual',

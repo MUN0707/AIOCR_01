@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 import { encode } from 'iconv-lite';
 
 export const maxDuration = 30;
@@ -135,8 +136,18 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
+  // 振込ファイル出力は書き込み相当の操作（実際の支払い実行を伴う）
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'この会社の振込出力権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  }
+
   // 自社銀行情報
-  let settingsQuery = service.from('company_settings').select('*').eq('user_id', user.id);
+  let settingsQuery = service.from('company_settings').select('*').eq('user_id', ownerUserId);
   if (clientId) settingsQuery = settingsQuery.eq('client_id', clientId);
   else settingsQuery = settingsQuery.is('client_id', null);
   const { data: settingsRow } = await settingsQuery.maybeSingle();
@@ -149,7 +160,7 @@ export async function GET(request: NextRequest) {
   const { data: arApRows, error: arApErr } = await service
     .from('ar_ap_records')
     .select('id, counterparty, amount, paid_amount')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .in('id', ids);
   if (arApErr) return NextResponse.json({ error: arApErr.message }, { status: 500 });
 
@@ -158,7 +169,7 @@ export async function GET(request: NextRequest) {
   const { data: vendorRows } = await service
     .from('vendors')
     .select('name, bank_code, branch_code, account_type, account_number, account_name_kana')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .in('name', counterparties);
 
   const vendorMap = new Map((vendorRows ?? []).map((v) => [v.name, v]));

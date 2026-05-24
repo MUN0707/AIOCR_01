@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { theoreticalInPeriod, type AssetForCalc, type DepreciationMethod } from '@/lib/depreciation/calculator';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -23,10 +24,17 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
   let assetQuery = service
     .from('fixed_assets')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .eq('status', 'active');
   if (clientId) assetQuery = assetQuery.eq('client_id', clientId);
   else assetQuery = assetQuery.is('client_id', null);
@@ -38,7 +46,7 @@ export async function GET(request: NextRequest) {
   let entryQuery = service
     .from('journal_entries')
     .select('source_fixed_asset_id, amount')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .eq('entry_type', 'depreciation')
     .gte('entry_date', startYmd)
     .lte('entry_date', endYmd);

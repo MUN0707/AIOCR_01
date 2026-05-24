@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -14,16 +15,26 @@ export async function GET(request: NextRequest) {
   const clientId = request.nextUrl.searchParams.get('clientId');
   const service = createServiceClient();
 
-  let query = service
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    const { data, error } = await service
+      .from('fiscal_periods')
+      .select(SELECT_COLS)
+      .eq('user_id', scope.ownerUserId)
+      .eq('client_id', clientId)
+      .order('start_date', { ascending: false });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ periods: data ?? [] });
+  }
+
+  // clientId 未指定: 個人スコープ (caller の user_id + client_id null) のみ
+  const { data, error } = await service
     .from('fiscal_periods')
     .select(SELECT_COLS)
     .eq('user_id', user.id)
+    .is('client_id', null)
     .order('start_date', { ascending: false });
-
-  if (clientId) query = query.eq('client_id', clientId);
-  else query = query.is('client_id', null);
-
-  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ periods: data ?? [] });
 }
@@ -48,9 +59,19 @@ export async function POST(request: NextRequest) {
   }
 
   const service = createServiceClient();
+
+  let ownerUserId = user.id;
+  if (client_id) {
+    const scope = await resolveClientScope(service, user.id, client_id);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  }
+
   const { data, error } = await service
     .from('fiscal_periods')
-    .insert({ user_id: user.id, name, start_date, end_date, client_id, opening_balances: {}, corporate_tax: 0 })
+    .insert({ user_id: ownerUserId, name, start_date, end_date, client_id, opening_balances: {}, corporate_tax: 0 })
     .select(SELECT_COLS)
     .single();
 

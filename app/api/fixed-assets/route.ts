@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -14,16 +15,26 @@ export async function GET(request: NextRequest) {
   const clientId = request.nextUrl.searchParams.get('clientId');
   const service = createServiceClient();
 
-  let query = service
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    const { data, error } = await service
+      .from('fixed_assets')
+      .select(SELECT_COLS)
+      .eq('user_id', scope.ownerUserId)
+      .eq('client_id', clientId)
+      .order('asset_number', { ascending: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ assets: data ?? [] });
+  }
+
+  // 個人スコープのみ
+  const { data, error } = await service
     .from('fixed_assets')
     .select(SELECT_COLS)
     .eq('user_id', user.id)
+    .is('client_id', null)
     .order('asset_number', { ascending: true });
-
-  if (clientId) query = query.eq('client_id', clientId);
-  else query = query.is('client_id', null);
-
-  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ assets: data ?? [] });
 }
@@ -38,11 +49,20 @@ export async function POST(request: NextRequest) {
 
   const clientId: string | null = body.client_id ?? null;
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  }
+
   // 次の連番を算出
   let nextNumQuery = service
     .from('fixed_assets')
     .select('asset_number')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .order('asset_number', { ascending: false })
     .limit(1);
   if (clientId) nextNumQuery = nextNumQuery.eq('client_id', clientId);
@@ -56,7 +76,7 @@ export async function POST(request: NextRequest) {
   }
 
   const insertRow = {
-    user_id: user.id,
+    user_id: ownerUserId,
     client_id: clientId,
     asset_number: nextNum,
     category,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -32,13 +33,20 @@ export async function GET(request: NextRequest) {
 
   const service = createServiceClient();
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
   let corporateTax = 0;
   if (periodId) {
     const { data: period } = await service
       .from('fiscal_periods')
       .select('corporate_tax')
       .eq('id', periodId)
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .single();
     corporateTax = Number(period?.corporate_tax ?? 0) || 0;
   }
@@ -46,7 +54,7 @@ export async function GET(request: NextRequest) {
   const { data: accounts, error: accErr } = await service
     .from('accounts')
     .select('name, category, sub_category')
-    .eq('user_id', user.id);
+    .eq('user_id', ownerUserId);
   if (accErr) return NextResponse.json({ error: accErr.message }, { status: 500 });
 
   const accountMap = new Map<string, { sub_category: string | null }>();
@@ -58,7 +66,7 @@ export async function GET(request: NextRequest) {
   let query = service
     .from('journal_entries')
     .select('debit_account, credit_account, amount')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .gte('entry_date', startCompact)
     .lte('entry_date', endCompact);
 

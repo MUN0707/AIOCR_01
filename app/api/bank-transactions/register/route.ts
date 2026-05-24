@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 /**
  * POST /api/bank-transactions/register
@@ -44,8 +45,14 @@ export async function POST(request: NextRequest) {
 
   const service = createServiceClient();
 
+  const scope = await resolveClientScope(service, user.id, clientId);
+  if (!scope || !canWrite(scope.role)) {
+    return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+  }
+  const ownerUserId = scope.ownerUserId;
+
   const rows = entries.map((e) => ({
-    user_id: user.id,
+    user_id: ownerUserId,
     client_id: clientId,
     entry_type: 'manual' as const,
     entry_date: e.transactionDate,

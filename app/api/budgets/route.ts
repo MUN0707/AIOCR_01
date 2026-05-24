@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -14,10 +15,18 @@ export async function GET(request: NextRequest) {
   const year = searchParams.get('year');
 
   const service = createServiceClient();
+
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
   let query = service
     .from('budgets')
     .select('id, account_name, year, month, amount')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .order('account_name')
     .order('month');
 
@@ -48,11 +57,20 @@ export async function POST(request: NextRequest) {
 
   const service = createServiceClient();
 
+  let ownerUserId = user.id;
+  if (client_id) {
+    const scope = await resolveClientScope(service, user.id, client_id);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  }
+
   // INSERT 試行 → 重複 (23505) なら既存行を UPDATE
   const roundedAmount = Math.round(amount);
   const { data: inserted, error: insertError } = await service
     .from('budgets')
-    .insert({ user_id: user.id, client_id, account_name, year, month, amount: roundedAmount })
+    .insert({ user_id: ownerUserId, client_id, account_name, year, month, amount: roundedAmount })
     .select('id, account_name, year, month, amount')
     .single();
 
@@ -66,7 +84,7 @@ export async function POST(request: NextRequest) {
   let existQuery = service
     .from('budgets')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .eq('account_name', account_name)
     .eq('year', year)
     .eq('month', month);

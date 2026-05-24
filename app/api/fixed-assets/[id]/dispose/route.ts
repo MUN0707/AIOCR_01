@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -33,16 +34,29 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
 
     const service = createServiceClient();
 
-    // 資産取得
+    // 資産取得（id 単独。所有判定は client_id 経由 or user_id 一致）
     const { data: asset, error: assetErr } = await service
       .from('fixed_assets')
       .select('*')
-      .eq('user_id', user.id)
       .eq('id', id)
       .single();
     if (assetErr || !asset) {
       return NextResponse.json({ error: '資産が見つかりません' }, { status: 404 });
     }
+
+    let ownerUserId = user.id;
+    if (asset.client_id) {
+      const scope = await resolveClientScope(service, user.id, asset.client_id);
+      if (!scope || !canWrite(scope.role)) {
+        return NextResponse.json({ error: 'この資産の処分権限がありません' }, { status: 403 });
+      }
+      ownerUserId = scope.ownerUserId;
+    } else {
+      if (asset.user_id !== user.id) {
+        return NextResponse.json({ error: '資産が見つかりません' }, { status: 404 });
+      }
+    }
+
     if (asset.status === 'disposed') {
       return NextResponse.json({ error: 'すでに処分済みです' }, { status: 400 });
     }
@@ -51,7 +65,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
     const { data: depEntries } = await service
       .from('journal_entries')
       .select('amount')
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .eq('entry_type', 'depreciation')
       .eq('source_fixed_asset_id', id);
 
@@ -62,7 +76,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
     let ruleQuery = service
       .from('accounting_rules')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .lte('effective_from_date', disposalDate)
       .order('effective_from_date', { ascending: false })
       .limit(1);
@@ -87,7 +101,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
       if (indirect) {
         if (accumulated > 0) {
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: '減価償却累計額',
             credit_account: asset.account_name,
@@ -98,7 +112,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         }
         if (bookValue > 0) {
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: '固定資産除却損',
             credit_account: asset.account_name,
@@ -111,7 +125,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         // 直接法: 簿価 = 帳簿上の資産残高 → それを除却損へ
         if (bookValue > 0) {
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: '固定資産除却損',
             credit_account: asset.account_name,
@@ -129,7 +143,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         // 累計額を消込
         if (accumulated > 0) {
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: '減価償却累計額',
             credit_account: asset.account_name,
@@ -141,7 +155,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         // 現金 / 資産 (簿価) + 差損益
         if (disposalAmount > 0) {
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: cashAccount,
             credit_account: asset.account_name,
@@ -154,7 +168,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         if (gainLoss > 0) {
           // 売却益
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: cashAccount,
             credit_account: '固定資産売却益',
@@ -166,7 +180,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         } else if (gainLoss < 0) {
           // 売却損
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: '固定資産売却損',
             credit_account: asset.account_name,
@@ -179,7 +193,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         // 直接法
         if (disposalAmount > 0) {
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: cashAccount,
             credit_account: asset.account_name,
@@ -191,7 +205,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
         }
         if (gainLoss > 0) {
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: cashAccount,
             credit_account: '固定資産売却益',
@@ -202,7 +216,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
           }));
         } else if (gainLoss < 0) {
           rows.push(baseRow({
-            userId: user.id, clientId: asset.client_id, voucherGroupId,
+            userId: ownerUserId, clientId: asset.client_id, voucherGroupId,
             entry_date: ymd,
             debit_account: '固定資産売却損',
             credit_account: asset.account_name,

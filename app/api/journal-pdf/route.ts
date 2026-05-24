@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -21,16 +22,25 @@ export async function GET(request: NextRequest) {
 
   const { data: entry, error: entryError } = await service
     .from('journal_entries')
-    .select('id, user_id, ocr_upload_id, bank_ocr_upload_id')
+    .select('id, user_id, client_id, ocr_upload_id, bank_ocr_upload_id')
     .eq('id', entryId)
     .single();
 
   if (entryError || !entry) {
     return NextResponse.json({ error: 'not found' }, { status: 404 });
   }
-  if (entry.user_id !== user.id) {
+
+  // 権限解決: entry の client_id 経由で member 含めてアクセス確認
+  // entry に client_id が無い (個人スコープ) 場合は user_id 一致のみ可
+  type EntryRow = typeof entry & { client_id?: string | null };
+  const e = entry as EntryRow;
+  if (e.client_id) {
+    const scope = await resolveClientScope(service, user.id, e.client_id);
+    if (!scope) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  } else if (e.user_id !== user.id) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
+
   const targetUploadId = source === 'bank' ? entry.bank_ocr_upload_id : entry.ocr_upload_id;
   if (!targetUploadId) {
     return NextResponse.json({ error: 'no pdf linked' }, { status: 404 });

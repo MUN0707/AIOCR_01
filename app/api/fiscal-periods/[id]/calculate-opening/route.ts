@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -26,14 +27,24 @@ export async function GET(
 
   const service = createServiceClient();
 
-  // 期間取得
+  // 期間取得（id 単独で取り、所有判定は client_id 経由 or user_id 一致）
   const { data: period, error: perErr } = await service
     .from('fiscal_periods')
-    .select('id, start_date, client_id')
+    .select('id, user_id, start_date, client_id')
     .eq('id', id)
-    .eq('user_id', user.id)
     .single();
   if (perErr || !period) return NextResponse.json({ error: '会計期間が見つかりません' }, { status: 404 });
+
+  let ownerUserId = user.id;
+  if (period.client_id) {
+    const scope = await resolveClientScope(service, user.id, period.client_id);
+    if (!scope) return NextResponse.json({ error: 'この会計期間へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  } else {
+    if (period.user_id !== user.id) {
+      return NextResponse.json({ error: '会計期間が見つかりません' }, { status: 404 });
+    }
+  }
 
   const startCompact = String(period.start_date).replace(/-/g, '');
 
@@ -41,7 +52,7 @@ export async function GET(
   const { data: accounts, error: accErr } = await service
     .from('accounts')
     .select('name, sub_category')
-    .eq('user_id', user.id);
+    .eq('user_id', ownerUserId);
   if (accErr) return NextResponse.json({ error: accErr.message }, { status: 500 });
 
   const subByName = new Map<string, string | null>();
@@ -51,7 +62,7 @@ export async function GET(
   let q = service
     .from('journal_entries')
     .select('debit_account, credit_account, amount, entry_date')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .lt('entry_date', startCompact);
   if (period.client_id) q = q.eq('client_id', period.client_id);
   else q = q.is('client_id', null);

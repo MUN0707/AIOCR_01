@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -32,8 +33,7 @@ export async function POST(request: NextRequest) {
     const { data: rows, error: fetchErr } = await service
       .from('accounts')
       .select('id, name, user_id, client_id')
-      .in('id', [keepId, mergeId])
-      .eq('user_id', user.id);
+      .in('id', [keepId, mergeId]);
 
     if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
     if (!rows || rows.length !== 2) {
@@ -46,6 +46,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '対象の科目が見つかりません' }, { status: 404 });
     }
 
+    // 両方とも同一 owner / 同一 client であることを要求し、書き込み権限を確認
+    if (keep.user_id !== merge.user_id) {
+      return NextResponse.json({ error: '所有者が異なる科目はマージできません' }, { status: 400 });
+    }
+    if ((keep.client_id ?? null) !== (merge.client_id ?? null)) {
+      return NextResponse.json({ error: '所属会社が異なる科目はマージできません' }, { status: 400 });
+    }
+
+    let ownerUserId = user.id;
+    if (keep.client_id) {
+      const scope = await resolveClientScope(service, user.id, keep.client_id);
+      if (!scope || !canWrite(scope.role)) {
+        return NextResponse.json({ error: 'この会社の書き込み権限がありません' }, { status: 403 });
+      }
+      ownerUserId = scope.ownerUserId;
+    } else {
+      if (keep.user_id !== user.id) {
+        return NextResponse.json({ error: '対象の科目が見つかりません' }, { status: 404 });
+      }
+    }
+
     // journal_entries の科目名を keep.name に統一
     let updatedDebit = 0;
     let updatedCredit = 0;
@@ -53,7 +74,7 @@ export async function POST(request: NextRequest) {
       const { data: dRows } = await service
         .from('journal_entries')
         .update({ debit_account: keep.name })
-        .eq('user_id', user.id)
+        .eq('user_id', ownerUserId)
         .eq('debit_account', merge.name)
         .select('id');
       updatedDebit = dRows?.length ?? 0;
@@ -61,7 +82,7 @@ export async function POST(request: NextRequest) {
       const { data: cRows } = await service
         .from('journal_entries')
         .update({ credit_account: keep.name })
-        .eq('user_id', user.id)
+        .eq('user_id', ownerUserId)
         .eq('credit_account', merge.name)
         .select('id');
       updatedCredit = cRows?.length ?? 0;
@@ -72,7 +93,7 @@ export async function POST(request: NextRequest) {
       .from('accounts')
       .delete()
       .eq('id', mergeId)
-      .eq('user_id', user.id);
+      .eq('user_id', ownerUserId);
 
     if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 

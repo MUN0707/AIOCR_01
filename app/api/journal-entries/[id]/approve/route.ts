@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canApprove, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -25,26 +26,39 @@ export async function POST(
   // 所有権確認 + 現在の状態取得（監査ログ用）
   const { data: existing, error: fetchError } = await service
     .from('journal_entries')
-    .select('approval_status, client_id, entry_date, debit_account, credit_account, amount')
+    .select('user_id, approval_status, client_id, entry_date, debit_account, credit_account, amount')
     .eq('id', id)
-    .eq('user_id', user.id)
     .single();
 
   if (fetchError || !existing) {
     return NextResponse.json({ error: '仕訳が見つかりません' }, { status: 404 });
   }
 
+  // 権限解決: 承認権限 (owner/approver) が必要
+  let ownerUserId = user.id;
+  if (existing.client_id) {
+    const scope = await resolveClientScope(service, user.id, existing.client_id);
+    if (!scope || !canApprove(scope.role)) {
+      return NextResponse.json({ error: 'この仕訳の承認権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  } else {
+    if (existing.user_id !== user.id) {
+      return NextResponse.json({ error: '仕訳が見つかりません' }, { status: 404 });
+    }
+  }
+
   const { error: updateError } = await service
     .from('journal_entries')
     .update({ approval_status: action, updated_at: new Date().toISOString() })
     .eq('id', id)
-    .eq('user_id', user.id);
+    .eq('user_id', ownerUserId);
 
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
 
   // 監査ログ
   await service.from('journal_audit_logs').insert({
-    user_id: user.id,
+    user_id: ownerUserId,
     entry_id: id,
     client_id: existing.client_id,
     action: 'updated',

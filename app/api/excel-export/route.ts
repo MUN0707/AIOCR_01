@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 import * as XLSX from 'xlsx';
 
 export const maxDuration = 30;
@@ -217,20 +218,28 @@ export async function GET(request: NextRequest) {
   const endDate = searchParams.get('endDate') ?? '';
   const account = searchParams.get('account') ?? '';
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const service = createServiceClient();
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
   let wb: XLSX.WorkBook;
   let filename: string;
 
   try {
     if (type === 'trial-balance') {
-      wb = await buildTrialBalance(user.id, clientId, startDate, endDate);
+      wb = await buildTrialBalance(ownerUserId, clientId, startDate, endDate);
       const period = startDate && endDate ? `_${startDate}_${endDate}` : '';
       filename = `試算表${period}.xlsx`;
     } else if (type === 'general-ledger') {
-      wb = await buildGeneralLedger(user.id, clientId, startDate, endDate, account);
+      wb = await buildGeneralLedger(ownerUserId, clientId, startDate, endDate, account);
       const acct = account ? `_${account}` : '';
       filename = `総勘定元帳${acct}.xlsx`;
     } else if (type === 'fixed-assets') {
-      wb = await buildFixedAssets(user.id, clientId);
+      wb = await buildFixedAssets(ownerUserId, clientId);
       filename = '固定資産台帳.xlsx';
     } else {
       return NextResponse.json({ error: 'type パラメータが不正です (trial-balance | general-ledger | fixed-assets)' }, { status: 400 });

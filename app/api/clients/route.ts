@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { createServiceClient } from '@/utils/supabase/service';
+import { seedClientMasters } from '@/lib/seed-client-masters';
 
 const SELECT_COLS = 'id, name, client_type, industry, company_code, legal_name, short_name, invoice_registration_number, created_at';
 
@@ -61,6 +63,9 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  await seedClientMasters(createServiceClient(), user.id, data.id);
+
   return NextResponse.json({ client: data }, { status: 201 });
 }
 

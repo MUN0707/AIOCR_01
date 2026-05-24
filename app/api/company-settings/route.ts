@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
@@ -14,7 +15,14 @@ export async function GET(request: NextRequest) {
   const clientId = request.nextUrl.searchParams.get('clientId') || null;
   const service = createServiceClient();
 
-  let q = service.from('company_settings').select(COLS).eq('user_id', user.id);
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+    ownerUserId = scope.ownerUserId;
+  }
+
+  let q = service.from('company_settings').select(COLS).eq('user_id', ownerUserId);
   if (clientId) q = q.eq('client_id', clientId);
   else q = q.is('client_id', null);
 
@@ -32,6 +40,15 @@ export async function PUT(request: NextRequest) {
   const clientId = body.client_id ?? null;
   const service = createServiceClient();
 
+  let ownerUserId = user.id;
+  if (clientId) {
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope || !canWrite(scope.role)) {
+      return NextResponse.json({ error: 'この会社への書き込み権限がありません' }, { status: 403 });
+    }
+    ownerUserId = scope.ownerUserId;
+  }
+
   const patch = {
     company_name_kana: body.company_name_kana ?? null,
     bank_code: body.bank_code ?? null,
@@ -48,7 +65,7 @@ export async function PUT(request: NextRequest) {
   let existingQuery = service
     .from('company_settings')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('user_id', ownerUserId)
     .limit(1);
   existingQuery = clientId
     ? existingQuery.eq('client_id', clientId)
@@ -69,7 +86,7 @@ export async function PUT(request: NextRequest) {
 
   const { data, error } = await service
     .from('company_settings')
-    .insert({ user_id: user.id, client_id: clientId, ...patch })
+    .insert({ user_id: ownerUserId, client_id: clientId, ...patch })
     .select(COLS)
     .single();
 

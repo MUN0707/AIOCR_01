@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 /**
  * GET /api/match-logs/latest?clientId=xxx
@@ -20,10 +21,13 @@ export async function GET(request: NextRequest) {
     }
 
     const service = createServiceClient();
+    const scope = await resolveClientScope(service, user.id, clientId);
+    if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+
     const { data, error } = await service
       .from('journal_match_logs')
       .select('id, results, summary, created_at')
-      .eq('user_id', user.id)
+      .eq('user_id', scope.ownerUserId)
       .eq('client_id', clientId)
       .order('created_at', { ascending: false })
       .limit(1)

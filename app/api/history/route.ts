@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { listAccessibleClientIds, resolveClientScope } from '@/lib/client-access';
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -8,7 +9,6 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  // 一般ユーザーにも自分のアップロード履歴は見せる（誤アップロード修正のため）
 
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
@@ -19,10 +19,21 @@ export async function GET(request: NextRequest) {
       .from('ocr_uploads')
       .select('id, user_id, session_id, file_name, storage_path, mode, ocr_result, file_size_bytes, created_at, client_id')
       .eq('id', id)
-      .eq('user_id', user.id)
       .single();
     if (error || !data) {
       return NextResponse.json({ error: 'not found' }, { status: 404 });
+    }
+
+    // 権限確認: 個人 (caller user_id 一致, client_id null) OR アクセス可能 client
+    let ownerUserId = user.id;
+    if (data.client_id) {
+      const scope = await resolveClientScope(service, user.id, data.client_id);
+      if (!scope) return NextResponse.json({ error: 'not found' }, { status: 404 });
+      ownerUserId = scope.ownerUserId;
+    } else {
+      if (data.user_id !== user.id) {
+        return NextResponse.json({ error: 'not found' }, { status: 404 });
+      }
     }
 
     const { data: signed } = await service.storage
@@ -33,7 +44,7 @@ export async function GET(request: NextRequest) {
       .from('ocr_corrections')
       .select('item_index, field_name, original_value, corrected_value, created_at')
       .eq('upload_id', id)
-      .eq('user_id', user.id)
+      .eq('user_id', ownerUserId)
       .order('created_at', { ascending: false });
 
     // このアップロードに紐づく仕訳を取得（請求書側 or 通帳側）
@@ -66,18 +77,36 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const { data, error } = await service
-    .from('ocr_uploads')
-    .select('id, file_name, mode, file_size_bytes, created_at, ocr_result')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(200);
+  // 一覧: 個人 (caller の user_id + client_id null) と全アクセス可能 client を union
+  const accessible = await listAccessibleClientIds(service, user.id);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  const [personalRes, clientRes] = await Promise.all([
+    service
+      .from('ocr_uploads')
+      .select('id, file_name, mode, file_size_bytes, created_at, ocr_result')
+      .eq('user_id', user.id)
+      .is('client_id', null)
+      .order('created_at', { ascending: false })
+      .limit(200),
+    accessible.length > 0
+      ? service
+          .from('ocr_uploads')
+          .select('id, file_name, mode, file_size_bytes, created_at, ocr_result')
+          .in('client_id', accessible)
+          .order('created_at', { ascending: false })
+          .limit(200)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null }),
+  ]);
 
-  const items = (data ?? []).map((row) => {
+  if (personalRes.error) return NextResponse.json({ error: personalRes.error.message }, { status: 500 });
+  if (clientRes.error) return NextResponse.json({ error: clientRes.error.message }, { status: 500 });
+
+  const merged = [...(personalRes.data ?? []), ...(clientRes.data ?? [])];
+  // 作成日時で降順に再整列して最新 200 件
+  merged.sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
+  const sliced = merged.slice(0, 200);
+
+  const items = sliced.map((row) => {
     const result = row.ocr_result as { invoices?: unknown[]; transactions?: unknown[] } | null;
     const itemCount = result?.invoices?.length ?? result?.transactions?.length ?? 0;
     return {

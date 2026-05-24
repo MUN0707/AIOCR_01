@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
 
@@ -35,8 +36,15 @@ export async function GET(request: NextRequest) {
 
     const service = createServiceClient();
 
+    let ownerUserId = user.id;
+    if (clientId) {
+      const scope = await resolveClientScope(service, user.id, clientId);
+      if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
+      ownerUserId = scope.ownerUserId;
+    }
+
     const { data: rpcRows, error: rpcError } = await service.rpc('fetch_journal_ledger', {
-      p_user_id: user.id,
+      p_user_id: ownerUserId,
       p_client_id: clientId,
       p_start_date: startDate,
       p_end_date: endDate,
