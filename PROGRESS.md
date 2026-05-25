@@ -648,3 +648,22 @@
 - 次にやること:
   - 本番（Vercel auto-deploy）で SALES 訴求文・bulk-delete エラー UI・ゲスト 3-ID 制限・ledger limit 超過時の挙動を目視確認
   - cursor-based pagination は follow-up タスクとして TaskHub に新規登録（fetch_journal_ledger RPC に p_offset 追加 + voucher_group 跨ぎ重複対策が必要）
+
+## 2026-05-25 13:02 ✅ ocr_result 30日経過104件を JSON 退避 + NULL化 完了
+- やったこと:
+  - `scripts/dump_ocr_result.py` 新規作成 (30日超 ocr_result を JSON dump → DB NULL化)
+  - 条件: `created_at < NOW() - 30 days AND ocr_result IS NOT NULL` (B 案、仕訳不問)
+  - 104 件を `C:\Data\aiocr\<row_id>.json` に退避 (skipped 0、新規 104)
+  - DB の ocr_result を 104 行 NULL 化 (18.2 秒)
+  - **VACUUM FULL public.ocr_uploads 完了**
+  - ocr_uploads テーブルサイズ: 62MB → 6.88MB
+- 当初設計 (A 案: 仕訳反映済み + 90日) からの変更:
+  - 90 日経過した行が 0 件 (最古 2026-04-13 = 約 6 週間前) で削減効果ゼロだったため、B 案 (30日 + 仕訳不問) に切替合意
+  - 履歴画面の詳細データ (`history/page.tsx`, `bank-transactions/route.ts`, `ocr-uploads/load/route.ts` 等) は 30 日以降は壊れる。手動で JSON ファイルから復元は可能
+- 効果:
+  - ocr_uploads -55MB
+  - Supabase 共有 project 全体: 442MB → 313MB (-94MB、88% → 62%)
+- 次にやること / 未解決:
+  - 月次 cron 化: Mac mini で `dump_ocr_result.py` を月1実行する設定 (まだ未登録、必要なら別タスクで)
+  - 30 日以降のレコードについて履歴画面が壊れていないか動作確認 (ユーザー操作で確認推奨)
+- TaskHub: project=mmqri0ck8q9z1 `9976741f-4e41-49a6-83e6-d90ee3a2e2f0` (ocr_result 退避) を完了化
