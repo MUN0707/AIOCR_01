@@ -138,6 +138,50 @@ export default function InvoiceLpPage() {
           </div>
         </section>
 
+        {/* 通帳OCR (銀行API連携 代替訴求) */}
+        <section className="bg-white rounded-2xl shadow-sm border border-sky-100 p-8 space-y-5">
+          <div className="text-center space-y-2">
+            <div className="inline-flex items-center gap-2 bg-lime-100 text-lime-700 text-xs font-semibold px-3 py-1 rounded-full border border-lime-200">
+              通帳もOCRで自動取込
+            </div>
+            <h2 className="text-2xl font-extrabold text-sky-900">銀行API連携の設定は不要</h2>
+            <p className="text-sky-600 text-sm">通帳PDFをアップするだけ。地方銀行・信用金庫・ネット銀行、すべて対応</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              {
+                title: 'API申請不要',
+                body: '銀行ごとのAPI接続申請・対応金融機関の確認は一切不要。明日から使えます。',
+              },
+              {
+                title: '全銀行に対応',
+                body: '紙の通帳をスキャン／PDF出力できれば、地方銀行・信用金庫・ネット銀行、すべて読み取れます。',
+              },
+              {
+                title: '仕訳まで自動',
+                body: 'AIが日付・摘要・金額を読み取り、貸借科目の推測まで実行。あとは確認するだけ。',
+              },
+            ].map((item) => (
+              <div key={item.title} className="bg-sky-50 rounded-xl p-5 space-y-2 border border-sky-100">
+                <h3 className="font-bold text-sky-900 text-sm">{item.title}</h3>
+                <p className="text-sky-700 text-xs leading-relaxed">{item.body}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-sky-400 text-xs text-center">
+            ※ 銀行API直結による完全自動仕訳は freee／マネーフォワード が業界最強領域です。それらを併用しても問題ありません。
+          </p>
+        </section>
+
+        {/* 動作環境（PC前提の明示） */}
+        <section className="bg-sky-50/60 rounded-2xl border border-sky-100 p-6 space-y-2">
+          <h3 className="font-bold text-sky-900 text-base text-center">動作環境</h3>
+          <p className="text-sky-700 text-sm leading-relaxed text-center max-w-2xl mx-auto">
+            税理士事務所側は <span className="font-bold">PC ブラウザ（Chrome／Edge／Safari 最新版）</span>を推奨します。
+            スマートフォン・タブレットからも閲覧・最小限の操作は可能ですが、本格運用は PC をご用意ください。
+          </p>
+        </section>
+
         {/* 他サービスへのクロスナビ */}
         <section className="space-y-4">
           <h2 className="text-2xl font-extrabold text-sky-900 text-center">他にもこんなAI OCRがあります</h2>

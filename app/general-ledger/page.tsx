@@ -94,6 +94,7 @@ function GeneralLedgerInner() {
         if (clientId) params.set('clientId', clientId);
         params.set('account', account);
         params.set('limit', '100000');
+        params.set('format', 'export');
         if (from) params.set('startDate', from.replace(/-/g, ''));
         if (to) params.set('endDate', to.replace(/-/g, ''));
         const res = await fetch(`/api/journal-ledger?${params}`);

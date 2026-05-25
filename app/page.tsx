@@ -1101,7 +1101,7 @@ export default function Home() {
     const res = await fetch('/api/journal-entries/bulk-delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify({ ids, expectedClientId: selectedClientId ?? null }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -5741,6 +5741,7 @@ function LedgerView({
             onClick={async () => {
               try {
                 const params = buildLedgerParams(100000);
+                params.set('format', 'export');
                 const res = await fetch(`/api/journal-ledger?${params.toString()}`);
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'エクスポート失敗');

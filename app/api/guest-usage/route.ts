@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { applyGuestCookie, getGuestIdentity, identityKeys } from '@/lib/guest-identity';
 
 const GUEST_MAX_USES = 5;
 
 export async function GET(request: NextRequest) {
   const fingerprintId = request.nextUrl.searchParams.get('fingerprintId');
-  if (!fingerprintId) {
-    return NextResponse.json({ error: 'fingerprintId is required' }, { status: 400 });
-  }
+  // fingerprintId は省略可になった（cookie + IP+UA で識別できる）
+  const identity = getGuestIdentity(request, fingerprintId);
+  const keys = identityKeys(identity);
 
   const yearMonth = new Date().toISOString().slice(0, 7);
   const service = createServiceClient();
@@ -15,10 +16,12 @@ export async function GET(request: NextRequest) {
   const { data } = await service
     .from('guest_usage')
     .select('count')
-    .eq('fingerprint_id', fingerprintId)
-    .eq('year_month', yearMonth)
-    .maybeSingle();
+    .in('fingerprint_id', keys)
+    .eq('year_month', yearMonth);
 
-  const count = data?.count ?? 0;
-  return NextResponse.json({ count, limit: GUEST_MAX_USES });
+  // 3 識別子のうち最大値を採用（一つでも上限到達なら limit 適用）
+  const count = (data ?? []).reduce((max, row) => Math.max(max, row.count ?? 0), 0);
+
+  const response = NextResponse.json({ count, limit: GUEST_MAX_USES });
+  return applyGuestCookie(response, identity);
 }

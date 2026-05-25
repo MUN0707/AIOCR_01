@@ -12,7 +12,7 @@ export default function PricingPage() {
         'AIによる請求書・通帳自動解析',
         'PDF分割・ファイル命名',
         'ZIPダウンロード対応',
-        'メールサポート（5営業日以内）',
+        'メールサポート（翌営業日以内）',
       ],
       cta: '申し込む',
       highlight: false,
@@ -29,7 +29,7 @@ export default function PricingPage() {
         'PDF分割・ファイル命名',
         'ZIPダウンロード対応',
         '顧問先管理',
-        'メールサポート（5営業日以内）',
+        'メールサポート（営業時間内 12時間以内）',
       ],
       cta: '申し込む',
       highlight: true,
@@ -46,7 +46,7 @@ export default function PricingPage() {
         'ZIPダウンロード対応',
         '顧問先管理',
         '仕訳突合',
-        'メールサポート（3営業日以内）',
+        'メールサポート（営業時間内 4時間以内）',
       ],
       cta: '申し込む',
       highlight: false,
@@ -63,7 +63,7 @@ export default function PricingPage() {
         'ZIPダウンロード対応',
         '顧問先管理',
         '仕訳突合',
-        'メールサポート（翌営業日以内）',
+        'メールサポート（営業時間内 1時間以内・最優先）',
       ],
       cta: 'お問い合わせ',
       highlight: false,
@@ -78,7 +78,7 @@ export default function PricingPage() {
     ['PDF分割・ZIP一括DL', '✓', '✓', '✓', '✓'],
     ['顧問先管理', '—', '✓', '✓', '✓'],
     ['仕訳突合', '—', '—', '✓', '✓'],
-    ['サポート', 'メール（5営業日）', 'メール（5営業日）', 'メール（3営業日）', 'メール（翌営業日）'],
+    ['メール返信速度', '翌営業日', '12時間以内', '4時間以内', '1時間以内（最優先）'],
   ];
 
   return (
@@ -201,6 +201,29 @@ export default function PricingPage() {
             プラン上限を超えた分は <span className="font-bold text-sky-900">1件あたり20円</span> で追加処理できます。
           </p>
           <p className="text-sky-500 text-sm">翌月の請求に自動で合算されます。</p>
+        </div>
+
+        {/* 銀行API連携 不要の訴求 */}
+        <div className="bg-white rounded-2xl shadow-sm border border-sky-100 p-8 space-y-4">
+          <h2 className="text-xl font-bold text-sky-900 text-center">銀行API連携の設定は不要です</h2>
+          <p className="text-sky-700 text-sm leading-relaxed max-w-2xl mx-auto text-center">
+            <span className="font-bold text-sky-900">通帳PDFをアップするだけ</span>でAIが自動で日付・摘要・金額を読み取り、仕訳までつなげます。
+            銀行ごとのAPI接続申請や、対応金融機関の確認は一切不要。地方銀行・信用金庫・ネット銀行、すべての通帳に対応します。
+          </p>
+          <p className="text-sky-500 text-xs text-center">
+            ※ 仕訳まで自動化される銀行API連携は freee／マネーフォワード が業界最強です。それらをすでに導入済みのお客様は併用いただけます。
+          </p>
+        </div>
+
+        {/* 動作環境（PC前提の明示） */}
+        <div className="bg-white rounded-2xl shadow-sm border border-sky-100 p-8 space-y-3">
+          <h2 className="text-xl font-bold text-sky-900 text-center">動作環境</h2>
+          <p className="text-sky-700 text-sm leading-relaxed max-w-2xl mx-auto text-center">
+            <span className="font-bold text-sky-900">税理士事務所側は PC ブラウザ（Chrome / Edge / Safari 最新版）を推奨</span>します。
+            PDF一括アップロード・仕訳突合・総勘定元帳など、業務利用は PC 前提の設計です。
+            スマートフォン・タブレットからも閲覧・最小限の操作は可能ですが、本格運用は PC をご用意ください。
+          </p>
+          <p className="text-sky-500 text-xs text-center">顧問先様への請求書受領も、PC からの提出を推奨しています。</p>
         </div>
 
         {/* お支払い */}

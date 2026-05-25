@@ -604,3 +604,47 @@
   - 動作確認: member 招待→accept→API 叩ける/叩けない の経路チェック（実機、本番デプロイ後）
   - viewer の UI 側 disable（書き込みボタンの hide）は別タスクで追跡
   - lint warning ~30 件は既存・本セッション無関係（admin/page.tsx の set-state-in-effect、page.tsx の未使用変数など）
+
+## 2026-05-25 11:14
+- やったこと:
+  - 横断インフラ調査で `ocr_uploads` テーブル (Supabase 共有 project) の容量を分析
+  - 119 行で 62MB / うち **`ocr_result` jsonb が 59MB (95%)**、1 行 平均 510KB の生 OCR JSON
+  - 画像本体は Storage バケットに既に逃がし済み (`storage_path` は文字列のみ、Storage objects 表は 1080kB)
+- 背景/理由:
+  - Supabase 共有 project が DB Size 88% / Egress 103% で逼迫
+  - 削減候補 3 つ (fx_candles 39MB / ocr_uploads 62MB / pettomo_hotels 36MB) のうち、`ocr_uploads.ocr_result` は「仕訳に反映したら不要」とユーザー確認済み
+- 確定方針: **過去分の `ocr_result` を JSON ファイルに退避 → DB は NULL 化 → cron 化**
+  - 退避先: `C:\Data\aiocr\<row_id>.json`（ローカルファイル、git 管理外）
+  - 残す: 抽出済みカラム (`transaction_amount` / `counterparty` / `receipt_date` / `doc_category` / `edoc_notes`)
+  - 落ちる懸念: アプリ側で `ocr_result` を再表示・再パースしている UI/コードがある場合は壊れる → 着手前に grep 必要
+- 次にやること / 未解決:
+  - 着手前に `ocr_result` を参照しているコードを grep (component / API) → 影響範囲確定
+  - 退避スクリプト作成 (Python or Node、Supabase REST + ローカル fs)
+  - 1 回流して 59MB 削減 + 月次 cron 化 (Mac mini cron で OK)
+  - 詳細は shared-memory [supabase_capacity_strategy.md](C:\Users\negit\.claude\shared-memory\supabase_capacity_strategy.md) 参照
+
+## 2026-05-25 (続き) [明日まで scoped 6件 一括対応]
+- やったこと: 5/24 overdue + 5/25 + 5/26 scheduled の 6 件を一気に消化
+  - **SALES⚡E メール返信速度をプラン別に再設計**: pricing/page.tsx のプラン feature と比較表を「ライト=翌営業日 / スタンダード=営業時間内12h / プロ=営業時間内4h / エンプラ=営業時間内1h（最優先）」に更新。faq/page.tsx に「サポート」カテゴリ新設、Q「サポート対応時間は？」と「緊急時の電話サポート」追加。Slack/Chatwork はターゲット税理士業界で普及していないためメール一本に統一（ユーザー判断）
+  - **SALES⚡A 通帳OCR を銀行API連携の代替として再パッケージ訴求**: lp/invoice/page.tsx に「銀行API連携の設定は不要」セクション新設（API申請不要 / 全銀行対応 / 仕訳まで自動）、pricing/page.tsx にも同趣旨セクション、faq/page.tsx に Q「銀行API連携はサポートしていますか？」追加。freee/MF が業界最強領域なので「敵の土俵で戦わない」原則、併用 OK の文言も末尾に明示
+  - **SALES⚡C モバイル対応はPC前提を LP に明示**: pricing/page.tsx と lp/invoice/page.tsx に「動作環境」セクション追加、税理士事務所側は PC ブラウザ（Chrome/Edge/Safari 最新版）推奨を明示。faq/page.tsx に Q「スマートフォン・タブレットから利用できますか？」追加。モバイル3画面カード化（a8bbfc27、5/24 実施済）と整合性
+  - 旧プラン名「ヘビープラン」が faq 2 箇所に残存していたので「ライト/スタンダード/プロ/エンタープライズ」に修正
+  - **MU🟡7 bulk-delete の client_id 一貫性チェック**: app/api/journal-entries/bulk-delete/route.ts に対象 `ids` の `client_id` が複数混在していたら 400 エラー + 詳細を返す gate を追加。さらに `expectedClientId` を body から受け取り、フロントの「現在表示中の顧問先」と削除対象スコープが一致するか検証。app/page.tsx の handleBulkDelete から `expectedClientId: selectedClientId ?? null` を送信
+  - **MU🟡11 ゲスト fingerprint の使い回し対策**: lib/guest-identity.ts 新設。ブラウザ fingerprint + HttpOnly Cookie (`aiocr_guest_id`, 30日) + IP+UA hash (sha256) の3識別子で複合化。app/api/guest-usage/route.ts と app/api/process-pdf/route.ts を改修し、3 識別子の max カウントで上限判定、increment は3 識別子並列実行、cookie は initial response でセット。ブラウザのキャッシュクリアだけでは無限リセット不能（cookie or IP+UA でも残る）
+  - **MU🟡9 journal-ledger pagination 強化**: app/api/journal-ledger/route.ts の limit を **通常 API は max 1,000 にクランプ**、`?format=export` を明示した場合のみ 100,000 まで許可。CSV 一括出力の app/page.tsx:5743 と app/general-ledger/page.tsx:96 を `params.set('format', 'export')` 追加で対応。journal-balance は集計 RPC で limit 概念なく無影響。サーバ側 RPC 直叩きの excel-export/route.ts は信頼経路として 100,000 のまま継続（HTTP 層クランプの対象は browser 由来攻撃のみ）
+
+- 背景/理由:
+  - 「生成AIOCR販売事業を明日まで終わらせたい」依頼に対し、5/24 overdue 2件 + 5/25 今日 2件 + 5/26 明日 2件 の合計 6 件を全部 1 セッションで消化
+  - SALES 3 件は方針判断要素があったため AskUserQuestion で対応範囲を確認:
+    - PWA は実装せず PC 前提明示のみ
+    - サポートは Slack/Chatwork を採用せずメール一本（プラン別速度差で差別化）
+  - cursor-based pagination は RPC 改修 + voucher_group 跨ぎ問題があり別タスク化（follow-up）
+
+- 検証:
+  - tsc --noEmit EXIT=0
+  - next build EXIT=0
+  - 既存 react-hooks/set-state-in-effect 警告のみ残存（本セッション無関係）
+
+- 次にやること:
+  - 本番（Vercel auto-deploy）で SALES 訴求文・bulk-delete エラー UI・ゲスト 3-ID 制限・ledger limit 超過時の挙動を目視確認
+  - cursor-based pagination は follow-up タスクとして TaskHub に新規登録（fetch_journal_ledger RPC に p_offset 追加 + voucher_group 跨ぎ重複対策が必要）

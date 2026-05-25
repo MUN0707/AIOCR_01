@@ -25,8 +25,12 @@ export async function GET(request: NextRequest) {
     const searchDate = (searchParams.get('searchDate') ?? '').trim();
     const searchDescription = (searchParams.get('searchDescription') ?? '').trim();
     const limitParam = Number(searchParams.get('limit') ?? '50');
-    // 50 〜 100000 にクランプ。100000 はほぼ「全件」CSVエクスポート用
-    const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.floor(limitParam), 1), 100000) : 50;
+    // 通常 API は max 1,000 にクランプ。'?format=export' を明示した場合のみ 100,000 まで許可（CSV 一括出力用）
+    const isExport = (searchParams.get('format') ?? '').trim() === 'export';
+    const MAX_NORMAL = 1000;
+    const MAX_EXPORT = 100000;
+    const cap = isExport ? MAX_EXPORT : MAX_NORMAL;
+    const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.floor(limitParam), 1), cap) : 50;
 
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();

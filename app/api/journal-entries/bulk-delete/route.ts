@@ -13,6 +13,9 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const ids: string[] = Array.isArray(body.ids) ? body.ids : [];
+  // クライアントが「現在表示中の顧問先」を明示宣言。null は個人スコープ。未指定なら後方互換で省略可
+  const expectedClientId: string | null | undefined =
+    body.expectedClientId === undefined ? undefined : (body.expectedClientId ?? null);
   if (ids.length === 0) {
     return NextResponse.json({ error: 'IDが空です' }, { status: 400 });
   }
@@ -31,6 +34,33 @@ export async function POST(request: NextRequest) {
   if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 });
   if (!targets || targets.length === 0) {
     return NextResponse.json({ error: '削除対象が見つかりません' }, { status: 404 });
+  }
+
+  // client_id 一貫性チェック: 異なる顧問先が混在していたら拒否（別顧問先を巻き込む事故を防止）
+  const distinctClientIds = new Set<string | null>(targets.map((t) => t.client_id ?? null));
+  if (distinctClientIds.size > 1) {
+    const clientList = Array.from(distinctClientIds).map((c) => c ?? '(個人)').join(' / ');
+    return NextResponse.json(
+      {
+        error: '異なる顧問先の仕訳が混在しているため一括削除できません',
+        detail: `混在している scope: ${clientList}`,
+        distinctClientIds: Array.from(distinctClientIds),
+      },
+      { status: 400 },
+    );
+  }
+  // expectedClientId が指定された場合、対象 ids の client_id がそれに一致するか検証
+  if (expectedClientId !== undefined) {
+    const actualClientId = Array.from(distinctClientIds)[0] ?? null;
+    if (actualClientId !== expectedClientId) {
+      return NextResponse.json(
+        {
+          error: '削除対象の顧問先が現在表示中の顧問先と異なります',
+          detail: `expected=${expectedClientId ?? '(個人)'} actual=${actualClientId ?? '(個人)'}`,
+        },
+        { status: 400 },
+      );
+    }
   }
 
   // 個人スコープ (client_id null) は自身の user_id 一致のみ可
