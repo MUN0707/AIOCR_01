@@ -53,7 +53,7 @@ export default function InvoiceLpPage() {
               href="/"
               className="bg-sky-500 hover:bg-sky-600 text-white font-bold px-10 py-4 rounded-full text-lg shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
             >
-              無料で5回試してみる →
+              無料で20回試してみる →
             </Link>
             <Link
               href="/pricing"
@@ -211,7 +211,7 @@ export default function InvoiceLpPage() {
 
         {/* 最終CTA */}
         <section className="bg-sky-500 rounded-2xl p-12 text-center space-y-6">
-          <h2 className="text-3xl font-extrabold text-white">まずは無料で5回、お試しください</h2>
+          <h2 className="text-3xl font-extrabold text-white">まずは無料で20回、お試しください</h2>
           <p className="text-sky-100 text-lg">ログイン不要・カード登録不要</p>
           <Link
             href="/"
