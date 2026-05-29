@@ -68,8 +68,8 @@ export default function SecurityPage() {
               icon: (
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
               ),
-              title: 'データは保存しない',
-              body: 'アップロードされたPDFはAI処理のみに使用し、サーバー上に保存・蓄積しません。処理完了後は即時削除されます。',
+              title: 'データは暗号化保管・自動削除',
+              body: 'アップロードされたPDFは暗号化して保管し、最大90日で自動的に削除します。AI処理以外の目的には使用しません。',
             },
             {
               icon: (
@@ -115,7 +115,7 @@ export default function SecurityPage() {
                 {[
                   ['FAX送信', '高い（番号間違い等）', 'なし', 'なし'],
                   ['メール添付', '高い（誤送信・盗聴）', '不確実', 'メールサーバーに残る'],
-                  ['本ツール', 'なし', 'TLS 1.2以上', '処理後即時削除'],
+                  ['本ツール', 'なし', 'TLS 1.2以上', '暗号化・90日で自動削除'],
                 ].map(([method, risk, enc, storage], i) => (
                   <tr key={method} className={i === 2 ? 'bg-sky-50/60 font-semibold' : 'hover:bg-sky-50/30 transition-colors'}>
                     <td className="px-8 py-4 text-sky-800">{method}</td>

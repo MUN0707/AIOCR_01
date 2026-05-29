@@ -119,8 +119,8 @@ export default function InvoiceLpPage() {
               },
               {
                 icon: <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
-                title: 'データは処理後即時削除',
-                body: 'サーバーにPDFを保存しません。AI学習にも使われません。情報流出リスクはゼロです。',
+                title: 'データは暗号化保管・自動削除',
+                body: 'アップロードしたPDFは暗号化して保管し、最大90日で自動削除。AIの学習には一切使われません。',
               },
               {
                 icon: <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>,
