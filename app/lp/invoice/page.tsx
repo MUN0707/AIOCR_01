@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import ConsultationForm from './ConsultationForm';
 
 // YouTube動画ID。空文字の間はプレースホルダー表示。
 const YOUTUBE_VIDEO_ID = 'OVIZsnFJz9Q';
@@ -209,6 +210,21 @@ export default function InvoiceLpPage() {
           </div>
         </section>
 
+        {/* 無料オンライン相談（面談予約） */}
+        <section id="consultation" className="scroll-mt-24 space-y-5">
+          <div className="text-center space-y-2">
+            <div className="inline-flex items-center gap-2 bg-lime-100 text-lime-700 text-xs font-semibold px-3 py-1 rounded-full border border-lime-200">
+              担当者と直接お話しできます
+            </div>
+            <h2 className="text-2xl font-extrabold text-sky-900">無料オンライン相談（Google Meet・30分）</h2>
+            <p className="text-sky-600 text-sm leading-relaxed max-w-2xl mx-auto">
+              「自分の事務所の運用で使えるか」「料金や導入の流れを詳しく知りたい」など、
+              気になる点を画面共有しながらその場でご説明します。無理な勧誘は一切いたしません。
+            </p>
+          </div>
+          <ConsultationForm />
+        </section>
+
         {/* 最終CTA */}
         <section className="bg-sky-500 rounded-2xl p-12 text-center space-y-6">
           <h2 className="text-3xl font-extrabold text-white">まずは無料で20回、お試しください</h2>
@@ -219,7 +235,9 @@ export default function InvoiceLpPage() {
           >
             今すぐ試してみる →
           </Link>
-          <p className="text-sky-200 text-sm">ご不明点は <a href="mailto:support@invoice-ocr.jp" className="underline underline-offset-2">メール</a> でお気軽にどうぞ</p>
+          <p className="text-sky-200 text-sm">
+            詳しい話を聞きたい方は <a href="#consultation" className="underline underline-offset-2 font-semibold">無料オンライン相談</a> もご利用ください
+          </p>
         </section>
       </main>
 
