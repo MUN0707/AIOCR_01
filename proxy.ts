@@ -2,6 +2,61 @@ import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 import { authCookieOptions } from '@/utils/supabase/cookie-options';
 
+// エンドポイントごとのレート制限（1分間の最大リクエスト数）
+const RATE_LIMITS: Record<string, { limit: number; windowSec: number }> = {
+  '/api/process-pdf': { limit: 10, windowSec: 60 },
+  '/api/match-journal': { limit: 15, windowSec: 60 },
+};
+
+async function handleRateLimit(request: NextRequest): Promise<NextResponse | null> {
+  const { pathname } = request.nextUrl;
+  const rateConfig = RATE_LIMITS[pathname];
+  if (!rateConfig) return null;
+
+  const ip =
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    request.headers.get('x-real-ip') ??
+    'unknown';
+  const key = `${ip}:${pathname}`;
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !supabaseKey) return null;
+
+  try {
+    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/check_and_increment_rate_limit`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_key: key,
+        p_limit: rateConfig.limit,
+        p_window_seconds: rateConfig.windowSec,
+      }),
+    });
+
+    const allowed: boolean = await res.json();
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'リクエスト頻度の上限に達しました。しばらく待ってから再試行してください。' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateConfig.windowSec),
+            'X-RateLimit-Limit': String(rateConfig.limit),
+          },
+        }
+      );
+    }
+  } catch {
+    // Supabase 障害時はフェイルオープン（制限をバイパス）
+  }
+  return null;
+}
+
 // 営業ページのトークン保護
 const SALES_PROTECTED = ['/security', '/guide', '/faq'];
 const SALES_COOKIE = 'sales_access';
@@ -41,7 +96,11 @@ function handleSalesToken(request: NextRequest): NextResponse | null {
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 営業ページのトークン保護を最初にチェック
+  // レート制限（IP単位）を最初にチェック
+  const rateLimitResponse = await handleRateLimit(request);
+  if (rateLimitResponse) return rateLimitResponse;
+
+  // 営業ページのトークン保護をチェック
   const salesResponse = handleSalesToken(request);
   if (salesResponse) return salesResponse;
 
