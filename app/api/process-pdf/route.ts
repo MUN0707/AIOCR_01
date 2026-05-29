@@ -12,7 +12,7 @@ import { applyGuestCookie, getGuestIdentity, identityKeys, type GuestIdentity } 
 
 export const maxDuration = 60;
 
-const GUEST_MAX_USES = 5;
+const GUEST_MAX_USES = 20;
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
