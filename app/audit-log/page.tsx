@@ -16,9 +16,11 @@ interface AuditLog {
 }
 
 const ACTION_LABEL: Record<string, string> = { created: '作成', updated: '変更', deleted: '削除' };
+// 監査アクションは「イベント」系の配色（emerald=追加 / amber=変更 / red=削除）。
+// ロール色（violet/indigo/slate）とは色系統を分け、凡例の混同を防ぐ。
 const ACTION_COLOR: Record<string, string> = {
-  created: 'bg-lime-100 text-lime-700',
-  updated: 'bg-sky-100 text-sky-700',
+  created: 'bg-emerald-100 text-emerald-700',
+  updated: 'bg-amber-100 text-amber-700',
   deleted: 'bg-red-100 text-red-600',
 };
 
@@ -40,7 +42,7 @@ function DataDiff({ before, after }: { before: Record<string, unknown> | null; a
             <span className="text-slate-400 min-w-[100px]">{k}:</span>
             {b != null && <span className="text-red-500 line-through">{String(b)}</span>}
             {b != null && a != null && <span className="text-slate-300">→</span>}
-            {a != null && <span className="text-lime-700">{String(a)}</span>}
+            {a != null && <span className="text-emerald-700">{String(a)}</span>}
           </div>
         );
       })}
@@ -91,7 +93,7 @@ function AuditLogInner() {
                 onChange={(e) => setClientId(e.target.value)}
                 className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-sky-400"
               >
-                <option value="">全員</option>
+                <option value="">全クライアント</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.short_name ?? c.name}</option>)}
               </select>
             </div>

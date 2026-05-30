@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
-import { enumerateMonthly, type AssetForCalc, type DepreciationMethod } from '@/lib/depreciation/calculator';
+import { enumerateMonthly, unitsOfProductionAmount, type AssetForCalc, type DepreciationMethod } from '@/lib/depreciation/calculator';
 import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 30;
@@ -83,10 +83,86 @@ export async function POST(request: NextRequest) {
     const periodStartDate = new Date(periodStart);
     const periodEndDate = new Date(periodEnd);
 
+    const startYmdEarly = periodStart.replace(/-/g, '');
+
     for (const asset of assets ?? []) {
+      // 生産高比例法: 月別生産量から計算（耐用年数・償却開始日に依存しない）
+      if (asset.method === 'units_of_production') {
+        const cost = Number(asset.acquisition_cost);
+        const residual = Number(asset.residual_value);
+        const total = Number(asset.total_production);
+        if (!total || total <= 0) continue;
+
+        // 既計上額（期間開始前）を控除し、償却可能額の超過を防ぐ
+        const { data: prior } = await service
+          .from('journal_entries')
+          .select('amount')
+          .eq('user_id', ownerUserId)
+          .eq('entry_type', 'depreciation')
+          .eq('source_fixed_asset_id', asset.id)
+          .lt('entry_date', startYmdEarly);
+        const priorTotal = (prior ?? []).reduce((s, e) => s + Number(e.amount ?? 0), 0);
+        let remaining = Math.max(cost - residual - priorTotal, 0);
+        if (remaining <= 0) continue;
+
+        // 期間内の月別生産量を取得
+        const { data: prods } = await service
+          .from('asset_monthly_production')
+          .select('year, month, quantity')
+          .eq('user_id', ownerUserId)
+          .eq('asset_id', asset.id)
+          .order('year', { ascending: true })
+          .order('month', { ascending: true });
+
+        const creditAccount = creditAccountFor(asset.category, asset.account_name);
+        const monthRows: Array<{ year: number; month: number; lastDay: Date; amount: number }> = [];
+        for (const p of prods ?? []) {
+          const y = Number(p.year);
+          const m = Number(p.month);
+          const lastDay = new Date(y, m, 0);
+          if (lastDay < periodStartDate || lastDay > periodEndDate) continue;
+          let amt = unitsOfProductionAmount(cost, residual, total, Number(p.quantity));
+          if (amt > remaining) amt = remaining;
+          if (amt <= 0) continue;
+          remaining -= amt;
+          monthRows.push({ year: y, month: m, lastDay, amount: amt });
+        }
+        if (monthRows.length === 0) continue;
+
+        if (timing === 'monthly') {
+          for (const m of monthRows) {
+            const ymd = `${m.year}${String(m.month).padStart(2, '0')}${String(m.lastDay.getDate()).padStart(2, '0')}`;
+            const periodLabel = `${m.year}-${String(m.month).padStart(2, '0')}`;
+            rows.push({
+              user_id: ownerUserId, client_id: clientId, entry_type: 'depreciation', entry_date: ymd,
+              debit_account: '減価償却費', credit_account: creditAccount, amount: m.amount,
+              description: `${asset.name} 減価償却 ${periodLabel}`, tax_type: '対象外',
+              vendor_name: '', match_status: 'closing',
+              source_fixed_asset_id: asset.id, depreciation_period: periodLabel,
+            });
+          }
+        } else {
+          const total2 = monthRows.reduce((s, r) => s + r.amount, 0);
+          if (total2 > 0) {
+            const endY = periodEndDate.getFullYear();
+            const endM = periodEndDate.getMonth() + 1;
+            const endD = periodEndDate.getDate();
+            const ymd = `${endY}${String(endM).padStart(2, '0')}${String(endD).padStart(2, '0')}`;
+            rows.push({
+              user_id: ownerUserId, client_id: clientId, entry_type: 'depreciation', entry_date: ymd,
+              debit_account: '減価償却費', credit_account: creditAccount, amount: total2,
+              description: `${asset.name} 減価償却 ${endY}年度`, tax_type: '対象外',
+              vendor_name: '', match_status: 'closing',
+              source_fixed_asset_id: asset.id, depreciation_period: `${endY}`,
+            });
+          }
+        }
+        targetAssetIds.push(asset.id);
+        continue;
+      }
+
       if (!asset.useful_life_years || asset.useful_life_years <= 0) continue;
       if (!asset.depreciation_start_date) continue;
-      if (asset.method === 'units_of_production') continue; // 未対応
 
       const calcAsset: AssetForCalc = {
         acquisition_cost: Number(asset.acquisition_cost),
@@ -94,6 +170,7 @@ export async function POST(request: NextRequest) {
         useful_life_years: asset.useful_life_years,
         method: asset.method as DepreciationMethod,
         depreciation_start_date: asset.depreciation_start_date,
+        acquisition_date: asset.acquisition_date,
       };
 
       const months = enumerateMonthly(calcAsset, periodStartDate, periodEndDate);

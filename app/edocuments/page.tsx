@@ -133,7 +133,7 @@ function EDocumentsInner() {
               <label className="text-[10px] text-slate-400 block mb-1">顧問先</label>
               <select value={clientId} onChange={e => setClientId(e.target.value)}
                 className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-sky-400">
-                <option value="">（個人）</option>
+                <option value="">（共通）</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.short_name ?? c.name}</option>)}
               </select>
             </div>

@@ -157,7 +157,7 @@ function GeneralLedgerInner() {
   const totalCredit = ledgerLines.reduce((s, l) => s + l.credit, 0);
   const finalBalance = ledgerLines.length > 0 ? ledgerLines[ledgerLines.length - 1].balance : 0;
 
-  const clientName = clients.find((c) => c.id === clientId)?.name ?? '個人/未設定';
+  const clientName = clients.find((c) => c.id === clientId)?.name ?? '共通';
 
   return (
     <div className="min-h-screen bg-slate-50/40 px-6 py-8">
@@ -198,7 +198,7 @@ function GeneralLedgerInner() {
                 onChange={(e) => setClientId(e.target.value)}
                 className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-sky-400 min-w-[200px]"
               >
-                <option value="">個人/未設定</option>
+                <option value="">（共通）</option>
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}

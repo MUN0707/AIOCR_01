@@ -16,9 +16,11 @@ interface Member {
 }
 
 const ROLE_LABEL: Record<string, string> = { approver: '承認者', entry: '入力者', viewer: '閲覧者' };
+// ロールは「人」系の配色（violet=承認者 / indigo=入力者 / slate=閲覧者）。
+// 監査アクション色（emerald/amber/red）とは色系統を分け、凡例の混同を防ぐ。
 const ROLE_COLOR: Record<string, string> = {
-  approver: 'bg-sky-100 text-sky-700',
-  entry: 'bg-lime-100 text-lime-700',
+  approver: 'bg-violet-100 text-violet-700',
+  entry: 'bg-indigo-100 text-indigo-700',
   viewer: 'bg-slate-100 text-slate-500',
 };
 
@@ -230,11 +232,11 @@ function UserRolesInner() {
           <h2 className="text-sm font-semibold text-slate-700 mb-3">ロールの権限について</h2>
           <div className="space-y-2 text-xs text-slate-500">
             <div className="flex items-start gap-3">
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-sky-100 text-sky-700 shrink-0 mt-0.5">承認者</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 mt-0.5 ${ROLE_COLOR.approver}`}>承認者</span>
               <p>仕訳の入力・編集・承認・却下が可能。顧問先の全データを閲覧できます。</p>
             </div>
             <div className="flex items-start gap-3">
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-lime-100 text-lime-700 shrink-0 mt-0.5">入力者</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 mt-0.5 ${ROLE_COLOR.entry}`}>入力者</span>
               <p>仕訳の入力・編集が可能。承認・却下操作はできません。</p>
             </div>
             <div className="flex items-start gap-3">

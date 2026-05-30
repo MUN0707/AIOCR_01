@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-05-30 20:49
+- やったこと（予定超過タスク 減価償却まわり + UI整合性）:
+  - **[③ 定率法の税法厳密性向上]** `lib/depreciation/calculator.ts` 全面改訂。旧実装は `rate=2/n` のみで改定償却率/保証率を考慮せず、幾何級数のため n=10 で約10万円が償却し残る重大バグだった。改定償却率と数学的に等価な「定率償却額 ≤ 期首簿価÷残存年数 となった年から均等償却へ切替」方式を採用し**備忘価額1円**まで償却。**取得日で 200%(H24.4.1〜) / 250%(H19.4.1〜H24.3.31) を自動判定**（国税庁表のハードコード不要）。`AssetForCalc` に `acquisition_date` 追加し generate/check/recalc の3 caller を更新。tsx で n=10 の200%(Y6切替)/250%(Y7切替)スケジュールを検証済み
+  - **[② 生産高比例法 実装]** DBマイグレーション `20260530_units_of_production.sql` 適用済（本番 lonmddwpcfalgtddaksg）：`fixed_assets` に `total_production`/`production_unit`、新テーブル `asset_monthly_production`(RLS付)。`calculator.ts` に `unitsOfProductionAmount`、新API `/api/fixed-assets/[id]/production`(GET/POST upsert/DELETE)、`depreciation/generate`・`check` を生産量ベース計算に対応（既計上額控除で償却可能額の超過防止）。詳細画面 `fixed-assets/[id]/page.tsx` で生産高比例法ボタンの未対応解除＋総見込生産量/単位/月別生産量エディタ＋償却単価プレビュー追加
+  - **[① 細部UI改善 のうち3項目]** (a) 空clientIdの表記を「個人/未設定」→**（共通）**に7ファイルで統一（audit-logの「全員」は全件フィルタの別概念なので「全クライアント」に明確化）/ (c) エラー報告FAB は `components/ErrorReportFab` で既にグローバル実装済を確認 / (e) 監査ログ色とロール色の凡例衝突を解消（監査=emerald/amber/red のイベント系、ロール=violet/indigo/slate の人系に分離）
+- 次にやること:
+  - **[① 残 (b)(d)]** confirm()→モーダル置換（24箇所、うち19が page.tsx）と仕訳テーブル列幅ハードコード見直し（202箇所）は、いずれもコア9000行ファイルの高リスク変更のため、アプリ実行検証込みの専用セッションで対応（TaskHubに別タスク化）
+  - 上記コミットの本番デプロイ（git push）はユーザー確認後
+
+## 2026-05-30 01:00
+- やったこと（営業メール本格始動 + LP整備 + 既存バグ復旧）:
+  - **invoice_ocr 営業メール全面改訂**（`260216_税理事務所への営業`）: 件名=「【税理士事務所向け】大量の請求書PDFをAIが一括リネーム（無料試行可）」/ 電帳法フックのリード文 / 機能を「PDFファイル命名自動化（大量改名＋結合PDF分割）」に正す（仕訳・CSV出力の誤記削除）/ 料金 月1,500円〜 / URL `ocr.taxbestsearch.com/lp/invoice` / 署名 村田尚優（特商法と一致）/ 末尾を無料オンライン相談(Google Meet)誘導に。**200件 本送信完了（成功200・失敗0）**
+  - **無料お試し 5→20回**: LP文言 + バックエンド `app/api/process-pdf/route.ts` `GUEST_MAX_USES=20`
+  - **LP 無料オンライン相談フォーム新設**: `app/lp/invoice/ConsultationForm.tsx` + `app/api/consultation/route.ts`（Resendで運営通知=ADMIN_EMAIL=negitoro0707@gmail.com + 申込者へ自動返信）。Google Meet採用（無料の時間制限が長い）
+  - **虚偽表記の是正**: LP・`app/security/page.tsx` の「処理後即時削除/保存しません」→ 実態（暗号化保管・最大90日で自動削除・AI学習不使用）に修正
+  - **既存の本番デプロイ停止を復旧**: Next.js16 で `middleware.ts` と `proxy.ts` 併存ビルドエラー → レート制限を proxy.ts に統合し middleware.ts 削除（5/22以降 全デプロイERRORだった）
+  - **予約フォーム通知の2バグ修正**: ①proxy が未ログインの `/api/consultation` を401ブロック→許可リスト追加 ②Vercel本番に `RESEND_SALES_FROM` 未登録で500→env追加+再デプロイ（この巻き添えで report-error 通知も本番で死んでいたのが復活）。実フォーム送信で success:true・通知delivered を確認
+- 追記（同日・運用自動化）:
+  - **メールあり総数は2,511件のみ**（全62k中。大半は電話/住所のみ）。invoice_ocr 残ターゲット **約2,293件**
+  - **invoice_ocr を Mac mini cron で自動化**: `/Users/muratanaoyuu/outreach-invoice/`、**毎日11:00 JST・DAILY_LIMIT=200**（initialの15:00とずらしResend衝突回避）。約2,293件を約12日で完走見込み。dry-run検証済み。件数変更は Mac mini `.env` の DAILY_LIMIT
+  - Resend は有料(Pro)反映済み（本日410通/失敗0で確認）。「200/日block」は無料枠時代の話
+- 次にやること:
+  - initial（相続・Mac mini 15:00・190/日）は残約206件で5/31頃枯渇 → 以後 invoice_ocr(11:00)が日次の主役、その後 ma_partner 再開検討
+  - `[SALES⚡D]` 1事例獲得・公開（返信・予約が来たら面談へ）
+  - 翌日(5/31) 11:00 の invoice_ocr cron 初回自動実行を cron.log で確認
+
+## 2026-05-28 15:00
+- やったこと:
+  - **[MU🟢13] API レート制限・DDoS 対策 ✅**: `middleware.ts` 新規作成。`/api/process-pdf`(10/min)・`/api/match-journal`(15/min) を IP 単位でレート制限。Supabase に `api_rate_limits` テーブル + `check_and_increment_rate_limit()` RPC を migration で追加。Upstash 未設定のため Supabase DB で cross-instance 一致性を確保、フェイルオープン設計。
+  - **[MU🟢12] Storage ライフサイクル設定 ✅**: `scripts/cleanup_storage.py` 新規作成。`ocr-uploads` バケットのファイルを 90 日経過で削除。フォルダ（user_id）を再帰走査、dry-run 対応、Mac mini cron 月1実行想定。現時点の最古ファイルは 2026-04-13 なのでまだ削除対象なし。
+  - **[MU🟢14] 暗号化・バックアップ運用確認 ✅**: Supabase Free は AES-256 at-rest 暗号化が AWS インフラレベルでデフォルト有効。PITR は Pro のみ（現状 Free）。日次バックアップ 7 日分は自動取得済み。`ocr-uploads` バケットは非公開(private)で保護。commit: 07de73d
+- 次にやること:
+  - `[SALES⚡D]` 1事例獲得・公開（予定超過、人手が必要）
+  - `PATCH /api/journal-entries/:id entry_date 形式正規化` (2026-05-31 締め)
+  - `段階A〜C の本番動作確認（経理目線レビュー対応）`（目視確認のみ）
+
 ## 2026-05-08 14:00
 - やったこと:
   - web画面エラー報告 3件対応（aiocr）→ commit a194122

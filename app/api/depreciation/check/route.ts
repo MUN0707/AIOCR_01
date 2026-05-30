@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
-import { theoreticalInPeriod, type AssetForCalc, type DepreciationMethod } from '@/lib/depreciation/calculator';
+import { theoreticalInPeriod, unitsOfProductionAmount, type AssetForCalc, type DepreciationMethod } from '@/lib/depreciation/calculator';
 import { resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
@@ -76,17 +76,40 @@ export async function GET(request: NextRequest) {
   let totalRequired = 0;
   let totalPosted = 0;
 
+  const periodStartDate = new Date(periodStart);
+  const periodEndDate = new Date(periodEnd);
+
   for (const a of assets ?? []) {
-    if (!a.useful_life_years || !a.depreciation_start_date) continue;
-    if (a.method === 'units_of_production') continue;
-    const calcAsset: AssetForCalc = {
-      acquisition_cost: Number(a.acquisition_cost),
-      residual_value: Number(a.residual_value),
-      useful_life_years: a.useful_life_years,
-      method: a.method as DepreciationMethod,
-      depreciation_start_date: a.depreciation_start_date,
-    };
-    const required = theoreticalInPeriod(calcAsset, new Date(periodStart), new Date(periodEnd));
+    let required: number;
+    if (a.method === 'units_of_production') {
+      const cost = Number(a.acquisition_cost);
+      const residual = Number(a.residual_value);
+      const total = Number(a.total_production);
+      if (!total || total <= 0) continue;
+      const { data: prods } = await service
+        .from('asset_monthly_production')
+        .select('year, month, quantity')
+        .eq('user_id', ownerUserId)
+        .eq('asset_id', a.id);
+      let sum = 0;
+      for (const p of prods ?? []) {
+        const lastDay = new Date(Number(p.year), Number(p.month), 0);
+        if (lastDay < periodStartDate || lastDay > periodEndDate) continue;
+        sum += unitsOfProductionAmount(cost, residual, total, Number(p.quantity));
+      }
+      required = sum;
+    } else {
+      if (!a.useful_life_years || !a.depreciation_start_date) continue;
+      const calcAsset: AssetForCalc = {
+        acquisition_cost: Number(a.acquisition_cost),
+        residual_value: Number(a.residual_value),
+        useful_life_years: a.useful_life_years,
+        method: a.method as DepreciationMethod,
+        depreciation_start_date: a.depreciation_start_date,
+        acquisition_date: a.acquisition_date,
+      };
+      required = theoreticalInPeriod(calcAsset, periodStartDate, periodEndDate);
+    }
     if (required <= 0 && (postedByAsset.get(a.id) ?? 0) === 0) continue;
 
     const posted = postedByAsset.get(a.id) ?? 0;

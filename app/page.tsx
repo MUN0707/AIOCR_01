@@ -2428,8 +2428,8 @@ export default function Home() {
                   text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-sky-300
                   transition-all duration-200 min-w-[160px]"
               >
-                {/* 日記帳含む自動仕訳モードでは未選択を不可にする（誤って個人扱いで仕訳登録するのを防止） */}
-                {mode !== 'journal-entry' && <option value="">未選択（個人）</option>}
+                {/* 日記帳含む自動仕訳モードでは未選択を不可にする（誤って共通扱いで仕訳登録するのを防止） */}
+                {mode !== 'journal-entry' && <option value="">（共通）</option>}
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>{clientDisplayLabel(c)}</option>
                 ))}

@@ -5,7 +5,8 @@ import { canWrite, resolveClientScope } from '@/lib/client-access';
 
 export const maxDuration = 15;
 
-const SELECT_COLS = 'id, asset_number, category, name, account_name, acquisition_date, depreciation_start_date, acquisition_cost, residual_value, useful_life_years, method, total_production, production_unit, last_depreciated_through, status, note, client_id, created_at, updated_at';
+// 月別生産量（生産高比例法）の取得・登録・削除
+// 資産のスコープ解決は親ルートと同じロジック。
 
 async function resolveAssetScope(
   service: ReturnType<typeof createServiceClient>,
@@ -44,82 +45,79 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
   if ('error' in resolved) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
 
   const { data, error } = await service
-    .from('fixed_assets')
-    .select(SELECT_COLS)
+    .from('asset_monthly_production')
+    .select('id, year, month, quantity')
     .eq('user_id', resolved.ownerUserId)
-    .eq('id', id)
-    .single();
+    .eq('asset_id', id)
+    .order('year', { ascending: true })
+    .order('month', { ascending: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 });
-  return NextResponse.json({ asset: data });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ rows: data ?? [] });
 }
 
-export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
   const body = await request.json();
-  const patch: Record<string, unknown> = {};
-  const allowed = [
-    'category', 'name', 'account_name', 'acquisition_date', 'depreciation_start_date',
-    'acquisition_cost', 'residual_value', 'useful_life_years', 'method',
-    'total_production', 'production_unit', 'status', 'note',
-  ];
-  for (const key of allowed) {
-    if (key in body) patch[key] = body[key];
+  const year = Number(body.year);
+  const month = Number(body.month);
+  const quantity = Number(body.quantity);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return NextResponse.json({ error: '年月が不正です' }, { status: 400 });
   }
-  if ('acquisition_cost' in patch) patch.acquisition_cost = Number(patch.acquisition_cost);
-  if ('residual_value' in patch) patch.residual_value = Number(patch.residual_value);
-  if ('useful_life_years' in patch && patch.useful_life_years != null) {
-    patch.useful_life_years = Number(patch.useful_life_years);
+  if (!Number.isFinite(quantity) || quantity < 0) {
+    return NextResponse.json({ error: '生産量が不正です' }, { status: 400 });
   }
-  if ('total_production' in patch && patch.total_production != null && patch.total_production !== '') {
-    patch.total_production = Number(patch.total_production);
-  } else if ('total_production' in patch) {
-    patch.total_production = null;
-  }
-  patch.updated_at = new Date().toISOString();
 
   const service = createServiceClient();
   const resolved = await resolveAssetScope(service, user.id, id, true);
   if ('error' in resolved) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
 
+  // (asset_id, year, month) の一意制約に対し upsert
   const { data, error } = await service
-    .from('fixed_assets')
-    .update(patch)
-    .eq('user_id', resolved.ownerUserId)
-    .eq('id', id)
-    .select(SELECT_COLS)
+    .from('asset_monthly_production')
+    .upsert(
+      {
+        user_id: resolved.ownerUserId,
+        client_id: resolved.clientId,
+        asset_id: id,
+        year,
+        month,
+        quantity,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'asset_id,year,month' },
+    )
+    .select('id, year, month, quantity')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ asset: data });
+  return NextResponse.json({ row: data });
 }
 
-export async function DELETE(_request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
+  const rowId = request.nextUrl.searchParams.get('row_id');
+  if (!rowId) return NextResponse.json({ error: 'row_id が必要です' }, { status: 400 });
+
   const service = createServiceClient();
   const resolved = await resolveAssetScope(service, user.id, id, true);
   if ('error' in resolved) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
 
-  // 紐付く減価償却仕訳も削除
-  await service
-    .from('journal_entries')
-    .delete()
-    .eq('user_id', resolved.ownerUserId)
-    .eq('source_fixed_asset_id', id);
-
   const { error } = await service
-    .from('fixed_assets')
+    .from('asset_monthly_production')
     .delete()
     .eq('user_id', resolved.ownerUserId)
-    .eq('id', id);
+    .eq('asset_id', id)
+    .eq('id', rowId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });

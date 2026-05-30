@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
           useful_life_years: asset.useful_life_years,
           method: asset.method as DepreciationMethod,
           depreciation_start_date: asset.depreciation_start_date,
+          acquisition_date: asset.acquisition_date,
         };
 
         const creditAccount = creditAccountFor(asset.category, asset.account_name);
@@ -175,6 +176,7 @@ export async function POST(request: NextRequest) {
           useful_life_years: asset.useful_life_years,
           method: asset.method as DepreciationMethod,
           depreciation_start_date: asset.depreciation_start_date,
+          acquisition_date: asset.acquisition_date,
         };
 
         // 理論値 (fromDate〜toDate)
