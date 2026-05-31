@@ -658,6 +658,9 @@ export default function Home() {
             if (Array.isArray(draft.registeredVoucherIdx)) {
               setRegisteredVoucherIdx(new Set(draft.registeredVoucherIdx));
             }
+            if (Array.isArray(draft.consumedUnmatchedIdx)) {
+              setConsumedUnmatchedIdx(new Set(draft.consumedUnmatchedIdx));
+            }
             return;
           } else {
             localStorage.removeItem(draftKey);
@@ -823,6 +826,7 @@ export default function Home() {
       // マッチ結果をリセット
       setJournalMatchResult(null);
       setRegisteredVoucherIdx(new Set());
+      setConsumedUnmatchedIdx(new Set());
       setSelectedVoucherIdx(new Set());
       setWithholdingTaxBuf({});
       setUnmatchedTxAccounts({});
@@ -1373,6 +1377,7 @@ export default function Home() {
           results: journalMatchResult.results,
           summary: journalMatchResult.summary,
           registeredVoucherIdx: Array.from(registeredVoucherIdx),
+          consumedUnmatchedIdx: Array.from(consumedUnmatchedIdx),
           savedAt: new Date().toISOString(),
         };
         localStorage.setItem(getDraftKey(selectedClientId), JSON.stringify(draft));
@@ -1381,7 +1386,7 @@ export default function Home() {
       }
     }, 1000);
     return () => clearTimeout(timer);
-  }, [journalMatchResult, selectedClientId, currentMatchLogId, registeredVoucherIdx]);
+  }, [journalMatchResult, selectedClientId, currentMatchLogId, registeredVoucherIdx, consumedUnmatchedIdx]);
 
   // ─── ドラッグ&ドロップハンドラ（既存ロジックと同じ） ───────────────────────
 
@@ -1926,6 +1931,7 @@ export default function Home() {
       }
       // 登録状態リセット
       setRegisteredVoucherIdx(new Set());
+      setConsumedUnmatchedIdx(new Set());
       setSelectedVoucherIdx(new Set());
       setPeriodConfirmOpen(false);
     } catch (e) {
@@ -2061,6 +2067,7 @@ export default function Home() {
     setUnmatchedBulkDescription('');
     setWithholdingTaxBuf({});
     setRegisteredVoucherIdx(new Set());
+    setConsumedUnmatchedIdx(new Set());
     setSelectedVoucherIdx(new Set());
   };
 
@@ -2410,6 +2417,7 @@ export default function Home() {
                   setJournalMatchResult(null);
                   setCurrentMatchLogId(null);
                   setRegisteredVoucherIdx(new Set());
+                  setConsumedUnmatchedIdx(new Set());
                   setSelectedVoucherIdx(new Set());
                   setWithholdingTaxBuf({});
                   setUnmatchedTxAccounts({});
