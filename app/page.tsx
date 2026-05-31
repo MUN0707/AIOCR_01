@@ -7892,6 +7892,20 @@ function FixedAssetSection({
     await onRefresh();
   };
 
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const cancelDispose = async (a: FixedAssetRow) => {
+    if (!confirm(`「${a.name}」の処分を取消しますか？\n紐付く処分仕訳（除却損・売却損益など）が削除され、資産は有効に戻ります。`)) return;
+    setCancellingId(a.id);
+    try {
+      const res = await fetch(`/api/fixed-assets/${a.id}/dispose`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) { alert(json.error); return; }
+      await onRefresh();
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   return (
     <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100 bg-lime-50/40 flex items-center justify-between gap-2 flex-wrap">
@@ -8019,8 +8033,10 @@ function FixedAssetSection({
                             </span>
                           </td>
                           <td className="px-3 py-2 text-right whitespace-nowrap">
-                            {a.status !== 'disposed' && (
+                            {a.status !== 'disposed' ? (
                               <button onClick={() => openDispose(a)} className="text-[10px] text-amber-600 hover:text-amber-700 mr-2">処分</button>
+                            ) : (
+                              <button onClick={() => cancelDispose(a)} disabled={cancellingId === a.id} className="text-[10px] text-sky-600 hover:text-sky-700 mr-2 disabled:opacity-50">{cancellingId === a.id ? '取消中...' : '処分を取消'}</button>
                             )}
                             <button onClick={() => deleteAsset(a.id)} className="text-[10px] text-red-400 hover:text-red-600">削除</button>
                           </td>

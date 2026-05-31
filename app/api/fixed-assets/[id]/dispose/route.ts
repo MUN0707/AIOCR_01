@@ -252,6 +252,75 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   }
 }
 
+/**
+ * 固定資産の処分を取消
+ * 紐付く disposal 仕訳を削除し、status / disposal_date / disposal_type / disposal_amount をクリアして active に戻す
+ */
+export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await ctx.params;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+
+    const service = createServiceClient();
+
+    const { data: asset, error: assetErr } = await service
+      .from('fixed_assets')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (assetErr || !asset) {
+      return NextResponse.json({ error: '資産が見つかりません' }, { status: 404 });
+    }
+
+    let ownerUserId = user.id;
+    if (asset.client_id) {
+      const scope = await resolveClientScope(service, user.id, asset.client_id);
+      if (!scope || !canWrite(scope.role)) {
+        return NextResponse.json({ error: 'この資産の処分取消権限がありません' }, { status: 403 });
+      }
+      ownerUserId = scope.ownerUserId;
+    } else {
+      if (asset.user_id !== user.id) {
+        return NextResponse.json({ error: '資産が見つかりません' }, { status: 404 });
+      }
+    }
+
+    if (asset.status !== 'disposed') {
+      return NextResponse.json({ error: '処分されていない資産です' }, { status: 400 });
+    }
+
+    // 紐付く disposal 仕訳を削除
+    const { error: delErr } = await service
+      .from('journal_entries')
+      .delete()
+      .eq('user_id', ownerUserId)
+      .eq('entry_type', 'disposal')
+      .eq('source_fixed_asset_id', id);
+    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+
+    // 資産を active に戻し、処分情報をクリア
+    const { error: updErr } = await service
+      .from('fixed_assets')
+      .update({
+        status: 'active',
+        disposal_date: null,
+        disposal_type: null,
+        disposal_amount: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('dispose 取消エラー:', error);
+    const message = error instanceof Error ? error.message : '処分取消処理に失敗しました';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
 function baseRow(p: {
   userId: string;
   clientId: string | null;
