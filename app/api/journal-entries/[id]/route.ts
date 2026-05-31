@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { canWrite, resolveClientScope } from '@/lib/client-access';
+import { normalizeDate } from '@/lib/normalize-date';
 
 export const maxDuration = 15;
 
@@ -39,6 +40,15 @@ export async function PATCH(
 
   const body = await request.json();
   const service = createServiceClient();
+
+  // entry_date が指定された場合は POST と同じく YYYYMMDD に正規化（不正値は弾く）
+  if ('entry_date' in body) {
+    const normalized = normalizeDate(body.entry_date);
+    if (!normalized) {
+      return NextResponse.json({ error: '日付は YYYY-MM-DD 形式で入力してください' }, { status: 400 });
+    }
+    body.entry_date = normalized;
+  }
 
   // 対象エントリ取得（id で取得し、client_id 経由で権限判定）
   const { data: existing, error: fetchError } = await service

@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { resolveVendor } from '@/lib/vendor-resolve';
 import { canWrite, resolveClientScope } from '@/lib/client-access';
+import { normalizeDate } from '@/lib/normalize-date';
 
 export const maxDuration = 15;
 
@@ -12,19 +13,6 @@ const ALLOWED_TAX_CATEGORIES = new Set([
   'taxable_purchase',
   'non_taxable',
 ]);
-
-function normalizeDate(input: unknown): string | null {
-  if (typeof input !== 'string') return null;
-  const digits = input.replace(/[-/]/g, '');
-  if (!/^\d{8}$/.test(digits)) return null;
-  const y = Number(digits.slice(0, 4));
-  const m = Number(digits.slice(4, 6));
-  const d = Number(digits.slice(6, 8));
-  if (y < 1900 || y > 2999) return null;
-  if (m < 1 || m > 12) return null;
-  if (d < 1 || d > 31) return null;
-  return digits;
-}
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
