@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-06-01 00:40
+- やったこと（API 間の entry_date 正規化統一）:
+  - **normalizeDate を共通ヘルパ化**: `app/api/journal-entries/route.ts` にインライン定義されていた `normalizeDate` を `lib/normalize-date.ts` に切り出し、POST 側は import に置換
+  - **PATCH /api/journal-entries/:id にも適用**: `entry_date` が body にある場合のみ `normalizeDate` で `YYYY-MM-DD → YYYYMMDD` 正規化し、不正値は 400 を返す。正規化後の値で締めチェック（`assertNotLocked`）と更新を行うため、従来 raw 文字列と DB 保存形式(YYYYMMDD)の `closed_until` を比較していた潜在バグも解消
+  - `tsc --noEmit` 通過 → commit b98ed2a → main push（Vercel auto-deploy）。TaskHub task 344bf793 完了化
+- 次にやること:
+  - 特になし（単発タスク）
+
 ## 2026-05-30 20:49
 - やったこと（予定超過タスク 減価償却まわり + UI整合性）:
   - **[③ 定率法の税法厳密性向上]** `lib/depreciation/calculator.ts` 全面改訂。旧実装は `rate=2/n` のみで改定償却率/保証率を考慮せず、幾何級数のため n=10 で約10万円が償却し残る重大バグだった。改定償却率と数学的に等価な「定率償却額 ≤ 期首簿価÷残存年数 となった年から均等償却へ切替」方式を採用し**備忘価額1円**まで償却。**取得日で 200%(H24.4.1〜) / 250%(H19.4.1〜H24.3.31) を自動判定**（国税庁表のハードコード不要）。`AssetForCalc` に `acquisition_date` 追加し generate/check/recalc の3 caller を更新。tsx で n=10 の200%(Y6切替)/250%(Y7切替)スケジュールを検証済み
