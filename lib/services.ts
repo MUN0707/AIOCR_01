@@ -4,7 +4,7 @@
 export type ServiceId = 'aiocr' | 'merumaga';
 
 export type AiocrPlanId = 'lite' | 'standard' | 'pro' | 'enterprise';
-export type MerumagaPlanId = 'tier1' | 'tier2' | 'tier3';
+export type MerumagaPlanId = 'tier1' | 'tier2' | 'tier3' | 'tier4';
 
 export type ServiceDef = {
   id: ServiceId;
@@ -48,15 +48,17 @@ export const MERUMAGA_PLANS: Record<
   MerumagaPlanId,
   { id: MerumagaPlanId; name: string; range: string; price: number; maxMembers: number | null }
 > = {
-  tier1: { id: 'tier1', name: '〜10人', range: 'メーリス登録10人まで', price: 1980, maxMembers: 10 },
-  tier2: { id: 'tier2', name: '〜20人', range: 'メーリス登録11〜20人', price: 2980, maxMembers: 20 },
-  tier3: { id: 'tier3', name: '20人超', range: 'メーリス登録21人以上', price: 3980, maxMembers: null },
+  tier1: { id: 'tier1', name: '〜5人', range: 'メーリス登録5人まで', price: 2980, maxMembers: 5 },
+  tier2: { id: 'tier2', name: '〜10人', range: 'メーリス登録6〜10人', price: 4980, maxMembers: 10 },
+  tier3: { id: 'tier3', name: '〜20人', range: 'メーリス登録11〜20人', price: 7980, maxMembers: 20 },
+  tier4: { id: 'tier4', name: '21人〜', range: 'メーリス登録21人以上', price: 12800, maxMembers: null },
 };
 
 export function merumagaPlanFromMemberCount(count: number): MerumagaPlanId {
-  if (count <= 10) return 'tier1';
-  if (count <= 20) return 'tier2';
-  return 'tier3';
+  if (count <= 5) return 'tier1';
+  if (count <= 10) return 'tier2';
+  if (count <= 20) return 'tier3';
+  return 'tier4';
 }
 
 export function merumagaFeeFromMemberCount(count: number): number {

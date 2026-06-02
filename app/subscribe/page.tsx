@@ -8,8 +8,8 @@ import { AIOCR_PLANS, MERUMAGA_PLANS, type AiocrPlanId } from '@/lib/services';
 
 const AIOCR_PLAN_LIST: AiocrPlanId[] = ['lite', 'standard', 'pro', 'enterprise'];
 
-// メルマガは tier1（〜10人・1980円）固定スタート。
-// マイページでメーリスにメンバー追加すると自動で tier2/tier3 へ昇格する。
+// メルマガは tier1（〜5人・2980円）固定スタート。
+// マイページでメーリスにメンバー追加すると自動で tier2/tier3/tier4 へ昇格する。
 const MERUMAGA_INITIAL_PLAN = MERUMAGA_PLANS.tier1;
 
 function SubscribeForm() {
@@ -215,9 +215,9 @@ function SubscribeForm() {
                 </span>
               </div>
               <ul className="text-xs text-slate-600 space-y-1 leading-relaxed">
-                <li>• 申込時は <strong>{MERUMAGA_INITIAL_PLAN.name}（メーリス10人まで・¥{MERUMAGA_INITIAL_PLAN.price.toLocaleString()}/月）</strong> でスタート</li>
+                <li>• 申込時は <strong>{MERUMAGA_INITIAL_PLAN.name}（{MERUMAGA_INITIAL_PLAN.range}・¥{MERUMAGA_INITIAL_PLAN.price.toLocaleString()}/月）</strong> でスタート</li>
                 <li>• 配信用メーリス（メーリングリスト）はこちら側で自動作成します</li>
-                <li>• マイページでメーリスにメールアドレスを追加すると、その時点の人数で<strong>翌月から自動でプラン昇格</strong>（11人目→¥2,980 / 21人目→¥3,980）</li>
+                <li>• マイページでメーリスにメールアドレスを追加すると、その時点の人数で<strong>翌月から自動でプラン昇格</strong>（6人目→¥4,980 / 11人目→¥7,980 / 21人目→¥12,800）</li>
               </ul>
             </div>
           </ServiceCard>
