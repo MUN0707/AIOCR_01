@@ -1,5 +1,27 @@
 # Progress
 
+## 2026-06-02
+- やったこと（細部UI改善の残 (b)(d) を完了）:
+  - **(b) confirm()→モーダル置換**: `components/ConfirmDialog.tsx` を新設。`ConfirmProvider` + `useConfirm()` フック（`await confirm(...)` で `Promise<boolean>` を返す）。文字列でもオプション（`message/title/confirmLabel/cancelLabel/tone`）でも渡せ、`tone:'danger'` で赤系、本文は `whitespace-pre-line` で `\n` 改行表示。`app/layout.tsx` の `<body>` を `ConfirmProvider` でラップ
+    - ネイティブ `window.confirm` を**全廃（24箇所）**。`app/page.tsx` 20箇所を 7 コンポーネント（Home/LedgerView/EditableRow/BalanceView/FixedAssetSection/MasterView/FinancialStatementView）に `const confirm = useConfirm()` を追加して置換。`departments`/`user-roles`/`templates`/`history` の各ページも同様。インライン `onClick` は `async` 化。`useCallback` の deps に `confirm` を追加
+    - 削除・解除・マージ系は `tone:'danger'`、ルール追加や再照合方法の選択は `confirmLabel`/`cancelLabel` をカスタム（OK/キャンセルではなく意味のある文言に）
+  - **(d) 仕訳テーブル列幅見直し**: 仕訳実行(`UnmatchedView`) と 総勘定元帳(`app/general-ledger/page.tsx`) を `table-fixed` + `<colgroup>` 方式に統一。既にこの方式だった 仕訳日記帳(`LedgerView`) / 照合結果(`MatchResultTable`) と同基準に揃えた。散在していた `min-w-[200px]`/`max-w-[220px]`/`max-w-[300px]` のハードコードを撤去し colgroup で列幅を一元管理。固定幅化に伴い長文セル（相手科目/取引先/摘要）は `truncate` + `title` 属性に統一
+- 背景/理由:
+  - confirm/alert はブラウザ標準ダイアログでデザインが浮き、改行・ボタン文言も制御不能。アプリ全体のトーン（rounded-2xl / slate / sky）に合わせたモーダルへ
+  - 仕訳テーブルは table-auto だと金額列が内容で伸縮し列がガタつく。table-fixed+colgroup で列位置を固定し視認性・整列を確保
+- 検証:
+  - `tsc --noEmit` EXIT=0 / `next build` EXIT=0
+  - **実画面検証**: 一時ページ `app/uitest`（proxy 公開許可も一時追加）を作り Playwright で確認 → モーダル3バリアント（default=青/danger=赤/choice=カスタムラベル）の描画・改行表示・Promise解決（確定=`true`/キャンセル=`false`）を確認。仕訳テーブル（colgroup版）の列整列・長文の truncate（…）・金額右寄せを目視確認。**確認後、検証用 `app/uitest` と proxy.ts の一時許可を撤去済み**
+- 次にやること:
+  - 本番反映（git push = Vercel auto-deploy）はユーザー確認後。実データでのログイン確認（仕訳日記帳/総勘定元帳の実テーブル目視）は本番デプロイ後にユーザー操作で
+
+## 2026-06-01
+- やったこと（手動仕訳モーダルの取引先をマスタへ自動登録）:
+  - `app/page.tsx` の `handleManualEntrySubmit` で、journal-entries POST の直前に取引先を vendors マスタへ自動登録する処理を追加。借方/貸方の `AccountCombobox` の `onCreate`（`addAccountLocal`）と挙動を統一
+  - `vendorsList` に同名が無い場合のみ `addVendorLocal(vendorTrimmed)` を呼ぶ。既存同名は addVendorLocal 側で 409 を握りつぶすため二重登録なし。`setVendorsList` 更新で同セッション中も即 datalist 候補に反映
+  - これで手動仕訳で新規取引先名を入力すると次回入力時に候補表示されるようになった。TaskHub task 6cbe29cf 完了化
+- 次にやること: 動作確認（手動仕訳で新規取引先入力 → vendors マスタ・datalist 反映の目視）。必要なら commit & push
+
 ## 2026-06-01 00:40
 - やったこと（API 間の entry_date 正規化統一）:
   - **normalizeDate を共通ヘルパ化**: `app/api/journal-entries/route.ts` にインライン定義されていた `normalizeDate` を `lib/normalize-date.ts` に切り出し、POST 側は import に置換

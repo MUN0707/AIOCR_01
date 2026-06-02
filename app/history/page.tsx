@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 type HistoryItem = {
   id: string;
@@ -90,6 +91,7 @@ function formatDate(s: string): string {
 }
 
 export default function HistoryPage() {
+  const confirm = useConfirm();
   const router = useRouter();
   const [items, setItems] = useState<HistoryItem[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -169,9 +171,10 @@ export default function HistoryPage() {
 
   const handleDeleteJournalEntries = async () => {
     if (!detail) return;
-    const ok = window.confirm(
-      `このアップロードから作成された仕訳をすべて削除します。\n（アップロード履歴自体は残ります）\n\nよろしいですか？`
-    );
+    const ok = await confirm({
+      message: `このアップロードから作成された仕訳をすべて削除します。\n（アップロード履歴自体は残ります）\n\nよろしいですか？`,
+      tone: 'danger',
+    });
     if (!ok) return;
     setActionBusy(true);
     setActionMessage(null);
@@ -203,7 +206,7 @@ export default function HistoryPage() {
     if (!choice || !['1', '2'].includes(choice.trim())) return;
     const deleteEntries = choice.trim() === '2';
 
-    if (deleteEntries && !window.confirm('本当に仕訳を削除しますか？この操作は取り消せません。')) return;
+    if (deleteEntries && !(await confirm({ message: '本当に仕訳を削除しますか？この操作は取り消せません。', tone: 'danger' }))) return;
 
     setActionBusy(true);
     setActionMessage(null);

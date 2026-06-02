@@ -17,6 +17,7 @@ import {
   SMALL_ASSET_ADVICE_DETAIL,
 } from '@/lib/small-asset-advice';
 import { JournalSidebarNav } from '@/components/JournalSidebarNav';
+import { useConfirm } from '@/components/ConfirmDialog';
 import Link from 'next/link';
 import { normalizeVendorKey } from '@/lib/vendor-normalize';
 
@@ -532,6 +533,7 @@ function BankRow({ row, index }: { row: BankTransactionRow; index: number }) {
 // ─── メインコンポーネント ─────────────────────────────────────────────────────
 
 export default function Home() {
+  const confirm = useConfirm();
   const router = useRouter();
   const supabase = createClient();
 
@@ -693,7 +695,7 @@ export default function Home() {
 
   // 証票削除ハンドラー
   const handleDeleteUpload = useCallback(async (uploadId: string) => {
-    if (!window.confirm('この証票を削除しますか？')) return;
+    if (!(await confirm({ message: 'この証票を削除しますか？', tone: 'danger' }))) return;
     setDeletingUploadId(uploadId);
     try {
       const res = await fetch(`/api/ocr-uploads/${uploadId}`, { method: 'DELETE' });
@@ -709,7 +711,7 @@ export default function Home() {
     } finally {
       setDeletingUploadId(null);
     }
-  }, []);
+  }, [confirm]);
 
   const handleLoadExistingData = useCallback(async () => {
     // 通帳は自動で全件ロード、請求書はユーザー選択
@@ -721,11 +723,15 @@ export default function Home() {
     }
 
     // 選択した請求書に紐づく旧仕訳を削除するか確認
-    const deleteOld = window.confirm(
-      '選択した請求書に紐づく既存の仕訳を削除してから再照合しますか？\n\n' +
-      '「OK」→ 旧仕訳を削除して再照合\n' +
-      '「キャンセル」→ 旧仕訳はそのまま残して再照合'
-    );
+    const deleteOld = await confirm({
+      message:
+        '選択した請求書に紐づく既存の仕訳を削除してから再照合しますか？\n\n' +
+        '「旧仕訳を削除」→ 旧仕訳を削除して再照合\n' +
+        '「そのまま残す」→ 旧仕訳はそのまま残して再照合',
+      title: '再照合の方法',
+      confirmLabel: '旧仕訳を削除',
+      cancelLabel: 'そのまま残す',
+    });
 
     setLoadingExistingData(true);
     setJournalError(null);
@@ -838,7 +844,7 @@ export default function Home() {
       setLoadingExistingData(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingUploads, selectedInvoiceUploadIds, selectedClientId]);
+  }, [existingUploads, selectedInvoiceUploadIds, selectedClientId, confirm]);
 
   // ─── 未照合トランザクションの勘定科目選択 State ───────────────────────────
   const [unmatchedTxAccounts, setUnmatchedTxAccounts] = useState<Record<number, string>>({});
@@ -1061,6 +1067,13 @@ export default function Home() {
 
     setManualEntrySubmitting(true);
     try {
+      // 取引先を vendors マスタへ自動登録（AccountCombobox の onCreate と同様）。
+      // 既存同名は addVendorLocal 側で 409 を握りつぶすので二重登録にならない。
+      const vendorTrimmed = vendor_name.trim();
+      if (vendorTrimmed && !vendorsList.some((v) => v.name === vendorTrimmed)) {
+        await addVendorLocal(vendorTrimmed);
+      }
+
       const res = await fetch('/api/journal-entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1133,7 +1146,7 @@ export default function Home() {
   };
 
   const handleReopenClosing = async () => {
-    if (!confirm('締めを解除しますか？（締め済み期間の仕訳が再度編集可能になります）')) return;
+    if (!(await confirm('締めを解除しますか？（締め済み期間の仕訳が再度編集可能になります）'))) return;
     const url = selectedClientId
       ? `/api/journal-closings?clientId=${encodeURIComponent(selectedClientId)}`
       : '/api/journal-closings';
@@ -2223,7 +2236,7 @@ export default function Home() {
   };
 
   const handleDeleteClient = async (id: string) => {
-    if (!confirm('このクライアントを削除しますか？')) return;
+    if (!(await confirm({ message: 'このクライアントを削除しますか？', tone: 'danger' }))) return;
     try {
       await fetch(`/api/clients?id=${id}`, { method: 'DELETE' });
       setClients((prev) => prev.filter((c) => c.id !== id));
@@ -4972,10 +4985,19 @@ function UnmatchedView({
         </div>
 
         <div className="overflow-x-auto hidden lg:block">
-          <table className="w-full text-sm min-w-[900px]">
+          <table className="w-full text-sm table-fixed" style={{ minWidth: '900px' }}>
+            <colgroup>
+              <col style={{ width: '40px' }} />   {/* チェック */}
+              <col style={{ width: '104px' }} />  {/* 日付 */}
+              <col />                              {/* 元摘要（残り） */}
+              <col style={{ width: '100px' }} />  {/* 出金 */}
+              <col style={{ width: '100px' }} />  {/* 入金 */}
+              <col style={{ width: '220px' }} />  {/* 借方科目 */}
+              <col style={{ width: '220px' }} />  {/* 摘要（上書き） */}
+            </colgroup>
             <thead className="bg-slate-50/80">
               <tr className="border-b border-slate-100">
-                <th className="px-3 py-3 w-10">
+                <th className="px-3 py-3">
                   <input
                     type="checkbox"
                     checked={allSelected}
@@ -5016,7 +5038,7 @@ function UnmatchedView({
                         : tx.transactionDate}
                     </td>
                     <td
-                      className="px-3 py-2 text-xs text-slate-600 max-w-[220px] truncate cursor-pointer"
+                      className="px-3 py-2 text-xs text-slate-600 truncate cursor-pointer"
                       title={tx.description}
                       onClick={() => onShowPdf(tx)}
                     >
@@ -5028,7 +5050,7 @@ function UnmatchedView({
                     <td className="px-3 py-2 text-right text-xs font-semibold text-lime-600 tabular-nums">
                       {tx.credit != null ? `¥${tx.credit.toLocaleString()}` : '—'}
                     </td>
-                    <td className="px-3 py-2 min-w-[200px]">
+                    <td className="px-3 py-2">
                       <AccountCombobox
                         value={accounts[i] ?? ''}
                         onChange={(v) => setAccounts((prev) => ({ ...prev, [i]: v }))}
@@ -5038,7 +5060,7 @@ function UnmatchedView({
                         dense
                       />
                     </td>
-                    <td className="px-3 py-2 min-w-[200px]">
+                    <td className="px-3 py-2">
                       <input
                         type="text"
                         value={descriptions[i] ?? ''}
@@ -5097,6 +5119,7 @@ function LedgerView({
   onAddRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
   departmentsList: { id: string; name: string; code: string | null }[];
 }) {
+  const confirm = useConfirm();
   const [closingInput, setClosingInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -5695,7 +5718,7 @@ function LedgerView({
   const handleBulk = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    if (!confirm(`${ids.length} 件の仕訳を削除しますか？`)) return;
+    if (!(await confirm({ message: `${ids.length} 件の仕訳を削除しますか？`, tone: 'danger' }))) return;
     await onBulkDelete(ids);
     setSelectedIds(new Set());
   };
@@ -5877,10 +5900,10 @@ function LedgerView({
               className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-sky-400"
             />
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (!closingInput) { alert('締め日を選択してください'); return; }
                 const ymd = closingInput.replace(/-/g, '');
-                if (!confirm(`${closingInput} までを締めますか？`)) return;
+                if (!(await confirm(`${closingInput} までを締めますか？`))) return;
                 onClose(ymd);
               }}
               className="text-xs text-white bg-amber-500 rounded-xl px-4 py-2 font-semibold hover:bg-amber-600 transition-all"
@@ -6274,6 +6297,7 @@ function EditableRow({
   onAddRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
   departmentsList: { id: string; name: string; code: string | null }[];
 }) {
+  const confirm = useConfirm();
   const [date, setDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
   const [debitAccount, setDebitAccount] = useState(entry.debit_account);
   const [creditAccount, setCreditAccount] = useState(entry.credit_account);
@@ -6470,8 +6494,8 @@ function EditableRow({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (!confirm('この仕訳と請求書の紐づけを解除しますか？\n解除後、再照合で紐づけ直せます。')) return;
+                onClick={async () => {
+                  if (!(await confirm({ message: 'この仕訳と請求書の紐づけを解除しますか？\n解除後、再照合で紐づけ直せます。', tone: 'danger', confirmLabel: '解除する' }))) return;
                   saveIfChanged({ ocr_upload_id: null } as Partial<LedgerEntry>);
                 }}
                 className="text-slate-300 hover:text-red-400 transition-colors"
@@ -6495,8 +6519,8 @@ function EditableRow({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (!confirm('この仕訳と通帳の紐づけを解除しますか？')) return;
+                onClick={async () => {
+                  if (!(await confirm({ message: 'この仕訳と通帳の紐づけを解除しますか？', tone: 'danger', confirmLabel: '解除する' }))) return;
                   saveIfChanged({ bank_ocr_upload_id: null } as Partial<LedgerEntry>);
                 }}
                 className="text-slate-300 hover:text-red-400 transition-colors"
@@ -6709,7 +6733,7 @@ function EditableRow({
             disabled={!vendorName.trim() || !debitAccount.trim()}
             onClick={async () => {
               if (!vendorName.trim() || !debitAccount.trim()) return;
-              if (!confirm(`相手先ルールを追加:\n「${vendorName}」→ ${debitAccount}`)) return;
+              if (!(await confirm({ message: `相手先ルールを追加:\n「${vendorName}」→ ${debitAccount}`, confirmLabel: '追加する' }))) return;
               await onAddRule('vendor', vendorName, debitAccount);
             }}
             className="text-[10px] shrink-0 text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded w-6 h-6 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
@@ -6724,7 +6748,7 @@ function EditableRow({
             onClick={async () => {
               const pat = prompt('摘要キーワード（この文字列を含む取引にルールが適用されます）', description);
               if (!pat || !pat.trim()) return;
-              if (!confirm(`摘要ルールを追加:\n「${pat}」を含む → ${debitAccount}`)) return;
+              if (!(await confirm({ message: `摘要ルールを追加:\n「${pat}」を含む → ${debitAccount}`, confirmLabel: '追加する' }))) return;
               await onAddRule('description', pat, debitAccount);
             }}
             className="text-[10px] shrink-0 text-lime-700 border border-lime-200 bg-lime-50 hover:bg-lime-100 rounded w-6 h-6 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
@@ -6816,6 +6840,7 @@ function BalanceView({
   consumedUnmatchedIdx: Set<number>;
   onConsumeUnmatched: (idx: number) => void;
 }) {
+  const confirm = useConfirm();
   // 期間フィルタ: YYYY-MM-DD（空=全期間）
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -7026,7 +7051,7 @@ function BalanceView({
   };
 
   const deleteRule = async (id: string) => {
-    if (!confirm('このルールを削除しますか？')) return;
+    if (!(await confirm({ message: 'このルールを削除しますか？', tone: 'danger' }))) return;
     await fetch(`/api/accounting-rules?id=${id}`, { method: 'DELETE' });
     await fetchRules();
   };
@@ -7037,7 +7062,7 @@ function BalanceView({
   const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
   const runRecalc = async () => {
     if (!recalcFrom || !recalcTo) { setRecalcMsg('期間を指定してください'); return; }
-    if (!confirm(`${recalcMode === 'rewrite' ? '既存の償却仕訳を削除して再生成' : '差額を一括修正仕訳として計上'}します。よろしいですか?`)) return;
+    if (!(await confirm(`${recalcMode === 'rewrite' ? '既存の償却仕訳を削除して再生成' : '差額を一括修正仕訳として計上'}します。よろしいですか?`))) return;
     setRecalcMsg('再計算中...');
     const res = await fetch('/api/depreciation/recalc', {
       method: 'POST',
@@ -7800,6 +7825,7 @@ function FixedAssetSection({
   consumedUnmatchedIdx: Set<number>;
   onConsumeUnmatched: (idx: number) => void;
 }) {
+  const confirm = useConfirm();
   void clientId; // 未使用警告回避
   // 処分ダイアログ
   const [disposeTarget, setDisposeTarget] = useState<FixedAssetRow | null>(null);
@@ -7893,7 +7919,7 @@ function FixedAssetSection({
   };
 
   const deleteAsset = async (id: string) => {
-    if (!confirm('この資産と紐付く償却仕訳を削除しますか？')) return;
+    if (!(await confirm({ message: 'この資産と紐付く償却仕訳を削除しますか？', tone: 'danger' }))) return;
     const res = await fetch(`/api/fixed-assets/${id}`, { method: 'DELETE' });
     const json = await res.json();
     if (!res.ok) { alert(json.error); return; }
@@ -7902,7 +7928,7 @@ function FixedAssetSection({
 
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const cancelDispose = async (a: FixedAssetRow) => {
-    if (!confirm(`「${a.name}」の処分を取消しますか？\n紐付く処分仕訳（除却損・売却損益など）が削除され、資産は有効に戻ります。`)) return;
+    if (!(await confirm({ message: `「${a.name}」の処分を取消しますか？\n紐付く処分仕訳（除却損・売却損益など）が削除され、資産は有効に戻ります。`, tone: 'danger', confirmLabel: '取消する' }))) return;
     setCancellingId(a.id);
     try {
       const res = await fetch(`/api/fixed-assets/${a.id}/dispose`, { method: 'DELETE' });
@@ -8393,6 +8419,7 @@ function MasterView({
   onCreateRule: (pattern_type: 'vendor' | 'description', pattern: string, debit_account: string) => Promise<unknown>;
   onDeleteRule: (id: string) => Promise<void>;
 }) {
+  const confirm = useConfirm();
   // 会社絞り込み: '' = 全件、uuid = その会社
   const [scopeClientId, setScopeClientId] = useState<string>('');
 
@@ -8415,7 +8442,7 @@ function MasterView({
   );
 
   const mergeAccount = async (keepId: string, mergeId: string) => {
-    if (!confirm('この2件をマージします。マージ元の科目は削除され、仕訳の科目名はマージ先に統一されます。よろしいですか？')) return;
+    if (!(await confirm({ message: 'この2件をマージします。マージ元の科目は削除され、仕訳の科目名はマージ先に統一されます。よろしいですか？', tone: 'danger', confirmLabel: 'マージする' }))) return;
     const res = await fetch('/api/accounts/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -8430,7 +8457,7 @@ function MasterView({
   };
 
   const mergeVendor = async (keepId: string, mergeId: string) => {
-    if (!confirm('この2件をマージします。マージ元の取引先は削除され、仕訳の取引先名はマージ先に統一されます。よろしいですか？')) return;
+    if (!(await confirm({ message: 'この2件をマージします。マージ元の取引先は削除され、仕訳の取引先名はマージ先に統一されます。よろしいですか？', tone: 'danger', confirmLabel: 'マージする' }))) return;
     const res = await fetch('/api/vendors/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -8564,7 +8591,7 @@ function MasterView({
   };
 
   const deleteAccount = async (id: string) => {
-    if (!confirm('この勘定科目を削除しますか？')) return;
+    if (!(await confirm({ message: 'この勘定科目を削除しますか？', tone: 'danger' }))) return;
     const res = await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const data = await res.json();
@@ -8610,7 +8637,7 @@ function MasterView({
   };
 
   const deleteVendor = async (id: string) => {
-    if (!confirm('この取引先を削除しますか？（既存の仕訳は残ります）')) return;
+    if (!(await confirm({ message: 'この取引先を削除しますか？（既存の仕訳は残ります）', tone: 'danger' }))) return;
     const res = await fetch(`/api/vendors/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const data = await res.json();
@@ -8977,8 +9004,8 @@ function MasterView({
                   <td className="px-3 py-2 text-xs text-slate-700">{r.debit_account}</td>
                   <td className="px-3 py-2 text-right">
                     <button
-                      onClick={() => {
-                        if (confirm('このルールを削除しますか？')) onDeleteRule(r.id);
+                      onClick={async () => {
+                        if (await confirm({ message: 'このルールを削除しますか？', tone: 'danger' })) onDeleteRule(r.id);
                       }}
                       className="text-[10px] text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50"
                     >
@@ -9254,6 +9281,7 @@ function FinancialStatementView({
   accountsList: FsAccountItem[];
   addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<FsAccountItem | null>;
 }) {
+  const confirm = useConfirm();
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -9363,7 +9391,7 @@ function FinancialStatementView({
   };
 
   const handleDeletePeriod = async (id: string) => {
-    if (!confirm('この会計期間を削除しますか？')) return;
+    if (!(await confirm({ message: 'この会計期間を削除しますか？', tone: 'danger' }))) return;
     const res = await fetch(`/api/fiscal-periods/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const data = await res.json();

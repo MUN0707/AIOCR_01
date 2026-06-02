@@ -3,6 +3,8 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { JournalSidebarNav } from '@/components/JournalSidebarNav';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface ClientItem { id: string; name: string; short_name?: string | null }
 
@@ -29,6 +31,7 @@ function fmtDate(s: string) {
 }
 
 function UserRolesInner() {
+  const confirm = useConfirm();
   const sp = useSearchParams();
   const [clients, setClients] = useState<ClientItem[]>([]);
   const [clientId, setClientId] = useState(sp.get('clientId') ?? '');
@@ -87,7 +90,7 @@ function UserRolesInner() {
   };
 
   const deleteMember = async (id: string) => {
-    if (!confirm('このメンバーを削除しますか？')) return;
+    if (!(await confirm({ message: 'このメンバーを削除しますか？', tone: 'danger' }))) return;
     try {
       const res = await fetch(`/api/client-members?id=${id}`, { method: 'DELETE' });
       if (res.ok) fetchMembers();
@@ -101,7 +104,9 @@ function UserRolesInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 to-lime-50 p-4 md:p-8">
-      <div className="max-w-[900px] mx-auto space-y-6">
+      <div className="max-w-[1140px] mx-auto flex gap-5 items-start">
+        <JournalSidebarNav clientId={clientId} active="user-roles" />
+        <div className="flex-1 min-w-0 space-y-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-2xl font-bold text-slate-800">ユーザーロール管理</h1>
           <Link href="/" className="text-sm text-sky-600 hover:underline">← 日記帳に戻る</Link>
@@ -244,6 +249,7 @@ function UserRolesInner() {
               <p>データの閲覧のみ可能。入力・編集・承認はできません。</p>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </div>

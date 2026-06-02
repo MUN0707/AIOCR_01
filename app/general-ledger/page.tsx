@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { JournalSidebarNav } from '@/components/JournalSidebarNav';
 
 interface LedgerEntry {
   id: string;
@@ -161,7 +162,9 @@ function GeneralLedgerInner() {
 
   return (
     <div className="min-h-screen bg-slate-50/40 px-6 py-8">
-      <div className="max-w-[1280px] mx-auto space-y-5">
+      <div className="max-w-[1520px] mx-auto flex gap-5 items-start">
+        <JournalSidebarNav clientId={clientId} active="general-ledger" />
+        <div className="flex-1 min-w-0 space-y-5">
         {/* ヘッダ */}
         <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
@@ -289,7 +292,16 @@ function GeneralLedgerInner() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[900px]">
+              <table className="w-full text-sm table-fixed" style={{ minWidth: '900px' }}>
+                <colgroup>
+                  <col style={{ width: '100px' }} />  {/* 日付 */}
+                  <col style={{ width: '150px' }} />  {/* 相手科目 */}
+                  <col style={{ width: '150px' }} />  {/* 取引先 */}
+                  <col />                              {/* 摘要（残り） */}
+                  <col style={{ width: '110px' }} />  {/* 借方 */}
+                  <col style={{ width: '110px' }} />  {/* 貸方 */}
+                  <col style={{ width: '120px' }} />  {/* 残高 */}
+                </colgroup>
                 <thead className="bg-slate-50/60">
                   <tr className="border-b border-slate-100">
                     <th className="px-3 py-3 text-left text-[10px] font-semibold text-slate-400 uppercase tracking-widest">日付</th>
@@ -305,11 +317,11 @@ function GeneralLedgerInner() {
                   {ledgerLines.map((l, i) => (
                     <tr key={`${l.entry.id}-${i}`} className="hover:bg-slate-50/40">
                       <td className="px-3 py-2 text-xs font-mono text-slate-600 whitespace-nowrap">{formatYmd(l.entry.entry_date)}</td>
-                      <td className="px-3 py-2 text-xs text-slate-700">
+                      <td className="px-3 py-2 text-xs text-slate-700 truncate" title={l.counter ?? ''}>
                         {l.counter && l.counter !== '不明' ? l.counter : <span className="text-slate-300">—</span>}
                       </td>
-                      <td className="px-3 py-2 text-xs text-slate-600">{l.entry.vendor_name || <span className="text-slate-300">—</span>}</td>
-                      <td className="px-3 py-2 text-xs text-slate-500 truncate max-w-[300px]" title={l.entry.description}>
+                      <td className="px-3 py-2 text-xs text-slate-600 truncate" title={l.entry.vendor_name ?? ''}>{l.entry.vendor_name || <span className="text-slate-300">—</span>}</td>
+                      <td className="px-3 py-2 text-xs text-slate-500 truncate" title={l.entry.description}>
                         {l.entry.description || <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-2 text-right text-xs tabular-nums text-sky-600">
@@ -335,6 +347,7 @@ function GeneralLedgerInner() {
               </table>
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>

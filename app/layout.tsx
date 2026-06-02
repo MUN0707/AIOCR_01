@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter, Noto_Sans_JP } from 'next/font/google';
 import './globals.css';
 import ErrorReportFab from '@/components/ErrorReportFab';
+import { ConfirmProvider } from '@/components/ConfirmDialog';
 
 // Latin: Inter（軽量・クリーン）
 const inter = Inter({
@@ -32,8 +33,10 @@ export default function RootLayout({
   return (
     <html lang="ja" className={`${inter.variable} ${notoSansJP.variable}`}>
       <body className="antialiased">
-        {children}
-        <ErrorReportFab />
+        <ConfirmProvider>
+          {children}
+          <ErrorReportFab />
+        </ConfirmProvider>
       </body>
     </html>
   );

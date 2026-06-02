@@ -3,6 +3,8 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { JournalSidebarNav } from '@/components/JournalSidebarNav';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface ClientItem { id: string; name: string; short_name?: string | null }
 
@@ -29,6 +31,7 @@ function fmtYen(n: number) {
 }
 
 function DepartmentsInner() {
+  const confirm = useConfirm();
   const sp = useSearchParams();
   const [clients, setClients] = useState<ClientItem[]>([]);
   const [clientId, setClientId] = useState(sp.get('clientId') ?? '');
@@ -109,7 +112,7 @@ function DepartmentsInner() {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`「${name}」を削除しますか？\n紐付いた仕訳の部門は未設定になります。`)) return;
+    if (!(await confirm({ message: `「${name}」を削除しますか？\n紐付いた仕訳の部門は未設定になります。`, tone: 'danger' }))) return;
     const res = await fetch(`/api/departments/${id}`, { method: 'DELETE' });
     if (!res.ok) { const j = await res.json(); alert(j.error || '削除失敗'); return; }
     fetchDepartments();
@@ -134,7 +137,9 @@ function DepartmentsInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 to-lime-50 p-4 md:p-8">
-      <div className="max-w-[900px] mx-auto space-y-6">
+      <div className="max-w-[1140px] mx-auto flex gap-5 items-start">
+        <JournalSidebarNav clientId={clientId} active="departments" />
+        <div className="flex-1 min-w-0 space-y-6">
 
         {/* ヘッダー */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -377,6 +382,7 @@ function DepartmentsInner() {
           )}
         </div>
 
+        </div>
       </div>
     </div>
   );

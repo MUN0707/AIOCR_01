@@ -3,6 +3,8 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { JournalSidebarNav } from '@/components/JournalSidebarNav';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface ClientItem { id: string; name: string; short_name?: string | null }
 
@@ -30,6 +32,7 @@ const TAX_LABELS: Record<string, string> = {
 const RECUR_LABELS = { manual: '手動', monthly: '毎月', yearly: '毎年' };
 
 function TemplatesInner() {
+  const confirm = useConfirm();
   const sp = useSearchParams();
   const [clients, setClients] = useState<ClientItem[]>([]);
   const [clientId, setClientId] = useState(sp.get('clientId') ?? '');
@@ -96,7 +99,7 @@ function TemplatesInner() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('このテンプレートを削除しますか？')) return;
+    if (!(await confirm({ message: 'このテンプレートを削除しますか？', tone: 'danger' }))) return;
     await fetch(`/api/journal-templates/${id}`, { method: 'DELETE' });
     setTemplates(prev => prev.filter(t => t.id !== id));
   };
@@ -138,7 +141,9 @@ function TemplatesInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 to-slate-50">
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto px-4 py-8 flex gap-5 items-start">
+        <JournalSidebarNav clientId={clientId} active="templates" />
+        <div className="flex-1 min-w-0">
         {/* ヘッダー */}
         <div className="flex items-center gap-3 mb-6">
           <Link href="/" className="text-sky-500 hover:text-sky-700 text-sm">← 日記帳</Link>
@@ -323,6 +328,7 @@ function TemplatesInner() {
               ))}
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>
