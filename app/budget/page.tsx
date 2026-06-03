@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { JournalSidebarNav } from '@/components/JournalSidebarNav';
 
 interface ClientItem { id: string; name: string; short_name?: string | null }
 interface AccountItem { id: string; name: string; category: string; sub_category: string | null }
@@ -164,7 +165,9 @@ function BudgetInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 to-lime-50 p-4 md:p-8">
-      <div className="max-w-[1100px] mx-auto space-y-6">
+      <div className="max-w-[1340px] mx-auto flex gap-5 items-start">
+        <JournalSidebarNav clientId={clientId} active="budget" />
+        <div className="flex-1 min-w-0 space-y-6">
 
         {/* ヘッダー */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -498,6 +501,7 @@ function BudgetInner() {
           </div>
         )}
 
+        </div>
       </div>
     </div>
   );

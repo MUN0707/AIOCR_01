@@ -12,8 +12,11 @@
 - 検証:
   - `tsc --noEmit` EXIT=0 / `next build` EXIT=0
   - **実画面検証**: 一時ページ `app/uitest`（proxy 公開許可も一時追加）を作り Playwright で確認 → モーダル3バリアント（default=青/danger=赤/choice=カスタムラベル）の描画・改行表示・Promise解決（確定=`true`/キャンセル=`false`）を確認。仕訳テーブル（colgroup版）の列整列・長文の truncate（…）・金額右寄せを目視確認。**確認後、検証用 `app/uitest` と proxy.ts の一時許可を撤去済み**
+- 本番反映: ユーザー承認のもと commit `fa6571e`（今回触った9ファイルのみ）を main へ push → Vercel auto-deploy `● Ready`（ビルド1分）確認済み
+- TaskHub: 既存タスク `7d8d3adb`（「細部UI改善 残: (b)(d)」）を完了化。セッション中に重複作成した `eac9b8ba` は削除。新規 `6c5d1a01`（未コミット6ファイルの扱い確認）を低優先で登録
 - 次にやること:
-  - 本番反映（git push = Vercel auto-deploy）はユーザー確認後。実データでのログイン確認（仕訳日記帳/総勘定元帳の実テーブル目視）は本番デプロイ後にユーザー操作で
+  - 未コミット6ファイル（ar-ap/audit-log/budget/cash-projection/edocuments/tax-summary、別作業の途中物）の扱い判断 → TaskHub `6c5d1a01`
+  - 実データでのログイン確認（仕訳日記帳/総勘定元帳の実テーブル目視）はユーザー操作で
 
 ## 2026-06-01
 - やったこと（手動仕訳モーダルの取引先をマスタへ自動登録）:

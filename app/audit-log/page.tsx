@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { JournalSidebarNav } from '@/components/JournalSidebarNav';
 
 interface ClientItem { id: string; name: string; short_name?: string | null }
 
@@ -78,7 +79,9 @@ function AuditLogInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 to-lime-50 p-4 md:p-8">
-      <div className="max-w-[900px] mx-auto space-y-6">
+      <div className="max-w-[1140px] mx-auto flex gap-5 items-start">
+        <JournalSidebarNav clientId={clientId} active="audit-log" />
+        <div className="flex-1 min-w-0 space-y-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-2xl font-bold text-slate-800">変更履歴・監査証跡</h1>
           <Link href="/" className="text-sm text-sky-600 hover:underline">← 日記帳に戻る</Link>
@@ -138,6 +141,7 @@ function AuditLogInner() {
               ))}
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>

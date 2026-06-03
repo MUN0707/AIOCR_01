@@ -280,10 +280,12 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── 照合ログは常に保存（復元用） ───
+    // insert は throw せず { data, error } を返すため、error / data 双方で失敗判定する。
     let logId: string | null = null;
+    let logSaveError: string | null = null;
     if (user) {
       try {
-        const { data: logRow } = await service
+        const { data: logRow, error: insertError } = await service
           .from('journal_match_logs')
           .insert({
             user_id: ownerUserId,
@@ -296,10 +298,26 @@ export async function POST(request: NextRequest) {
           })
           .select('id')
           .single();
+        if (insertError) throw insertError;
         logId = logRow?.id ?? null;
+        if (!logId) throw new Error('journal_match_logs insert が id を返しませんでした');
       } catch (logError) {
         console.error('journal_match_logs 保存失敗:', logError);
+        logSaveError = logError instanceof Error ? logError.message : String(logError);
+        logId = null;
       }
+    }
+
+    // ─── ログ保存に失敗した状態で journal_entries を log_id=NULL で保存すると
+    //    後から照合結果を辿れなくなるため、保存モード時は fail-fast でエラーを返す ───
+    if (shouldSave && user && logSaveError) {
+      return NextResponse.json(
+        {
+          error: `照合ログの保存に失敗したため仕訳を登録しませんでした: ${logSaveError}`,
+          logSaveError,
+        },
+        { status: 500 }
+      );
     }
 
     // ─── 仕訳エントリ保存（部分登録モードではスキップ） ───
@@ -312,7 +330,7 @@ export async function POST(request: NextRequest) {
       await saveResultsToJournalEntries(service, { id: ownerUserId, email: user.email }, clientId, logId, vouchers, transactions, results, summary, vendorIdByName);
     }
 
-    return NextResponse.json({ results, summary, suggestedUnmatchedAccounts, logId });
+    return NextResponse.json({ results, summary, suggestedUnmatchedAccounts, logId, logSaveError });
   } catch (error) {
     console.error('照合処理エラー:', error);
     const message = error instanceof Error ? error.message : '照合処理中にエラーが発生しました';

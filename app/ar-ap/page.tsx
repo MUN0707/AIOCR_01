@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { JournalSidebarNav } from '@/components/JournalSidebarNav';
 
 interface ClientItem { id: string; name: string; short_name?: string | null }
 
@@ -91,7 +92,9 @@ function ArApInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 to-slate-50">
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-8 flex gap-5 items-start">
+        <JournalSidebarNav clientId={clientId} active="ar-ap" />
+        <div className="flex-1 min-w-0">
         {/* ヘッダー */}
         <div className="flex items-center gap-3 mb-3">
           <Link href="/" className="text-sky-500 hover:text-sky-700 text-sm">← 日記帳</Link>
@@ -223,6 +226,7 @@ function ArApInner() {
               ))}
             </tbody>
           </table>
+        </div>
         </div>
       </div>
     </div>
