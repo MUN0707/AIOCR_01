@@ -6,9 +6,12 @@
   - **[Q5] CI で next build を回す** (`448e997d`): `.github/workflows/build.yml` 新規作成。main / PR push 時に `npm ci` → `npx tsc --noEmit` → `npm run build` を GitHub Actions で実行。tsc だけでは拾えない next build 由来エラーを本番 Vercel デプロイ前にブロック。Vercel 相当ビルド再現のため `NEXT_PUBLIC_SUPABASE_*` 等はプレースホルダ env を注入（クライアントは実行時生成・静的ページはビルド時 Supabase 非アクセスのため URL 形式が妥当なら通る）。
     - 既存の react-hooks/set-state-in-effect 等の lint は **`next build` がブロックしない**（ESLint エラーでもビルドは EXIT=0）ため CI ゲートには影響なし。lint クリーンアップは別タスク化（巨大な app/page.tsx 改変はリスクが高く本セッションでは見送り）。
 - 検証: `tsc --noEmit` EXIT=0 / `npm run build` EXIT=0（ローカル）
+- [Q4] vendors.client_id=NULL バックフィル → **対応不要（migration で既出）と判明**:
+  - 本番 DB (`lonmddwpcfalgtddaksg`) を確認: `vendors` 全112件中 `client_id IS NULL` は **0件**、`client_id` カラムは **NOT NULL**。
+  - migration `20260524_drop_null_client_id_masters.sql`（5/24）が既に「NULL を user の全 client へ複製 → NULL 本体を DELETE → NOT NULL 制約 → UNIQUE を (user_id, client_id, normalized_key) に再構築」を適用済み。タスクの前提（5/20 データ）は 5/24 migration で解消済みで、以後 NULL 行は制約上発生しない。バックフィル SQL は不要。タスク完了化。
+- 検証: GitHub Actions `build` 初回実行 ✓ 成功（1m1s / Install→tsc→build すべて green、run 26988719443）
 - 次にやること:
-  - [Q4] vendors.client_id=NULL バックフィルは本番 DB 更新のためユーザー確認後に実施
-  - CI ワークフローの初回実行を GitHub Actions で目視確認（push 後）
+  - CI: actions/checkout・setup-node の Node20 deprecation（2026-06-16〜）は将来 v5 系へ更新検討（現状は警告のみで非ブロック）
 
 ## 2026-06-03 17:14
 - やったこと（[Q2] match-journal ログ保存失敗の fail-fast 化）:
