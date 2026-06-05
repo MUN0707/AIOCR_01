@@ -1,0 +1,40 @@
+name: build
+
+# Vercel 本番デプロイ前に next build を CI で回し、
+# tsc --noEmit だけでは検知できない next build 由来エラーを
+# main / PR push 時点でブロックする。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Vercel と同等のビルドを再現するためのプレースホルダ env。
+# 実シークレットは不要（クライアントは実行時にしか生成されず、
+# 静的ページはビルド時に Supabase へアクセスしないため、
+# URL 形式さえ妥当ならビルドは通る）。
+env:
+  NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+  SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+  ANTHROPIC_API_KEY: placeholder-anthropic-key
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build

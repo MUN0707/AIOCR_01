@@ -321,16 +321,40 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── 仕訳エントリ保存（部分登録モードではスキップ） ───
+    let savedCount = 0;
+    let saveError: string | null = null;
     if (shouldSave && user) {
       // canonical vendorName → vendor_id のマップを構築（saveResults 内で参照）
       const vendorIdByName = new Map<string, string>();
       for (const v of voucherVendorMap.values()) {
         if (v.canonicalName && v.vendorId) vendorIdByName.set(v.canonicalName, v.vendorId);
       }
-      await saveResultsToJournalEntries(service, { id: ownerUserId, email: user.email }, clientId, logId, vouchers, transactions, results, summary, vendorIdByName);
+      const saveOutcome = await saveResultsToJournalEntries(service, { id: ownerUserId, email: user.email }, clientId, logId, vouchers, transactions, results, summary, vendorIdByName);
+      savedCount = saveOutcome.savedCount;
+      saveError = saveOutcome.saveError;
     }
 
-    return NextResponse.json({ results, summary, suggestedUnmatchedAccounts, logId, logSaveError });
+    // ─── journal_entries の保存に失敗した場合は fail-fast で 500 を返す ───
+    //    Supabase の insert は throw せず {error} を返すため、従来は console.error のみで
+    //    握り潰され、フロントには成功レスポンスが返って「仕訳されたつもり」になっていた。
+    //    insert は単一バッチ（statement 単位で原子的）なので失敗時は savedCount=0。
+    if (shouldSave && user && saveError) {
+      return NextResponse.json(
+        {
+          error: `仕訳の保存に失敗しました: ${saveError}`,
+          saveError,
+          savedCount,
+          results,
+          summary,
+          suggestedUnmatchedAccounts,
+          logId,
+          logSaveError,
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ results, summary, suggestedUnmatchedAccounts, logId, logSaveError, savedCount, saveError });
   } catch (error) {
     console.error('照合処理エラー:', error);
     const message = error instanceof Error ? error.message : '照合処理中にエラーが発生しました';
@@ -352,7 +376,7 @@ async function saveResultsToJournalEntries(
   results: MatchResult[],
   _summary: ReturnType<typeof matchVouchersToTransactions>['summary'],
   vendorIdByName: Map<string, string>,
-) {
+): Promise<{ savedCount: number; saveError: string | null }> {
   try {
     const rows: Record<string, unknown>[] = [];
     for (const r of results) {
@@ -422,10 +446,21 @@ async function saveResultsToJournalEntries(
         });
       }
     }
-    if (rows.length > 0) {
-      await service.from('journal_entries').insert(rows);
+    if (rows.length === 0) {
+      return { savedCount: 0, saveError: null };
     }
+    // Supabase の insert は throw せず {error} を返すため、戻り値を必ず検査する
+    const { error: insertError } = await service.from('journal_entries').insert(rows);
+    if (insertError) {
+      console.error('journal_entries 保存失敗:', insertError);
+      return { savedCount: 0, saveError: insertError.message };
+    }
+    return { savedCount: rows.length, saveError: null };
   } catch (saveError) {
     console.error('journal_entries 保存失敗:', saveError);
+    return {
+      savedCount: 0,
+      saveError: saveError instanceof Error ? saveError.message : String(saveError),
+    };
   }
 }

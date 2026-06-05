@@ -1,5 +1,27 @@
 # Progress
 
+## 2026-06-05 09:50
+- やったこと（明日までの予定タスク [Q1] / [Q5] を消化）:
+  - **[Q1] match-journal 保存失敗の silent fail 解消** (`8de36ed1`): `app/api/match-journal/route.ts` の `saveResultsToJournalEntries` は `journal_entries` insert の戻り値 `{error}` を検査せず `console.error` のみで握り潰し、フロントには常に成功レスポンスを返していた（ユーザーは「仕訳されたつもり」で気付けない）。関数を `Promise<{savedCount, saveError}>` 返却に変更し、Supabase insert の `{error}` を必ず検査。保存モード（`shouldSave`）で `saveError` があれば **fail-fast で 500** を返却（ログ保存失敗時の既存 fail-fast と整合）。成功時も `savedCount`/`saveError` をレスポンスに含め、API consumer が保存件数・失敗を判別できるようにした。
+  - **[Q5] CI で next build を回す** (`448e997d`): `.github/workflows/build.yml` 新規作成。main / PR push 時に `npm ci` → `npx tsc --noEmit` → `npm run build` を GitHub Actions で実行。tsc だけでは拾えない next build 由来エラーを本番 Vercel デプロイ前にブロック。Vercel 相当ビルド再現のため `NEXT_PUBLIC_SUPABASE_*` 等はプレースホルダ env を注入（クライアントは実行時生成・静的ページはビルド時 Supabase 非アクセスのため URL 形式が妥当なら通る）。
+    - 既存の react-hooks/set-state-in-effect 等の lint は **`next build` がブロックしない**（ESLint エラーでもビルドは EXIT=0）ため CI ゲートには影響なし。lint クリーンアップは別タスク化（巨大な app/page.tsx 改変はリスクが高く本セッションでは見送り）。
+- 検証: `tsc --noEmit` EXIT=0 / `npm run build` EXIT=0（ローカル）
+- 次にやること:
+  - [Q4] vendors.client_id=NULL バックフィルは本番 DB 更新のためユーザー確認後に実施
+  - CI ワークフローの初回実行を GitHub Actions で目視確認（push 後）
+
+## 2026-06-03 17:14
+- やったこと（[Q2] match-journal ログ保存失敗の fail-fast 化）:
+  - `app/api/match-journal/route.ts`: `journal_match_logs` の insert は **throw せず `{data,error}` を返す**ため従来の try/catch が DB エラーを取りこぼしていた問題を発見。`insertError` の throw + `id` 欠落チェックで失敗判定を二重化
+  - 保存モード（`shouldSave=true`）でログ保存失敗時は `journal_entries` を `log_id=NULL` で保存せず **500 返却**（fail-fast）。宙ぶらりんな辿れない仕訳を作らない
+  - 部分登録モードはレスポンスに `logSaveError` を含めフロントへ「復元不可」を通知
+  - ユーザー指示で working tree の未コミット6ファイル（ar-ap/audit-log/budget/cash-projection/edocuments/tax-summary の `JournalSidebarNav` 追加）も同梱
+- 検証: `tsc --noEmit` EXIT=0
+- 本番反映: commit `da3d2ae`（計8ファイル）を main へ push → Vercel auto-deploy `● Ready`（ビルド59s）確認済み
+- TaskHub: 既存 `ade0846f`（[Q2]）と `6c5d1a01`（未コミット6ファイル扱い）を完了化。task-koushin 中に GET レスポンス構造を読み違えて作成した重複タスク `02e696e4` は削除
+- 次にやること:
+  - 残課題は既存タスクで管理: [Q1] silent fail 解消 `8de36ed1` / [Q4] vendors.client_id backfill `e748f26b` / [Q5] CI で next build `448e997d` 等
+
 ## 2026-06-02
 - やったこと（細部UI改善の残 (b)(d) を完了）:
   - **(b) confirm()→モーダル置換**: `components/ConfirmDialog.tsx` を新設。`ConfirmProvider` + `useConfirm()` フック（`await confirm(...)` で `Promise<boolean>` を返す）。文字列でもオプション（`message/title/confirmLabel/cancelLabel/tone`）でも渡せ、`tone:'danger'` で赤系、本文は `whitespace-pre-line` で `\n` 改行表示。`app/layout.tsx` の `<body>` を `ConfirmProvider` でラップ
