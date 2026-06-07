@@ -587,6 +587,7 @@ export default function Home() {
   const [registeredVoucherIdx, setRegisteredVoucherIdx] = useState<Set<number>>(new Set());
   const [selectedVoucherIdx, setSelectedVoucherIdx] = useState<Set<number>>(new Set());
   const [persisting, setPersisting] = useState(false);
+  const [committingUnmatched, setCommittingUnmatched] = useState(false);
   const [bankProcessing, setBankProcessing] = useState(false);
   const [invoiceProcessing, setInvoiceProcessing] = useState(false);
   const [matchProcessing, setMatchProcessing] = useState(false);
@@ -2066,6 +2067,80 @@ export default function Home() {
     }
   };
 
+  // 証憑がない入出金（未照合取引）を直接 journal_entries に登録する
+  const handleCommitUnmatched = async (indices: number[]) => {
+    if (!journalMatchResult || committingUnmatched) return;
+    const txs = journalMatchResult.summary.unmatchedTransactions ?? [];
+
+    const entries: Array<{
+      transaction_index: number;
+      entry_date: string;
+      counter_account: string;
+      direction: 'outflow' | 'inflow';
+      amount: number;
+      description: string;
+      bank_account_name: string | null;
+      bank_ocr_upload_id: string | null;
+    }> = [];
+    const missing: number[] = [];
+    const submittedIdx: number[] = [];
+
+    for (const i of indices) {
+      const tx = txs[i];
+      if (!tx || consumedUnmatchedIdx.has(i)) continue;
+      const account = (unmatchedTxAccounts[i] ?? '').trim();
+      if (!account) { missing.push(i); continue; }
+      const isOutflow = tx.debit != null;
+      const amount = isOutflow ? tx.debit : tx.credit;
+      if (amount == null || amount <= 0) continue;
+      entries.push({
+        transaction_index: i,
+        entry_date: tx.transactionDate,
+        counter_account: account,
+        direction: isOutflow ? 'outflow' : 'inflow',
+        amount,
+        description: (unmatchedTxDescriptions[i] ?? tx.description ?? '').trim(),
+        bank_account_name: tx.bankAccountName ?? null,
+        bank_ocr_upload_id: tx.ocrUploadId ?? null,
+      });
+      submittedIdx.push(i);
+    }
+
+    if (missing.length > 0) {
+      alert(`借方科目が未入力の行が ${missing.length} 件あります。科目を設定してから登録してください。`);
+      return;
+    }
+    if (entries.length === 0) {
+      alert('登録対象がありません');
+      return;
+    }
+
+    setCommittingUnmatched(true);
+    try {
+      const res = await fetch('/api/journal-entries/persist-unmatched', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: selectedClientId, entries }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '登録に失敗しました');
+      // 登録済み行を未照合リストから外す（セッション＋ドラフトで二重登録防止）
+      setConsumedUnmatchedIdx((prev) => {
+        const next = new Set(prev);
+        submittedIdx.forEach((i) => next.add(i));
+        return next;
+      });
+      setUnmatchedSelected(new Set());
+      bumpLedgerRefresh();
+      const skipped = data.skipped ?? 0;
+      alert(`${data.inserted} 件を仕訳に登録しました${skipped ? `\n（${skipped} 件は登録済みのためスキップしました）` : ''}`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '登録に失敗しました');
+    } finally {
+      setCommittingUnmatched(false);
+    }
+  };
+
   const handleResetJournal = () => {
     setBankFiles([]);
     setInvoiceFiles([]);
@@ -2844,7 +2919,8 @@ export default function Home() {
 
                 {/* 証憑がない入出金（従来の未照合） */}
                 <UnmatchedView
-                  transactions={(journalMatchResult?.summary.unmatchedTransactions ?? []).filter((_, i) => !consumedUnmatchedIdx.has(i))}
+                  transactions={journalMatchResult?.summary.unmatchedTransactions ?? []}
+                  consumedIdx={consumedUnmatchedIdx}
                   accounts={unmatchedTxAccounts}
                   setAccounts={setUnmatchedTxAccounts}
                   descriptions={unmatchedTxDescriptions}
@@ -2860,6 +2936,8 @@ export default function Home() {
                   addAccountLocal={addAccountLocal}
                   onShowPdf={showTransactionPdf}
                   onGoExecute={() => setJournalSubView('execute')}
+                  onCommit={handleCommitUnmatched}
+                  committing={committingUnmatched}
                 />
               </div>
             ) : journalSubView === 'ledger' ? (
@@ -4656,6 +4734,7 @@ function isBankFeeCandidate(
 
 function UnmatchedView({
   transactions,
+  consumedIdx,
   accounts,
   setAccounts,
   descriptions,
@@ -4671,8 +4750,11 @@ function UnmatchedView({
   addAccountLocal,
   onShowPdf,
   onGoExecute,
+  onCommit,
+  committing,
 }: {
   transactions: TransactionInput[];
+  consumedIdx: Set<number>;
   accounts: Record<number, string>;
   setAccounts: React.Dispatch<React.SetStateAction<Record<number, string>>>;
   descriptions: Record<number, string>;
@@ -4688,22 +4770,32 @@ function UnmatchedView({
   addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null> | void;
   onShowPdf: (tx: TransactionInput) => void;
   onGoExecute: () => void;
+  onCommit: (indices: number[]) => void | Promise<void>;
+  committing: boolean;
 }) {
+  // 登録済み（consumed）を除いた、表示対象の元インデックス一覧。
+  // accounts/descriptions/selected はすべて「元の unmatchedTransactions のインデックス」で
+  // キーされているため、ここでは再採番せず元インデックスのまま扱う。
+  const visibleIdx = useMemo(
+    () => transactions.map((_, i) => i).filter((i) => !consumedIdx.has(i)),
+    [transactions, consumedIdx],
+  );
+
   // ─── 振込手数料 自動判定（Hooks は early return より前で宣言） ─────────────
   // 候補抽出: 100-880円 / 11の倍数 / 摘要に既存vendor名なし、かつ未割当な行
   const bankFeeCandidateIdx = useMemo(() => {
     const result: number[] = [];
-    transactions.forEach((tx, i) => {
+    visibleIdx.forEach((i) => {
       if (accounts[i]) return;
-      if (isBankFeeCandidate(tx, vendorsList)) result.push(i);
+      if (isBankFeeCandidate(transactions[i], vendorsList)) result.push(i);
     });
     return result;
-  }, [transactions, accounts, vendorsList]);
+  }, [visibleIdx, transactions, accounts, vendorsList]);
 
   const [bankFeeExcluded, setBankFeeExcluded] = useState<Set<number>>(new Set());
   const [bankFeeDismissed, setBankFeeDismissed] = useState(false);
 
-  if (transactions.length === 0) {
+  if (visibleIdx.length === 0) {
     return (
       <div className="bg-white border border-slate-100 rounded-2xl p-12 text-center shadow-sm">
         <p className="text-sm font-semibold text-slate-700">未照合の入出金はありません</p>
@@ -4719,10 +4811,10 @@ function UnmatchedView({
     );
   }
 
-  const allSelected = selected.size === transactions.length && transactions.length > 0;
+  const allSelected = visibleIdx.length > 0 && visibleIdx.every((i) => selected.has(i));
   const toggleAll = () => {
     if (allSelected) setSelected(new Set());
-    else setSelected(new Set(transactions.map((_, i) => i)));
+    else setSelected(new Set(visibleIdx));
   };
   const toggleOne = (i: number) => {
     setSelected((prev) => {
@@ -4769,8 +4861,14 @@ function UnmatchedView({
     setBankFeeDismissed(true);
   };
 
-  const assignedCount = transactions.filter((_, i) => accounts[i]).length;
+  const assignedCount = visibleIdx.filter((i) => accounts[i]).length;
   const showBankFeeBanner = !bankFeeDismissed && bankFeeCandidateIdx.length > 0;
+  // 登録ボタンの対象: 選択があれば選択行、無ければ科目割当済みの全表示行
+  const commitTargets = (selected.size > 0
+    ? visibleIdx.filter((i) => selected.has(i))
+    : visibleIdx
+  ).filter((i) => (accounts[i] ?? '').trim());
+  const visibleCount = visibleIdx.length;
 
   return (
     <div className="space-y-4">
@@ -4778,10 +4876,10 @@ function UnmatchedView({
       <div className="bg-white border border-amber-100 rounded-2xl p-5 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-base font-semibold text-slate-900 tracking-tight">
-            証憑がない入出金 <span className="text-amber-600">{transactions.length}</span> 件
+            証憑がない入出金 <span className="text-amber-600">{visibleCount}</span> 件
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            科目割当済み {assignedCount} / {transactions.length} 件 — CSVに含まれるのは科目を設定したものだけです
+            科目割当済み {assignedCount} / {visibleCount} 件 — 科目を設定した行を仕訳に登録できます
           </p>
         </div>
         <p className="text-[11px] text-slate-400">例：銀行手数料 → 支払手数料</p>
@@ -4930,10 +5028,11 @@ function UnmatchedView({
       <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
         {/* モバイル: 仕訳実行カード一覧 */}
         <div className="lg:hidden divide-y divide-slate-100">
-          {transactions.length === 0 && (
+          {visibleCount === 0 && (
             <div className="px-4 py-8 text-center text-xs text-slate-400">対象の取引がありません</div>
           )}
-          {transactions.map((tx, i) => {
+          {visibleIdx.map((i) => {
+            const tx = transactions[i];
             const isSelected = selected.has(i);
             return (
               <div key={`m-tx-${i}`} className={`px-4 py-3 ${isSelected ? 'bg-sky-50/40' : 'bg-white'}`}>
@@ -5014,7 +5113,8 @@ function UnmatchedView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {transactions.map((tx, i) => {
+              {visibleIdx.map((i) => {
+                const tx = transactions[i];
                 const isSelected = selected.has(i);
                 return (
                   <tr
@@ -5077,9 +5177,26 @@ function UnmatchedView({
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-400 text-center">
-        設定が終わったら「仕訳実行」タブに戻ってCSVをダウンロードしてください
-      </p>
+      {/* 仕訳登録（コミット） */}
+      <div className="bg-white border border-sky-100 rounded-2xl p-4 shadow-sm sticky bottom-2 z-10">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[11px] text-slate-500">
+            貸方は口座（普通預金）を自動補完します。入金は借方を口座に自動反転します。
+            <br className="hidden sm:block" />
+            登録後はこの一覧から外れ、日記帳に反映されます。CSV出力も従来どおり利用できます。
+          </p>
+          <button
+            type="button"
+            onClick={() => onCommit(commitTargets)}
+            disabled={committing || commitTargets.length === 0}
+            className="text-sm font-semibold px-5 py-2.5 rounded-xl bg-sky-500 text-white shadow-sm hover:bg-sky-600 transition-colors disabled:bg-slate-200 disabled:text-slate-400 whitespace-nowrap"
+          >
+            {committing
+              ? '登録中…'
+              : `${commitTargets.length} 件を仕訳に登録${selected.size > 0 ? '（選択分）' : ''}`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
