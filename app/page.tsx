@@ -5874,6 +5874,32 @@ function LedgerView({
     setSelectedIds(new Set());
   };
 
+  // 既存の手動仕訳に後から請求書を OCR して紐付ける（C7 / 24e9102a）
+  const [attachingId, setAttachingId] = useState<string | null>(null);
+  const handleAttachVoucher = async (entryId: string, file: File) => {
+    if (attachingId) return;
+    setAttachingId(entryId);
+    try {
+      const sessionId = crypto.randomUUID();
+      const fd = new FormData();
+      fd.append('pdf', file);
+      fd.append('mode', 'invoice-single');
+      fd.append('sessionId', sessionId);
+      if (clientId) fd.append('clientId', clientId);
+      const res = await fetch('/api/process-pdf', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'OCR処理に失敗しました');
+      const uploadId: string | null = data.uploadId ?? null;
+      if (!uploadId) throw new Error('証憑の保存に失敗しました（アップロードIDが取得できません）');
+      // 既存の PATCH 経路で ocr_upload_id を紐付け（onSaveField が再取得まで実施）
+      await onSaveField(entryId, { ocr_upload_id: uploadId } as Partial<LedgerEntry>);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '請求書の添付に失敗しました');
+    } finally {
+      setAttachingId(null);
+    }
+  };
+
   // 法人移し替えダイアログ（C6 / 70cfd088）
   const [reassignOpen, setReassignOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<string>('');
@@ -6385,6 +6411,8 @@ function LedgerView({
                   selected={selectedIds.has(e.id)}
                   onToggleSelect={() => toggleOne(e.id)}
                   onSaveField={onSaveField}
+                  onAttachVoucher={handleAttachVoucher}
+                  attaching={attachingId === e.id}
                   accountsList={accountsList}
                   addAccountLocal={addAccountLocal}
                   vendorsList={vendorsList}
@@ -6502,6 +6530,8 @@ function EditableRow({
   selected,
   onToggleSelect,
   onSaveField,
+  onAttachVoucher,
+  attaching,
   accountsList,
   addAccountLocal,
   vendorsList,
@@ -6517,6 +6547,8 @@ function EditableRow({
   selected: boolean;
   onToggleSelect: () => void;
   onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
+  onAttachVoucher: (entryId: string, file: File) => Promise<void>;
+  attaching: boolean;
   accountsList: AccountOption[];
   addAccountLocal: (name: string, reading?: string, sub_category?: string) => Promise<AccountOption | null>;
   vendorsList: AccountOption[];
@@ -6525,6 +6557,7 @@ function EditableRow({
   departmentsList: { id: string; name: string; code: string | null }[];
 }) {
   const confirm = useConfirm();
+  const voucherInputRef = useRef<HTMLInputElement | null>(null);
   const [date, setDate] = useState(entry.entry_date === '不明' ? '' : entry.entry_date);
   const [debitAccount, setDebitAccount] = useState(entry.debit_account);
   const [creditAccount, setCreditAccount] = useState(entry.credit_account);
@@ -6759,7 +6792,28 @@ function EditableRow({
             </span>
           ) : null}
           {!entry.ocr_upload_id && !entry.bank_ocr_upload_id && (
-            <span className="text-slate-200 text-[10px]">—</span>
+            <>
+              <input
+                ref={voucherInputRef}
+                type="file"
+                accept="application/pdf,image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onAttachVoucher(entry.id, f);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                disabled={attaching}
+                onClick={() => voucherInputRef.current?.click()}
+                className="text-[10px] text-sky-600 hover:text-sky-800 border border-sky-200 rounded px-1.5 py-0.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                title="この仕訳に請求書を後から添付（OCR）"
+              >
+                {attaching ? '添付中…' : '📄 請求書追加'}
+              </button>
+            </>
           )}
         </div>
       </td>
