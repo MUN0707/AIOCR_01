@@ -5243,7 +5243,9 @@ function LedgerView({
   // パフォーマンス対策: 期間/科目/検索/件数を全てサーバ側に渡してフィルタ + LIMIT する
   const [ledgerStartDate, setLedgerStartDate] = useState<string>(''); // YYYY-MM-DD
   const [ledgerEndDate, setLedgerEndDate] = useState<string>('');
-  const [displayLimit, setDisplayLimit] = useState<number>(50);
+  const [displayLimit, setDisplayLimit] = useState<number>(50); // 1ページの表示件数
+  const [ledgerPage, setLedgerPage] = useState<number>(0);      // 0 始まりのページ番号
+  const [serverHasMore, setServerHasMore] = useState<boolean>(false); // 次ページの有無（サーバ判定）
   // カラム別検索（借方科目/貸方科目/金額/日付/摘要）
   const [searchDebit, setSearchDebit] = useState<string>('');
   const [searchCredit, setSearchCredit] = useState<string>('');
@@ -5275,16 +5277,16 @@ function LedgerView({
     setDisplayLimit(50);
   }, [searchDebit, searchCredit, searchAmount, searchDate, searchDescription]);
 
-  // フィルタ/検索条件が変わったら表示件数を 50 にリセット
+  // フィルタ/検索条件・ページサイズが変わったら先頭ページに戻す
   useEffect(() => {
-    setDisplayLimit(50);
+    setLedgerPage(0);
   }, [
     ledgerStartDate, ledgerEndDate, accountFilter,
     debouncedSearchDebit, debouncedSearchCredit, debouncedSearchAmount,
-    debouncedSearchDate, debouncedSearchDescription,
+    debouncedSearchDate, debouncedSearchDescription, displayLimit,
   ]);
 
-  const buildLedgerParams = useCallback((limit: number) => {
+  const buildLedgerParams = useCallback((limit: number, offset = 0) => {
     const params = new URLSearchParams();
     if (clientId) params.set('clientId', clientId);
     if (ledgerStartDate) params.set('startDate', ledgerStartDate.replace(/-/g, ''));
@@ -5296,6 +5298,7 @@ function LedgerView({
     if (debouncedSearchDate) params.set('searchDate', debouncedSearchDate.replace(/[^0-9]/g, ''));
     if (debouncedSearchDescription) params.set('searchDescription', debouncedSearchDescription);
     params.set('limit', String(limit));
+    if (offset > 0) params.set('offset', String(offset));
     return params;
   }, [
     clientId, ledgerStartDate, ledgerEndDate, accountFilter,
@@ -5307,7 +5310,7 @@ function LedgerView({
     setLoading(true);
     setError(null);
     try {
-      const params = buildLedgerParams(displayLimit);
+      const params = buildLedgerParams(displayLimit, ledgerPage * displayLimit);
       const res = await fetch(`/api/journal-ledger?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '取得失敗');
@@ -5315,12 +5318,13 @@ function LedgerView({
       setFilteredCount(data.filteredCount ?? 0);
       setTotalCount(data.totalCount ?? 0);
       setClosedUntil(data.closedUntil ?? null);
+      setServerHasMore(Boolean(data.hasMore));
     } catch (e) {
       setError(e instanceof Error ? e.message : '日記帳の取得に失敗しました');
     } finally {
       setLoading(false);
     }
-  }, [buildLedgerParams, displayLimit]);
+  }, [buildLedgerParams, displayLimit, ledgerPage]);
 
   useEffect(() => {
     fetchEntries();
@@ -5808,10 +5812,14 @@ function LedgerView({
   // 全候補が含まれない可能性がある）。マスタ未登録の科目で絞りたい場合は検索行を使用
   const accounts = accountsList.map((a) => a.name).sort();
 
-  // entries は既にサーバ側でフィルタ + ソート + LIMIT (+群末尾保持) 済み
+  // entries は既にサーバ側でフィルタ + ソート + ページング (+群末尾保持) 済み
   const filtered = entries;
   const displayed = filtered;
-  const hasMore = filteredCount > displayed.length;
+  // ページ表示範囲（1 始まりの行番号）。群末尾保持で displayLimit を多少超えることがある
+  const pageRangeStart = displayed.length > 0 ? ledgerPage * displayLimit + 1 : 0;
+  const pageRangeEnd = displayed.length > 0 ? ledgerPage * displayLimit + displayed.length : 0;
+  const canPrev = ledgerPage > 0;
+  const canNext = serverHasMore;
 
   const editableFiltered = displayed.filter((e) => !e.locked);
   const allSelected = editableFiltered.length > 0 && editableFiltered.every((e) => selectedIds.has(e.id));
@@ -5977,7 +5985,7 @@ function LedgerView({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">表示件数</p>
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">1ページ</p>
             <select
               value={displayLimit}
               onChange={(e) => setDisplayLimit(Number(e.target.value))}
@@ -5988,9 +5996,8 @@ function LedgerView({
               <option value={200}>200 件</option>
               <option value={500}>500 件</option>
               <option value={1000}>1000 件</option>
-              <option value={5000}>5000 件</option>
-              <option value={999999}>全件</option>
             </select>
+            <p className="text-[10px] text-slate-400">全件は「Excel出力」から</p>
           </div>
         </div>
       </div>
@@ -6286,32 +6293,31 @@ function LedgerView({
             })()}
           </tbody>
         </table>
-        {hasMore && (
-          <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between text-xs">
+        {(canPrev || canNext) && (
+          <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between gap-3 text-xs">
             <p className="text-slate-500">
-              残り <span className="font-semibold text-slate-700">{(filteredCount - displayed.length).toLocaleString()}</span> 件あります
+              該当 {filteredCount.toLocaleString()} 件中{' '}
+              <span className="font-semibold text-slate-700">
+                {pageRangeStart.toLocaleString()}–{pageRangeEnd.toLocaleString()}
+              </span>{' '}
+              件を表示（{ledgerPage + 1} ページ目）
             </p>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setDisplayLimit((n) => n + 50)}
-                className="text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded-lg px-3 py-1.5 font-semibold"
+                disabled={!canPrev || loading}
+                onClick={() => setLedgerPage((p) => Math.max(p - 1, 0))}
+                className="text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1.5 font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                +50 件 表示
+                ← 前へ
               </button>
               <button
                 type="button"
-                onClick={() => setDisplayLimit((n) => n + 500)}
-                className="text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded-lg px-3 py-1.5 font-semibold"
+                disabled={!canNext || loading}
+                onClick={() => setLedgerPage((p) => p + 1)}
+                className="text-sky-600 border border-sky-200 bg-sky-50 hover:bg-sky-100 rounded-lg px-3 py-1.5 font-semibold disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 disabled:border-slate-200"
               >
-                +500 件 表示
-              </button>
-              <button
-                type="button"
-                onClick={() => setDisplayLimit(filteredCount)}
-                className="text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1.5 font-semibold"
-              >
-                すべて表示（{filteredCount.toLocaleString()} 件）
+                次へ →
               </button>
             </div>
           </div>

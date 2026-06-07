@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
     const MAX_EXPORT = 100000;
     const cap = isExport ? MAX_EXPORT : MAX_NORMAL;
     const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.floor(limitParam), 1), cap) : 50;
+    // ページ送り開始位置（行ベース）。1,000 行超の日記帳でも次ページを取得できる
+    const offsetParam = Number(searchParams.get('offset') ?? '0');
+    const offset = Number.isFinite(offsetParam) ? Math.max(Math.floor(offsetParam), 0) : 0;
 
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -59,16 +62,18 @@ export async function GET(request: NextRequest) {
       p_search_date: searchDate,
       p_search_description: searchDescription,
       p_limit: limit,
+      p_offset: offset,
     });
     if (rpcError) {
       return NextResponse.json({ error: rpcError.message }, { status: 500 });
     }
 
-    const row = (rpcRows ?? [])[0] ?? { entries: [], filtered_count: 0, total_count: 0, closed_until: null };
+    const row = (rpcRows ?? [])[0] ?? { entries: [], filtered_count: 0, total_count: 0, closed_until: null, has_more: false };
     const entries: LedgerEntryRow[] = Array.isArray(row.entries) ? row.entries as LedgerEntryRow[] : [];
     const closedUntil: string | null = row.closed_until ?? null;
     const filteredCount = Number(row.filtered_count) || 0;
     const totalCount = Number(row.total_count) || 0;
+    const hasMore = Boolean(row.has_more);
 
     // locked フラグを付与（既存の API と同じ加工）
     const entriesWithLock = entries.map((e) => ({
@@ -81,6 +86,7 @@ export async function GET(request: NextRequest) {
       closedUntil,
       filteredCount,
       totalCount,
+      hasMore,
     });
   } catch (error) {
     console.error('日記帳取得エラー:', error);
