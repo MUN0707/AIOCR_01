@@ -1132,6 +1132,26 @@ export default function Home() {
     bumpLedgerRefresh();
   };
 
+  // 選択した仕訳一式を別の法人へ移し替える（C6 / 70cfd088）
+  const handleBulkReassign = async (ids: string[], toClientId: string | null): Promise<boolean> => {
+    const res = await fetch('/api/journal-entries/bulk-reassign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, toClientId, expectedClientId: selectedClientId ?? null }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || '法人の移し替えに失敗しました');
+      return false;
+    }
+    const left = data.leftUploads > 0
+      ? `\n（証憑 ${data.leftUploads} 件は他の仕訳と共有のため移動していません）`
+      : '';
+    alert(`${data.movedEntries} 件（${data.movedGroups} グループ）を移しました。証憑 ${data.movedUploads} 件も移動。${left}`);
+    bumpLedgerRefresh();
+    return true;
+  };
+
   const handleCloseAt = async (closedUntilYmd: string) => {
     const res = await fetch('/api/journal-closings', {
       method: 'POST',
@@ -2949,6 +2969,8 @@ export default function Home() {
                 clientName={clients.find((c) => c.id === selectedClientId)?.name ?? null}
                 onSaveField={handleSaveField}
                 onBulkDelete={handleBulkDelete}
+                onBulkReassign={handleBulkReassign}
+                clients={clients}
                 onClose={handleCloseAt}
                 onReopen={handleReopenClosing}
                 accountsList={accountsList}
@@ -5211,6 +5233,8 @@ function LedgerView({
   clientName,
   onSaveField,
   onBulkDelete,
+  onBulkReassign,
+  clients,
   onClose,
   onReopen,
   accountsList,
@@ -5227,6 +5251,8 @@ function LedgerView({
   clientName: string | null;
   onSaveField: (id: string, patch: Partial<LedgerEntry>) => Promise<void>;
   onBulkDelete: (ids: string[]) => Promise<void>;
+  onBulkReassign: (ids: string[], toClientId: string | null) => Promise<boolean>;
+  clients: ClientItem[];
   onClose: (closedUntil: string) => void;
   onReopen: () => void;
   accountsList: AccountOption[];
@@ -5848,6 +5874,32 @@ function LedgerView({
     setSelectedIds(new Set());
   };
 
+  // 法人移し替えダイアログ（C6 / 70cfd088）
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [reassignTarget, setReassignTarget] = useState<string>('');
+  const [reassigning, setReassigning] = useState(false);
+  // 移動先候補: 現在表示中の法人以外
+  const reassignCandidates = clients.filter((c) => c.id !== clientId);
+
+  const openReassign = () => {
+    setReassignTarget(reassignCandidates[0]?.id ?? '');
+    setReassignOpen(true);
+  };
+  const handleReassign = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || !reassignTarget) return;
+    setReassigning(true);
+    try {
+      const ok = await onBulkReassign(ids, reassignTarget);
+      if (ok) {
+        setSelectedIds(new Set());
+        setReassignOpen(false);
+      }
+    } finally {
+      setReassigning(false);
+    }
+  };
+
   return (
     <div className="flex gap-5 items-start">
       <JournalSidebarNav clientId={clientId} active="ledger" />
@@ -5878,6 +5930,14 @@ function LedgerView({
             <option value="">全勘定科目</option>
             {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
+          {selectedIds.size > 0 && reassignCandidates.length > 0 && (
+            <button
+              onClick={openReassign}
+              className="text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-xl px-4 py-2 font-semibold hover:bg-sky-100 transition-all"
+            >
+              別の会社に移す（{selectedIds.size}）
+            </button>
+          )}
           {selectedIds.size > 0 && (
             <button
               onClick={handleBulk}
@@ -6004,6 +6064,50 @@ function LedgerView({
 
       {/* ─── CSV インポートモーダル ─── */}
       {importOpen && renderImportModal()}
+
+      {/* ─── 法人移し替えダイアログ（C6 / 70cfd088）─── */}
+      {reassignOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => !reassigning && setReassignOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <p className="text-base font-semibold text-slate-900 tracking-tight">仕訳を別の会社に移す</p>
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+              選択した <span className="font-semibold text-slate-700">{selectedIds.size}</span> 件を、
+              選択した会社へ移し替えます。同じ伝票（voucher）の行はまとめて移動し、
+              専有の証憑（OCR）も一緒に移ります。締め済み期間の仕訳は移せません。
+            </p>
+            <div className="mt-4">
+              <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">移動先の会社</label>
+              <select
+                value={reassignTarget}
+                onChange={(e) => setReassignTarget(e.target.value)}
+                className="mt-1 w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-sky-400"
+              >
+                {reassignCandidates.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setReassignOpen(false)}
+                disabled={reassigning}
+                className="text-xs font-semibold px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleReassign}
+                disabled={reassigning || !reassignTarget}
+                className="text-xs font-semibold px-5 py-2 rounded-xl bg-sky-500 text-white shadow-sm hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400"
+              >
+                {reassigning ? '移動中…' : 'この会社に移す'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 締め操作 */}
       <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
