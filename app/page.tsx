@@ -913,15 +913,17 @@ export default function Home() {
   const [accountsList, setAccountsList] = useState<AccountItem[]>([]);
 
   const fetchAccounts = useCallback(async () => {
+    // [C4] 選択中の会社のマスタのみ表示。未選択なら空にして横断表示を防ぐ。
+    if (!selectedClientId) { setAccountsList([]); return; }
     try {
-      const res = await fetch('/api/accounts', { cache: 'no-store' });
+      const res = await fetch(`/api/accounts?clientId=${encodeURIComponent(selectedClientId)}`, { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       setAccountsList(data.accounts ?? []);
     } catch {
       // silent
     }
-  }, []);
+  }, [selectedClientId]);
 
   const addAccountLocal = useCallback(async (name: string, reading?: string, sub_category?: string): Promise<AccountItem | null> => {
     const trimmed = name.trim();
@@ -961,15 +963,17 @@ export default function Home() {
   const [vendorsList, setVendorsList] = useState<VendorItem[]>([]);
 
   const fetchVendors = useCallback(async () => {
+    // [C4] 選択中の会社のマスタのみ表示。未選択なら空にして横断表示を防ぐ。
+    if (!selectedClientId) { setVendorsList([]); return; }
     try {
-      const res = await fetch('/api/vendors');
+      const res = await fetch(`/api/vendors?clientId=${encodeURIComponent(selectedClientId)}`);
       if (!res.ok) return;
       const data = await res.json();
       setVendorsList(data.vendors ?? []);
     } catch {
       // silent
     }
-  }, []);
+  }, [selectedClientId]);
 
   const addVendorLocal = useCallback(async (name: string, reading?: string): Promise<VendorItem | null> => {
     const trimmed = name.trim();
@@ -1000,13 +1004,15 @@ export default function Home() {
   const [departmentsList, setDepartmentsList] = useState<DepartmentItem[]>([]);
 
   const fetchDepartments = useCallback(async () => {
+    // [C4] 選択中の会社の部門のみ表示。未選択なら空にして横断表示を防ぐ。
+    if (!selectedClientId) { setDepartmentsList([]); return; }
     try {
-      const res = await fetch('/api/departments');
+      const res = await fetch(`/api/departments?clientId=${encodeURIComponent(selectedClientId)}`);
       if (!res.ok) return;
       const data = await res.json();
       setDepartmentsList(data.departments ?? []);
     } catch {}
-  }, []);
+  }, [selectedClientId]);
 
   // ─── 仕訳日記帳サブビュー State ────────────────────────────────────────────
   const [journalSubView, setJournalSubView] = useState<'execute' | 'unmatched' | 'ledger' | 'balance' | 'master' | 'bank-tx'>('execute');
@@ -1390,14 +1396,19 @@ export default function Home() {
             }
           })
           .catch(() => {});
-        // 勘定科目・取引先マスタ・ルールを起動時に1回ロード
-        fetchAccounts();
-        fetchVendors();
-        fetchDepartments();
+        // ルールを起動時にロード（マスタは選択中の会社が決まってから別 effect でロード）
         fetchRules();
       }
     });
-  }, [fetchAccounts, fetchVendors, fetchRules]);
+  }, [fetchRules]);
+
+  // [C4] マスタ(勘定科目/取引先/部門)は選択中の会社に絞り込んでロードする。
+  // selectedClientId が変わるたびに再ロードし、横断表示を防ぐ。
+  useEffect(() => {
+    fetchAccounts();
+    fetchVendors();
+    fetchDepartments();
+  }, [fetchAccounts, fetchVendors, fetchDepartments]);
 
   const isGuest = user === null;
 
