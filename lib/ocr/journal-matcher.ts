@@ -226,7 +226,11 @@ function getEffectiveLines(voucher: VoucherInput): VoucherLine[] {
       debitAccount: voucher.debitAccount || '仕入高',
       amountInclTax: voucher.amountInclTax ?? 0,
       taxType: voucher.taxType || '課税仕入10%',
-      description: voucher.description || voucher.vendorName || '',
+      // [Q3] 本文(description)に vendorName をフォールバックしない。
+      // ここで vendor を混ぜ込むと buildDescription で「ALSOK ALSOK」のような
+      // 二重表示の原因になる ([C2]/272decbd の根本原因)。vendor は buildDescription が
+      // voucher.vendorName から別経路で付与するため、本文は本文として空のまま渡す。
+      description: voucher.description || '',
     },
   ];
 }
@@ -249,10 +253,10 @@ function buildDescription(
   const vendor = voucher.vendorName?.trim() ?? '';
   if (mode === 'vendor') return vendor || line.description || voucher.description || '';
 
-  // mode === 'full' — vendor + 本文 を連結するが、OCR が請求書本文を取れなかった場合
-  // line.description / voucher.description は vendor 名へフォールバックされる仕様 (line 229)
-  // のため、素朴に join すると「ALSOK株式会社 ALSOK株式会社」のように重複表示になる。
-  // vendor と等価 or vendor を含む lineDesc はデデュープする。
+  // mode === 'full' — vendor + 本文 を連結する。
+  // [Q3] 本文の vendorName フォールバックは getEffectiveLines 側で撤廃したため、通常 lineDesc に
+  // vendor 名は混入しない。ただし OCR が本文として vendor 名そのものを返すケースの保険として、
+  // vendor と等価 or vendor を先頭に含む lineDesc はデデュープしておく（二重表示防止）。
   const lineDesc = (line.description || voucher.description || '').trim();
   const joinDescAndVendor = (descPart: string): string => {
     if (!descPart) return vendor;
