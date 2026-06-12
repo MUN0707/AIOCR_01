@@ -60,6 +60,18 @@ export async function POST(request: NextRequest) {
         ocr_upload_id?: string | null;
         bank_ocr_upload_id?: string | null;
       };
+      // [C3] 振込手数料の自動振替仕訳
+      feeEntry?: {
+        date: string;
+        debit_account: string;
+        credit_account: string;
+        amount: number | null;
+        description: string;
+        tax_type: string;
+        match_status: string;
+        ocr_upload_id?: string | null;
+        bank_ocr_upload_id?: string | null;
+      };
       vendor_name: string;
     }> = body.groups ?? [];
 
@@ -147,6 +159,27 @@ export async function POST(request: NextRequest) {
           match_status: p.match_status,
           ocr_upload_id: p.ocr_upload_id ?? null,
           bank_ocr_upload_id: p.bank_ocr_upload_id ?? null,
+        });
+      }
+      // [C3] 振込手数料の自動振替仕訳（支払手数料 / 預金）
+      if (g.feeEntry) {
+        const p = g.feeEntry;
+        rows.push({
+          user_id: ownerUserId,
+          client_id: clientId,
+          voucher_group_id: voucherGroupId,
+          entry_type: 'payment',
+          entry_date: p.date,
+          debit_account: p.debit_account,
+          credit_account: p.credit_account,
+          amount: p.amount,
+          description: p.description,
+          tax_type: p.tax_type,
+          vendor_name: vendorCanonical,
+          vendor_id: vendorId,
+          match_status: p.match_status,
+          ocr_upload_id: p.ocr_upload_id ?? null,
+          bank_ocr_upload_id: bankUploadId,
         });
       }
     });

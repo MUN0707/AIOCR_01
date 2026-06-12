@@ -445,6 +445,27 @@ async function saveResultsToJournalEntries(
           bank_ocr_upload_id: r.withholdingPaymentEntry.transaction.ocrUploadId ?? null,
         });
       }
+      // [C3] 振込手数料の自動振替仕訳（支払手数料 / 預金）
+      if (r.feeEntry) {
+        rows.push({
+          user_id: user.id,
+          client_id: clientId,
+          log_id: logId,
+          voucher_group_id: voucherGroupId,
+          entry_type: 'payment',
+          entry_date: r.feeEntry.date,
+          debit_account: r.feeEntry.debitAccount,
+          credit_account: r.feeEntry.creditAccount,
+          amount: r.feeEntry.amount,
+          description: r.feeEntry.description,
+          tax_type: r.feeEntry.taxType,
+          vendor_name: vendor,
+          vendor_id: vendorId,
+          match_status: r.feeEntry.matchStatus,
+          ocr_upload_id: null,
+          bank_ocr_upload_id: linkedBankUploadId,
+        });
+      }
     }
     if (rows.length === 0) {
       return { savedCount: 0, saveError: null };

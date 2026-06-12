@@ -116,6 +116,13 @@ export interface MatchResult {
    * 預り金 / 普通預金 で、date は実際の納付日。
    */
   withholdingPaymentEntry?: PaymentEntry;
+  /**
+   * [C3] 振込手数料の自動振替仕訳。
+   * 通帳出金額が債務額（未払費用）より手数料相当だけ多い場合に生成される。
+   * 支払手数料 / 預金 で、未払費用は paymentEntry 側で全額消し込む。
+   * 型は PaymentEntry を流用し debitAccount は実行時に '支払手数料' へ差し替える。
+   */
+  feeEntry?: PaymentEntry;
 }
 
 export interface MatchSummary {
@@ -144,13 +151,34 @@ export function normalizeVendorName(name: string): string {
 
 // ─── スコア計算 ────────────────────────────────────────────────────────────
 
-/** 金額一致スコア（0 or 0.8 or 1.0） */
+/**
+ * [C3] 振込手数料控除後の差額とみなす許容額（円）。
+ * 国内振込手数料は実勢で最大 880 円程度。少額請求では差額が 1% を超えるため、
+ * 1% 許容だけでは「請求 5,000 → 入金 4,493（差 507）」のようなケースを拾えない。
+ * 絶対額 1,000 円以内なら手数料差額の候補として照合対象に含める。
+ */
+export const FEE_TOLERANCE_YEN = 1000;
+
+/** 金額一致スコア（0 / 0.6 / 0.8 / 1.0） */
 function amountScore(txDebit: number | null, invoiceAmount: number | null): number {
   if (!txDebit || !invoiceAmount) return 0;
   if (txDebit === invoiceAmount) return 1.0;
+  const diff = Math.abs(txDebit - invoiceAmount);
   // 1%以内の差異は端数処理とみなす
-  if (Math.abs(txDebit - invoiceAmount) / invoiceAmount <= 0.01) return 0.8;
+  if (diff / invoiceAmount <= 0.01) return 0.8;
+  // [C3] 1% は超えるが絶対額が手数料相当（≤1,000円）なら手数料差額候補として弱めに照合
+  if (diff <= FEE_TOLERANCE_YEN) return 0.6;
   return 0;
+}
+
+/**
+ * [C3] 照合した支払額(tx.debit)と本来の債務額(netForMatch)の差額が
+ * 「振込手数料相当」とみなせるか。差額が 0 でなく、1% 以内 or 絶対額 ≤ 1,000円 なら true。
+ */
+function isFeeLikeDiff(txDebit: number, netForMatch: number): boolean {
+  const diff = Math.abs(txDebit - netForMatch);
+  if (diff === 0) return false;
+  return diff <= FEE_TOLERANCE_YEN || diff / netForMatch <= 0.01;
 }
 
 /** 日付近接スコア。支払日は請求書日付より後が自然 */
@@ -500,20 +528,55 @@ export function matchVouchersToTransactions(
 
     // 支払消込仕訳は請求書1枚につき1本（ヘッダ合計）
     usedTxIndices.add(best.idx);
+    const depositAccount = best.tx.bankAccountName || '普通預金';
+    const cashOut = best.tx.debit as number;
+    // 未払費用に計上されている債務額（= 源泉控除後のネット）。
+    const liability = netForMatch != null ? netForMatch : cashOut;
+    const payStatus: Exclude<MatchStatus, 'unmatched'> = best.score >= 0.7 ? 'auto' : 'needs_review';
+
+    // [C3] 通帳出金が債務額より手数料相当(>0 かつ手数料許容内)だけ多い場合は、
+    // 未払費用を全額消し込み、超過分を支払手数料へ自動振替する。
+    // （差額が手数料相当でなければ amountScore=0 で照合自体されないため、ここに来る差額は手数料候補）
+    const feeAmount =
+      netForMatch != null && cashOut > liability && isFeeLikeDiff(cashOut, liability)
+        ? cashOut - liability
+        : 0;
+    // 未払費用の消込額: 手数料を分離する場合は債務額(liability)を全額消し込む。
+    const clearAmount = feeAmount > 0 ? liability : cashOut;
+
     const paymentEntry: PaymentEntry = {
       entryType:     'payment',
       date:          best.tx.transactionDate,
       debitAccount:  '未払費用',
       creditAccount: '普通預金',
-      amount:        best.tx.debit,
+      amount:        clearAmount,
       description:   `${voucher.vendorName || best.tx.description} 支払消込`,
       taxType:       '対象外',
       matchScore:    Math.round(best.score * 100) / 100,
-      matchStatus:   best.score >= 0.7 ? 'auto' : 'needs_review',
+      matchStatus:   payStatus,
       transaction:   best.tx,
       voucher,
     };
-    (paymentEntry as unknown as { creditAccount: string }).creditAccount = best.tx.bankAccountName || '普通預金';
+    (paymentEntry as unknown as { creditAccount: string }).creditAccount = depositAccount;
+
+    if (feeAmount > 0) {
+      const feeEntry: PaymentEntry = {
+        entryType:     'payment',
+        date:          best.tx.transactionDate,
+        debitAccount:  '未払費用', // 実行時に '支払手数料' へ差し替え
+        creditAccount: '普通預金',
+        amount:        feeAmount,
+        description:   `${voucher.vendorName || best.tx.description} 振込手数料`,
+        taxType:       '課税仕入10%',
+        matchScore:    Math.round(best.score * 100) / 100,
+        matchStatus:   payStatus,
+        transaction:   best.tx,
+        voucher,
+      };
+      (feeEntry as unknown as { debitAccount: string }).debitAccount = '支払手数料';
+      (feeEntry as unknown as { creditAccount: string }).creditAccount = depositAccount;
+      return { accrualEntries, paymentEntry, feeEntry };
+    }
 
     return { accrualEntries, paymentEntry };
   });

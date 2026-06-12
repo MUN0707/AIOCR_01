@@ -2065,6 +2065,20 @@ export default function Home() {
               bank_ocr_upload_id: r.withholdingPaymentEntry.transaction.ocrUploadId ?? null,
             }
           : undefined,
+        // [C3] 振込手数料の自動振替仕訳
+        feeEntry: r.feeEntry
+          ? {
+              date: r.feeEntry.date,
+              debit_account: r.feeEntry.debitAccount,
+              credit_account: r.feeEntry.creditAccount,
+              amount: r.feeEntry.amount,
+              description: r.feeEntry.description,
+              tax_type: r.feeEntry.taxType,
+              match_status: r.feeEntry.matchStatus,
+              ocr_upload_id: null,
+              bank_ocr_upload_id: r.feeEntry.transaction.ocrUploadId ?? null,
+            }
+          : undefined,
       };
     });
     setPersisting(true);
@@ -2215,6 +2229,14 @@ export default function Home() {
         const p = r.withholdingPaymentEntry;
         rows.push([
           '源泉納付', p.date, p.debitAccount, p.creditAccount,
+          p.amount != null ? String(p.amount) : '',
+          p.description, p.taxType, p.matchStatus, String(p.matchScore),
+        ]);
+      }
+      if (r.feeEntry) {
+        const p = r.feeEntry;
+        rows.push([
+          '振込手数料', p.date, p.debitAccount, p.creditAccount,
           p.amount != null ? String(p.amount) : '',
           p.description, p.taxType, p.matchStatus, String(p.matchScore),
         ]);
@@ -10721,7 +10743,7 @@ function MatchResultTable({
               return (
                 <Fragment key={i}>
                   {r.accrualEntries.map((ae, lineIdx) => {
-                    const rowSpanTotal = r.accrualEntries.length + (r.paymentEntry ? 1 : 0) + (r.withholdingPaymentEntry ? 1 : 0);
+                    const rowSpanTotal = r.accrualEntries.length + (r.paymentEntry ? 1 : 0) + (r.withholdingPaymentEntry ? 1 : 0) + (r.feeEntry ? 1 : 0);
                     const dateIso = /^\d{8}$/.test(ae.date) ? `${ae.date.slice(0,4)}-${ae.date.slice(4,6)}-${ae.date.slice(6,8)}` : '';
                     return (
                     <tr key={`a-${i}-${lineIdx}`} className={`${rowBg} hover:bg-sky-50/20 transition-colors`}>
@@ -10854,7 +10876,7 @@ function MatchResultTable({
                       </td>
                       {lineIdx === 0 && (
                         <td
-                          rowSpan={r.accrualEntries.length + (r.paymentEntry ? 1 : 0)}
+                          rowSpan={rowSpanTotal}
                           className="px-3 py-2 text-center align-top"
                         >
                           <button
@@ -10941,6 +10963,35 @@ function MatchResultTable({
                         title={r.withholdingPaymentEntry.description}
                       >
                         {r.withholdingPaymentEntry.description}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-lime-100 text-lime-600">自動</span>
+                      </td>
+                    </tr>
+                  )}
+                  {r.feeEntry && (
+                    <tr className={`${rowBg} bg-sky-50/20 hover:bg-sky-50/40`}>
+                      <td className="px-3 py-2">
+                        <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-medium">振込手数料</span>
+                      </td>
+                      <td className="px-3 py-2 text-xs font-mono text-slate-500">
+                        {`${r.feeEntry.date.slice(0,4)}/${r.feeEntry.date.slice(4,6)}/${r.feeEntry.date.slice(6,8)}`}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">{r.feeEntry.debitAccount}</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="text-xs font-medium text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md">{r.feeEntry.creditAccount}</span>
+                      </td>
+                      <td className="px-3 py-2 text-right text-sm font-semibold text-slate-900 tabular-nums">
+                        {r.feeEntry.amount != null ? `¥${r.feeEntry.amount.toLocaleString()}` : '—'}
+                      </td>
+                      <td
+                        className={`px-2 py-2 text-xs text-slate-500 break-words ${r.feeEntry.transaction.sourceFileIndex != null ? 'cursor-pointer hover:text-sky-600' : ''}`}
+                        onClick={() => r.feeEntry && showTransactionPdf(r.feeEntry.transaction)}
+                        title={r.feeEntry.description}
+                      >
+                        {r.feeEntry.description}
                       </td>
                       <td className="px-3 py-2">
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-lime-100 text-lime-600">自動</span>
