@@ -20,6 +20,7 @@ import { JournalSidebarNav } from '@/components/JournalSidebarNav';
 import { useConfirm } from '@/components/ConfirmDialog';
 import Link from 'next/link';
 import { normalizeVendorKey } from '@/lib/vendor-normalize';
+import { suggestAccountMeta } from '@/lib/account-category-classifier';
 
 // ─── 型定義 ────────────────────────────────────────────────────────────────
 
@@ -909,7 +910,7 @@ export default function Home() {
   }, []);
 
   // ─── 勘定科目マスタ State（起動時に1回だけロード） ────────────────────────
-  interface AccountItem { id: string; name: string; reading: string; category: string; sub_category?: string | null; display_order?: number | null; client_id?: string | null; auto_registered?: boolean; confirmed?: boolean }
+  interface AccountItem { id: string; name: string; reading: string; category: string; sub_category?: string | null; display_order?: number | null; client_id?: string | null; auto_registered?: boolean; confirmed?: boolean; is_cash_equivalent?: boolean }
   const [accountsList, setAccountsList] = useState<AccountItem[]>([]);
 
   const fetchAccounts = useCallback(async () => {
@@ -8487,7 +8488,7 @@ function FixedAssetSection({
 
 // ─── 勘定科目コンボボックス（補完つきインライン入力） ────────────────────────
 
-interface AccountOption { id?: string; name: string; reading?: string; category?: string; sub_category?: string | null; display_order?: number | null; client_id?: string | null; auto_registered?: boolean; confirmed?: boolean; parent_account_id?: string | null }
+interface AccountOption { id?: string; name: string; reading?: string; category?: string; sub_category?: string | null; display_order?: number | null; client_id?: string | null; auto_registered?: boolean; confirmed?: boolean; parent_account_id?: string | null; is_cash_equivalent?: boolean }
 
 function AccountCombobox({
   value,
@@ -8546,7 +8547,11 @@ function AccountCombobox({
   const showCreate = !!value.trim() && !exact && !!onCreate;
 
   const startCreate = () => {
-    setCreating({ name: value.trim(), reading: '', sub_category: '' });
+    // [C1] 科目名から読み・区分を自動推定してフォームに反映（ユーザーは確認して「追加」を押すだけ）
+    const nm = value.trim();
+    const meta = suggestAccountMeta(nm);
+    const subValid = meta.sub_category && SUB_CATEGORY_OPTIONS.some((o) => o.value === meta.sub_category);
+    setCreating({ name: nm, reading: meta.reading, sub_category: subValid ? meta.sub_category! : '' });
     setTimeout(() => readingInputRef.current?.focus(), 0);
   };
 
@@ -8644,6 +8649,7 @@ function AccountCombobox({
       {open && creating && (
         <div className="absolute z-30 mt-1 w-[280px] bg-white border border-slate-200 rounded-xl shadow-lg p-3 space-y-2">
           <p className="text-[11px] text-lime-700 font-semibold">新しい科目を追加</p>
+          <p className="text-[10px] text-slate-400">読み・区分は名称から自動推定しました。必要なら修正してください。</p>
           <div className="grid grid-cols-[1fr_1.2fr] gap-2">
             <div>
               <span className="text-[10px] text-slate-400">科目名</span>

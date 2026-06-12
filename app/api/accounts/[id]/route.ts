@@ -56,6 +56,8 @@ export async function PATCH(
   if ('parent_account_id' in body) update.parent_account_id = body.parent_account_id ?? null;
   if (typeof body.confirmed === 'boolean') update.confirmed = body.confirmed;
   if (typeof body.auto_registered === 'boolean') update.auto_registered = body.auto_registered;
+  // [C1] 現金及び現金同等物フラグの更新
+  if (typeof body.is_cash_equivalent === 'boolean') update.is_cash_equivalent = body.is_cash_equivalent;
 
   // 旧名称取得（journal_entries 連動更新用）
   let previousName: string | null = null;
@@ -74,7 +76,7 @@ export async function PATCH(
     .update(update)
     .eq('id', id)
     .eq('user_id', scope.ownerUserId)
-    .select('id, name, reading, category, sub_category, display_order, client_id, auto_registered, confirmed, parent_account_id')
+    .select('id, name, reading, category, sub_category, display_order, client_id, auto_registered, confirmed, parent_account_id, is_cash_equivalent')
     .single();
 
   if (error) {

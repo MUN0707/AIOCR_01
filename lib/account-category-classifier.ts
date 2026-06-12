@@ -144,11 +144,88 @@ function patternMatch(name: string): ClassifyResult | null {
   return null;
 }
 
+/**
+ * [C1] 標準科目のローマ字読み辞書（補完検索用）。
+ * このアプリの reading カラムはローマ字（小文字 ascii）で統一されているため、
+ * 推定もローマ字で返す（seed-client-masters.ts と同じ表記）。
+ */
+const READING_MAP: Record<string, string> = {
+  '現金': 'genkin', '小口現金': 'koguchigenkin', '普通預金': 'futsuyokin',
+  '当座預金': 'tozayokin', '定期預金': 'teikiyokin', '売掛金': 'urikakekin',
+  '受取手形': 'uketoritegata', '前払費用': 'maebaraihiyou', '前払金': 'maebaraikin',
+  '仮払金': 'karibaraikin', '仮払消費税': 'karibaraishouhizei', '立替金': 'tatekaekin',
+  '商品': 'shouhin', '製品': 'seihin', '原材料': 'genzairyou',
+  '建物': 'tatemono', '建物附属設備': 'tatemonofuzokusetsubi', '構築物': 'kouchikubutsu',
+  '機械装置': 'kikaisouchi', '車両運搬具': 'sharyouunpangu', '工具器具備品': 'kougukikubihin',
+  '土地': 'tochi', '減価償却累計額': 'genkashoukyakuruikeigaku', 'ソフトウェア': 'softwear',
+  '敷金': 'shikikin', '差入保証金': 'sashiirehoshoukin',
+  '買掛金': 'kaikakekin', '支払手形': 'shiharaitegata', '未払金': 'miharaikin',
+  '未払費用': 'miharaihiyou', '未払法人税等': 'miharaihoujinzeitou', '未払消費税': 'miharaishouhizei',
+  '預り金': 'azukarikin', '前受金': 'maeukekin', '仮受金': 'kariukekin',
+  '仮受消費税': 'kariukeshouhizei', '短期借入金': 'tankikariirekin', '長期借入金': 'choukikariirekin',
+  '社債': 'shasai', '資本金': 'shihonkin', '資本準備金': 'shihonjunbikin',
+  '利益準備金': 'riekijunbikin', '繰越利益剰余金': 'kurikoshiriekijouyokin',
+  '売上高': 'uriagedaka', '売上': 'uriage', '受取利息': 'uketoririsoku',
+  '受取配当金': 'uketorihaitoukin', '雑収入': 'zatsushuunyuu',
+  '仕入高': 'shiiredaka', '仕入': 'shiire', '外注費': 'gaichuuhi', '業務委託費': 'gyoumuitakuhi',
+  '役員報酬': 'yakuinhoushuu', '給料手当': 'kyuuryouteate', '法定福利費': 'houteifukurihi',
+  '福利厚生費': 'fukurikouseihi', '通信費': 'tsuushinhi', '旅費交通費': 'ryohikoutsuuhi',
+  '消耗品費': 'shoumouhinhi', '事務用品費': 'jimuyouhinhi', '会議費': 'kaigihi',
+  '接待交際費': 'settaikousaihi', '広告宣伝費': 'koukokusendenhi', '水道光熱費': 'suidoukounetsuhi',
+  '租税公課': 'sozeikouka', '雑費': 'zappi', '地代家賃': 'chidaiyachin',
+  '減価償却費': 'genkashoukyakuhi', '支払手数料': 'shiharaitesuuryou', '支払報酬': 'shiharaihoushuu',
+  '保守料': 'hoshuryou', '保険料': 'hokenryou', '修繕費': 'shuuzenhi', '研修費': 'kenshuuhi',
+  '支払利息': 'shiharairisoku', '雑損失': 'zassonshitsu',
+};
+
 /** ローマ字読み（簡易ヘボン式）の代わりに、空でない値を保証するためのフォールバック */
 export function fallbackReading(name: string, hint: string | undefined | null): string {
   if (hint && hint.trim()) return hint.trim().toLowerCase();
-  // 漢字をそのまま小文字化はできないので、ハッシュ的に名前を返す（一意性確保のため）
-  return '';
+  return suggestAccountReading(name);
+}
+
+/**
+ * [C1] 科目名からローマ字読みを推定する。辞書にあればそれを返し、無ければ ''。
+ */
+export function suggestAccountReading(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '';
+  return READING_MAP[trimmed] ?? '';
+}
+
+// [C1] 現金及び現金同等物（CF計算書の対象）とみなす科目
+const CASH_EQUIVALENT_EXACT = new Set<string>(['現金', '小口現金', '普通預金', '当座預金', '通知預金']);
+
+/**
+ * [C1] 現金預金科目（現金及び現金同等物）かどうかを推定する。
+ * 現金・小口現金・普通預金・当座預金・通知預金、および「〜現金」で終わる科目を true とする。
+ * 定期預金は満期 3ヶ月超が一般的なため既定では false（ユーザーがマスタで調整可能）。
+ */
+export function isCashEquivalentAccount(name: string): boolean {
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  if (CASH_EQUIVALENT_EXACT.has(trimmed)) return true;
+  if (/現金$/.test(trimmed)) return true;
+  if (/(普通預金|当座預金|通知預金)/.test(trimmed)) return true;
+  return false;
+}
+
+export interface SuggestAccountMeta extends ClassifyResult {
+  reading: string;
+  is_cash_equivalent: boolean;
+}
+
+/**
+ * [C1] 新規科目作成時の自動推定をまとめて返す。
+ * 区分(category/sub_category)・ローマ字読み・現金預金フラグを一括で提案する。
+ */
+export function suggestAccountMeta(name: string): SuggestAccountMeta {
+  const cls = classifyAccount(name);
+  return {
+    ...cls,
+    reading: suggestAccountReading(name),
+    is_cash_equivalent: isCashEquivalentAccount(name),
+  };
 }
 
 export function classifyAccount(name: string): ClassifyResult {
