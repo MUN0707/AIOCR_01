@@ -33,6 +33,9 @@ interface ClientItem {
   legal_name: string | null;
   short_name: string | null;
   invoice_registration_number: string | null;
+  is_taxable?: boolean;
+  tax_method?: 'honsoku' | 'kani' | null;
+  simplified_rate?: number | null;
   created_at: string;
 }
 
@@ -560,7 +563,7 @@ export default function Home() {
   const [newClientForm, setNewClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '', invoice_registration_number: '' });
   const [clientSaving, setClientSaving] = useState(false);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
-  const [editingClientForm, setEditingClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '', invoice_registration_number: '' });
+  const [editingClientForm, setEditingClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '', invoice_registration_number: '', is_taxable: true, tax_method: 'honsoku' as 'honsoku' | 'kani', simplified_rate: '' });
   const [clientError, setClientError] = useState<string | null>(null);
 
   // ─── 自動仕訳モード専用 State ─────────────────────────────────────────────
@@ -2333,6 +2336,9 @@ export default function Home() {
       legal_name: c.legal_name ?? '',
       short_name: c.short_name ?? '',
       invoice_registration_number: c.invoice_registration_number ?? '',
+      is_taxable: c.is_taxable !== false,
+      tax_method: c.tax_method === 'kani' ? 'kani' : 'honsoku',
+      simplified_rate: c.simplified_rate != null ? String(c.simplified_rate) : '',
     });
     setClientError(null);
   };
@@ -2351,6 +2357,12 @@ export default function Home() {
           legal_name: editingClientForm.legal_name.trim(),
           short_name: editingClientForm.short_name.trim(),
           invoice_registration_number: editingClientForm.invoice_registration_number.trim(),
+          is_taxable: editingClientForm.is_taxable,
+          tax_method: editingClientForm.tax_method,
+          simplified_rate:
+            editingClientForm.is_taxable && editingClientForm.tax_method === 'kani'
+              ? (editingClientForm.simplified_rate.trim() === '' ? null : Number(editingClientForm.simplified_rate))
+              : null,
         }),
       });
       const data = await res.json();
@@ -2727,6 +2739,48 @@ export default function Home() {
                           maxLength={14}
                           className="text-xs border border-slate-200 rounded px-2 py-1.5 col-span-2 font-mono"
                         />
+                      </div>
+                      {/* [C5] 消費税の課税事業者設定 */}
+                      <div className="border-t border-sky-100 pt-2 mt-1 space-y-2">
+                        <label className="flex items-center gap-2 text-xs text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={editingClientForm.is_taxable}
+                            onChange={(e) => setEditingClientForm({ ...editingClientForm, is_taxable: e.target.checked })}
+                            className="cursor-pointer"
+                          />
+                          課税事業者（チェックを外すと免税事業者＝消費税集計をスキップ）
+                        </label>
+                        {editingClientForm.is_taxable && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <span className="text-[10px] text-slate-400">課税方式</span>
+                              <select
+                                value={editingClientForm.tax_method}
+                                onChange={(e) => setEditingClientForm({ ...editingClientForm, tax_method: e.target.value as 'honsoku' | 'kani' })}
+                                className="mt-0.5 w-full text-xs border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
+                              >
+                                <option value="honsoku">本則課税</option>
+                                <option value="kani">簡易課税</option>
+                              </select>
+                            </div>
+                            {editingClientForm.tax_method === 'kani' && (
+                              <div>
+                                <span className="text-[10px] text-slate-400">みなし仕入率（0〜1 例: 0.5）</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  max="1"
+                                  value={editingClientForm.simplified_rate}
+                                  onChange={(e) => setEditingClientForm({ ...editingClientForm, simplified_rate: e.target.value })}
+                                  placeholder="0.5"
+                                  className="mt-0.5 w-full text-xs border border-slate-200 rounded px-2 py-1.5 font-mono"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-2">
                         <button onClick={handleSaveEditClient} disabled={clientSaving}

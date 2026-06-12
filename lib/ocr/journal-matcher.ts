@@ -567,7 +567,7 @@ export function matchVouchersToTransactions(
         creditAccount: '普通預金',
         amount:        feeAmount,
         description:   `${voucher.vendorName || best.tx.description} 振込手数料`,
-        taxType:       '課税仕入10%',
+        taxType:       '対象外', // 実行時に '課税仕入10%' へ差し替え（振込手数料は課税仕入）
         matchScore:    Math.round(best.score * 100) / 100,
         matchStatus:   payStatus,
         transaction:   best.tx,
@@ -575,6 +575,7 @@ export function matchVouchersToTransactions(
       };
       (feeEntry as unknown as { debitAccount: string }).debitAccount = '支払手数料';
       (feeEntry as unknown as { creditAccount: string }).creditAccount = depositAccount;
+      (feeEntry as unknown as { taxType: string }).taxType = '課税仕入10%';
       return { accrualEntries, paymentEntry, feeEntry };
     }
 

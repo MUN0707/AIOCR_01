@@ -3,7 +3,38 @@ import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { seedClientMasters } from '@/lib/seed-client-masters';
 
-const SELECT_COLS = 'id, name, client_type, industry, company_code, legal_name, short_name, invoice_registration_number, created_at';
+const SELECT_COLS = 'id, name, client_type, industry, company_code, legal_name, short_name, invoice_registration_number, is_taxable, tax_method, simplified_rate, created_at';
+
+const TAX_METHODS = ['honsoku', 'kani'] as const;
+
+/** [C5] 税設定の入力を検証して patch へ詰める。エラー文字列を返したら 400 にする。 */
+function applyTaxSettings(
+  body: Record<string, unknown>,
+  patch: Record<string, string | null | boolean | number>,
+): string | null {
+  if (body.is_taxable !== undefined) {
+    patch.is_taxable = !!body.is_taxable;
+  }
+  if (body.tax_method !== undefined) {
+    const v = String(body.tax_method);
+    if (!TAX_METHODS.includes(v as (typeof TAX_METHODS)[number])) {
+      return '課税方式は本則(honsoku)または簡易(kani)で指定してください';
+    }
+    patch.tax_method = v;
+  }
+  if (body.simplified_rate !== undefined) {
+    if (body.simplified_rate === null || body.simplified_rate === '') {
+      patch.simplified_rate = null;
+    } else {
+      const n = Number(body.simplified_rate);
+      if (!Number.isFinite(n) || n < 0 || n > 1) {
+        return 'みなし仕入率は 0〜1 の小数で入力してください（例: 0.5）';
+      }
+      patch.simplified_rate = n;
+    }
+  }
+  return null;
+}
 
 // GET /api/clients — ログインユーザーのクライアント一覧
 export async function GET() {
@@ -51,9 +82,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '登録番号は T + 13桁の数字で入力してください（例: T1234567890123）' }, { status: 400 });
   }
 
+  const taxPatch: Record<string, string | null | boolean | number> = {};
+  const taxErr = applyTaxSettings(body, taxPatch);
+  if (taxErr) return NextResponse.json({ error: taxErr }, { status: 400 });
+
   const { data, error } = await supabase
     .from('clients')
-    .insert({ user_id: user.id, name, company_code, legal_name, short_name, invoice_registration_number })
+    .insert({ user_id: user.id, name, company_code, legal_name, short_name, invoice_registration_number, ...taxPatch })
     .select(SELECT_COLS)
     .single();
 
@@ -83,7 +118,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   const body = await request.json();
-  const patch: Record<string, string | null> = {};
+  const patch: Record<string, string | null | boolean | number> = {};
   if (body.name !== undefined) {
     const v = String(body.name).trim();
     if (!v) return NextResponse.json({ error: 'クライアント名は必須です' }, { status: 400 });
@@ -105,6 +140,8 @@ export async function PATCH(request: NextRequest) {
     }
     patch.invoice_registration_number = v || null;
   }
+  const taxErr = applyTaxSettings(body, patch);
+  if (taxErr) return NextResponse.json({ error: taxErr }, { status: 400 });
 
   const { data, error } = await supabase
     .from('clients')

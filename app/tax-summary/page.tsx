@@ -11,14 +11,18 @@ interface FiscalPeriod { id: string; name: string; start_date: string; end_date:
 interface CategoryStat { count: number; amount: number; }
 interface TaxSummaryData {
   period: { from: string; to: string };
+  is_taxable?: boolean;
+  tax_method?: 'honsoku' | 'kani';
+  message?: string;
   categories: {
     taxable_sales: CategoryStat;
     tax_exempt_sales: CategoryStat;
     taxable_purchase: CategoryStat;
     non_taxable: CategoryStat;
     unclassified: CategoryStat;
-  };
+  } | null;
   honzoku: { sales_tax: number; purchase_tax: number; payable: number };
+  kani?: { sales_tax: number; deemed_rate: number | null; deemed_purchase_tax: number; payable: number; needs_rate_setup: boolean };
   totals: { total_sales: number; taxable_ratio: number | null };
 }
 
@@ -139,8 +143,16 @@ function TaxSummaryInner() {
           {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
         </div>
 
+        {/* 免税事業者: 集計スキップ */}
+        {d && d.is_taxable === false && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 px-5 py-6 text-center">
+            <p className="text-sm text-slate-600 font-medium">{d.message ?? '免税事業者のため消費税集計は行いません。'}</p>
+            <p className="text-[11px] text-slate-400 mt-1">課税事業者に変更する場合は日記帳のクライアント設定で「課税事業者」をオンにしてください。</p>
+          </div>
+        )}
+
         {/* 結果 */}
-        {d && (
+        {d && d.is_taxable !== false && d.categories && (
           <div className="space-y-4">
             {/* 未分類警告 */}
             {d.categories.unclassified.count > 0 && (
@@ -172,22 +184,51 @@ function TaxSummaryInner() {
                 count={d.categories.non_taxable.count} amount={d.categories.non_taxable.amount} />
             </Section>
 
-            {/* 消費税計算（本則課税・内税10%） */}
-            <Section title="消費税計算（本則課税・内税10%）">
-              <CalcRow label="課税売上に係る消費税額" formula={`${fmt(d.categories.taxable_sales.amount)} × 10/110`} amount={d.honzoku.sales_tax} />
-              <CalcRow label="仕入税額控除" formula={`${fmt(d.categories.taxable_purchase.amount)} × 10/110`} amount={d.honzoku.purchase_tax} minus />
-              <div className="border-t border-slate-100 mt-2 pt-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-slate-800">差引 納付税額（概算）</span>
-                  <span className={`text-lg font-bold tabular-nums ${d.honzoku.payable >= 0 ? 'text-red-600' : 'text-lime-700'}`}>
-                    {d.honzoku.payable >= 0 ? '' : '△'}{fmt(d.honzoku.payable)}
-                  </span>
+            {/* 消費税計算: 課税方式で分岐 */}
+            {d.tax_method === 'kani' && d.kani ? (
+              <Section title="消費税計算（簡易課税・内税10%）">
+                <CalcRow label="課税売上に係る消費税額" formula={`${fmt(d.categories.taxable_sales.amount)} × 10/110`} amount={d.kani.sales_tax} />
+                {d.kani.needs_rate_setup ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                    みなし仕入率が未設定です。クライアント設定で「みなし仕入率（0〜1）」を入力すると控除税額が計算されます。
+                  </div>
+                ) : (
+                  <CalcRow
+                    label="みなし仕入控除"
+                    formula={`${fmt(d.kani.sales_tax)} × ${((d.kani.deemed_rate ?? 0) * 100).toFixed(0)}%（みなし仕入率）`}
+                    amount={d.kani.deemed_purchase_tax}
+                    minus
+                  />
+                )}
+                <div className="border-t border-slate-100 mt-2 pt-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-slate-800">差引 納付税額（概算）</span>
+                    <span className={`text-lg font-bold tabular-nums ${d.kani.payable >= 0 ? 'text-red-600' : 'text-lime-700'}`}>
+                      {d.kani.payable >= 0 ? '' : '△'}{fmt(d.kani.payable)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    ※ 概算値です。簡易課税は売上に係る消費税額にみなし仕入率を乗じて控除します。実際の申告では業種区分ごとの正確な率で計算してください。
+                  </p>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  ※ 概算値です。実際の申告では国税庁様式に従い正確に計算してください。
-                </p>
-              </div>
-            </Section>
+              </Section>
+            ) : (
+              <Section title="消費税計算（本則課税・内税10%）">
+                <CalcRow label="課税売上に係る消費税額" formula={`${fmt(d.categories.taxable_sales.amount)} × 10/110`} amount={d.honzoku.sales_tax} />
+                <CalcRow label="仕入税額控除" formula={`${fmt(d.categories.taxable_purchase.amount)} × 10/110`} amount={d.honzoku.purchase_tax} minus />
+                <div className="border-t border-slate-100 mt-2 pt-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-slate-800">差引 納付税額（概算）</span>
+                    <span className={`text-lg font-bold tabular-nums ${d.honzoku.payable >= 0 ? 'text-red-600' : 'text-lime-700'}`}>
+                      {d.honzoku.payable >= 0 ? '' : '△'}{fmt(d.honzoku.payable)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    ※ 概算値です。実際の申告では国税庁様式に従い正確に計算してください。
+                  </p>
+                </div>
+              </Section>
+            )}
           </div>
         )}
         </div>

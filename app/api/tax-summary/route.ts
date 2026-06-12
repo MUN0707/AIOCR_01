@@ -20,10 +20,36 @@ export async function GET(request: NextRequest) {
   const service = createServiceClient();
 
   let ownerUserId = user.id;
+  // [C5] クライアントの課税事業者設定
+  let isTaxable = true;
+  let taxMethod: 'honsoku' | 'kani' = 'honsoku';
+  let simplifiedRate: number | null = null;
   if (clientId) {
     const scope = await resolveClientScope(service, user.id, clientId);
     if (!scope) return NextResponse.json({ error: 'この会社へのアクセス権限がありません' }, { status: 403 });
     ownerUserId = scope.ownerUserId;
+
+    const { data: client } = await service
+      .from('clients')
+      .select('is_taxable, tax_method, simplified_rate')
+      .eq('id', clientId)
+      .single();
+    if (client) {
+      isTaxable = client.is_taxable !== false;
+      taxMethod = client.tax_method === 'kani' ? 'kani' : 'honsoku';
+      simplifiedRate = client.simplified_rate != null ? Number(client.simplified_rate) : null;
+    }
+  }
+
+  // [C5] 免税事業者は消費税集計を行わない
+  if (!isTaxable) {
+    return NextResponse.json({
+      period: { from, to },
+      is_taxable: false,
+      tax_method: taxMethod,
+      message: '免税事業者のため消費税集計は行いません。',
+      categories: null,
+    });
   }
 
   // 対象期間の仕訳を tax_category 別に集計
@@ -67,10 +93,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 消費税計算（本則課税・内税10%前提）
+  // 消費税計算（内税10%前提）
   const salesTax = Math.floor((totals.taxable_sales.amount * 10) / 110);
+  // 本則課税: 実際の課税仕入に係る消費税を控除
   const purchaseTax = Math.floor((totals.taxable_purchase.amount * 10) / 110);
-  const payable = salesTax - purchaseTax;
+  const honsokuPayable = salesTax - purchaseTax;
+
+  // [C5] 簡易課税: みなし仕入率で控除税額を算出（控除 = 売上税額 × みなし仕入率）
+  // simplified_rate 未設定の場合は控除0として計算し、要設定フラグを返す
+  const deemedPurchaseTax = simplifiedRate != null ? Math.floor(salesTax * simplifiedRate) : 0;
+  const kaniPayable = salesTax - deemedPurchaseTax;
+
+  const payable = taxMethod === 'kani' ? kaniPayable : honsokuPayable;
 
   // 課税売上割合
   const totalSales = totals.taxable_sales.amount + totals.tax_exempt_sales.amount;
@@ -78,8 +112,21 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     period: { from, to },
+    is_taxable: true,
+    tax_method: taxMethod,
     categories: totals,
-    honzoku: { sales_tax: salesTax, purchase_tax: purchaseTax, payable },
+    // 本則課税の内訳（互換のため honzoku キーは従来通り残す）
+    honzoku: { sales_tax: salesTax, purchase_tax: purchaseTax, payable: honsokuPayable },
+    // 簡易課税の内訳
+    kani: {
+      sales_tax: salesTax,
+      deemed_rate: simplifiedRate,
+      deemed_purchase_tax: deemedPurchaseTax,
+      payable: kaniPayable,
+      needs_rate_setup: simplifiedRate == null,
+    },
+    // 採用方式での納付見込み
+    payable,
     totals: { total_sales: totalSales, taxable_ratio: taxableRatio },
   });
 }
