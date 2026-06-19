@@ -47,6 +47,7 @@ function DepartmentsInner() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', code: '', is_active: true });
   const [editSaving, setEditSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // 部門別損益レポート
   const [reportRows, setReportRows] = useState<ReportRow[] | null>(null);
@@ -113,9 +114,13 @@ function DepartmentsInner() {
 
   const handleDelete = async (id: string, name: string) => {
     if (!(await confirm({ message: `「${name}」を削除しますか？\n紐付いた仕訳の部門は未設定になります。`, tone: 'danger' }))) return;
-    const res = await fetch(`/api/departments/${id}`, { method: 'DELETE' });
-    if (!res.ok) { const j = await res.json(); alert(j.error || '削除失敗'); return; }
-    fetchDepartments();
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/departments/${id}`, { method: 'DELETE' });
+      if (!res.ok) { const j = await res.json(); alert(j.error || '削除失敗'); return; }
+      fetchDepartments();
+    } catch { alert('削除失敗'); }
+    finally { setDeletingId(null); }
   };
 
   const fetchReport = useCallback(async () => {
@@ -293,8 +298,9 @@ function DepartmentsInner() {
                             >編集</button>
                             <button
                               onClick={() => handleDelete(d.id, d.name)}
-                              className="text-xs text-red-500 hover:underline"
-                            >削除</button>
+                              disabled={deletingId === d.id}
+                              className="text-xs text-red-500 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                            >{deletingId === d.id ? '削除中…' : '削除'}</button>
                           </div>
                         </td>
                       </>

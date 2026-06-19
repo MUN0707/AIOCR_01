@@ -79,18 +79,23 @@ export default function AdminPage() {
   const handleAction = async (id: string, action: 'activate' | 'deactivate' | 'extend') => {
     setActionLoading(id + action);
     setError(null);
-    const res = await fetch('/api/admin/subscriptions', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      await fetchSubscriptions();
-    } else {
-      setError(data.error || 'エラーが発生しました');
+    try {
+      const res = await fetch('/api/admin/subscriptions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        await fetchSubscriptions();
+      } else {
+        setError(data.error || 'エラーが発生しました');
+      }
+    } catch {
+      setError('エラーが発生しました');
+    } finally {
+      setActionLoading(null);
     }
-    setActionLoading(null);
   };
 
   if (loading) {

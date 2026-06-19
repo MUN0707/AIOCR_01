@@ -62,6 +62,7 @@ function BudgetInner() {
   const [loadingBudgets, setLoadingBudgets] = useState(false);
   const [addForm, setAddForm] = useState({ account_name: '', month: 1, amount: '' });
   const [addSaving, setAddSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   // 年間一括入力
   const [bulkForm, setBulkForm] = useState({ account_name: '', annual_amount: '' });
@@ -132,9 +133,13 @@ function BudgetInner() {
   };
 
   const handleDelete = async (id: string) => {
-    const res = await fetch(`/api/budgets/${id}`, { method: 'DELETE' });
-    if (!res.ok) { const j = await res.json(); alert(j.error || '削除失敗'); return; }
-    fetchBudgets();
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/budgets/${id}`, { method: 'DELETE' });
+      if (!res.ok) { const j = await res.json(); alert(j.error || '削除失敗'); return; }
+      fetchBudgets();
+    } catch { alert('削除失敗'); }
+    finally { setDeletingId(null); }
   };
 
   const fetchReport = useCallback(async () => {
@@ -374,9 +379,10 @@ function BudgetInner() {
                                     <span>¥{entry.amount.toLocaleString()}</span>
                                     <button
                                       onClick={() => handleDelete(entry.id)}
-                                      className="ml-1 text-[9px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      disabled={deletingId === entry.id}
+                                      className="ml-1 text-[9px] text-red-400 opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
                                       title="削除"
-                                    >✕</button>
+                                    >{deletingId === entry.id ? '…' : '✕'}</button>
                                   </span>
                                 ) : (
                                   <span className="text-slate-200">—</span>

@@ -38,6 +38,7 @@ function UserRolesInner() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [newEmail, setNewEmail] = useState('');
@@ -91,12 +92,15 @@ function UserRolesInner() {
 
   const deleteMember = async (id: string) => {
     if (!(await confirm({ message: 'このメンバーを削除しますか？', tone: 'danger' }))) return;
+    setDeletingId(id);
     try {
       const res = await fetch(`/api/client-members?id=${id}`, { method: 'DELETE' });
       if (res.ok) fetchMembers();
       else { const j = await res.json(); setError(j.error ?? '削除失敗'); }
     } catch {
       setError('削除に失敗しました');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -219,9 +223,10 @@ function UserRolesInner() {
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => deleteMember(m.id)}
-                          className="text-[10px] text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 rounded-lg px-2.5 py-1 transition-colors"
+                          disabled={deletingId === m.id}
+                          className="text-[10px] text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 rounded-lg px-2.5 py-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          削除
+                          {deletingId === m.id ? '削除中…' : '削除'}
                         </button>
                       </td>
                     </tr>

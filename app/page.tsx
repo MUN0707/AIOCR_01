@@ -552,6 +552,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   // undefined = 初期ロード中 / null = ゲスト / User = ログイン済み
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [signingOut, setSigningOut] = useState(false);
   const [guestLimitReached, setGuestLimitReached] = useState(false);
   const [usageInfo, setUsageInfo] = useState<{ count: number; limit: number } | null>(null);
   const [fingerprintId, setFingerprintId] = useState<string | null>(null);
@@ -562,6 +563,7 @@ export default function Home() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [newClientForm, setNewClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '', invoice_registration_number: '' });
   const [clientSaving, setClientSaving] = useState(false);
+  const [deletingClientId, setDeletingClientId] = useState<string | null>(null);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [editingClientForm, setEditingClientForm] = useState({ company_code: '', name: '', legal_name: '', short_name: '', invoice_registration_number: '', is_taxable: true, tax_method: 'honsoku' as 'honsoku' | 'kani', simplified_rate: '' });
   const [clientError, setClientError] = useState<string | null>(null);
@@ -2377,7 +2379,9 @@ export default function Home() {
   };
 
   const handleDeleteClient = async (id: string) => {
+    if (deletingClientId) return;
     if (!(await confirm({ message: 'このクライアントを削除しますか？', tone: 'danger' }))) return;
+    setDeletingClientId(id);
     try {
       await fetch(`/api/clients?id=${id}`, { method: 'DELETE' });
       setClients((prev) => prev.filter((c) => c.id !== id));
@@ -2385,12 +2389,20 @@ export default function Home() {
       if (editingClientId === id) setEditingClientId(null);
     } catch {
       // silent
+    } finally {
+      setDeletingClientId(null);
     }
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await supabase.auth.signOut();
+      router.push('/login');
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   // ファイルごとに請求書をグループ化（invoice / tax-return モードのみ使用）
@@ -2508,11 +2520,12 @@ export default function Home() {
               </button>
               <button
                 onClick={handleSignOut}
+                disabled={signingOut}
                 className="text-xs text-slate-400 border border-slate-200 rounded-xl
                   px-4 py-2 hover:bg-slate-50 hover:text-slate-600
-                  transition-all duration-200 tracking-wide"
+                  transition-all duration-200 tracking-wide disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                サインアウト
+                {signingOut ? 'サインアウト中…' : 'サインアウト'}
               </button>
             </div>
           )}
@@ -2784,12 +2797,12 @@ export default function Home() {
                       </div>
                       <div className="flex gap-2">
                         <button onClick={handleSaveEditClient} disabled={clientSaving}
-                          className="text-xs text-white bg-sky-500 rounded-lg px-3 py-1.5 hover:bg-sky-600 disabled:opacity-40">保存</button>
+                          className="text-xs text-white bg-sky-500 rounded-lg px-3 py-1.5 hover:bg-sky-600 disabled:opacity-40">{clientSaving ? '保存中…' : '保存'}</button>
                         <button onClick={() => { setEditingClientId(null); setClientError(null); }}
                           className="text-xs text-slate-500 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">キャンセル</button>
                         <div className="flex-1" />
-                        <button onClick={() => handleDeleteClient(c.id)}
-                          className="text-xs text-red-500 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50">削除</button>
+                        <button onClick={() => handleDeleteClient(c.id)} disabled={deletingClientId === c.id}
+                          className="text-xs text-red-500 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed">{deletingClientId === c.id ? '削除中…' : '削除'}</button>
                       </div>
                     </div>
                   ) : (
@@ -2805,7 +2818,8 @@ export default function Home() {
                         className="text-[11px] text-sky-500 border border-sky-200 rounded-lg px-2.5 py-1 hover:bg-sky-50 mr-2 opacity-0 group-hover:opacity-100 transition-opacity">編集</button>
                       <button
                         onClick={() => handleDeleteClient(c.id)}
-                        className="text-slate-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                        disabled={deletingClientId === c.id}
+                        className="text-slate-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-40 disabled:cursor-not-allowed"
                         title="削除"
                       >
                         <IconX className="w-4 h-4" />
@@ -2988,14 +3002,14 @@ export default function Home() {
                           disabled={persisting || selectedVoucherIdx.size === 0}
                           className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          選択を登録（{selectedVoucherIdx.size}）
+                          {persisting ? '登録中…' : `選択を登録（${selectedVoucherIdx.size}）`}
                         </button>
                         <button
                           onClick={() => handlePersistSelected(false)}
                           disabled={persisting}
                           className="text-xs text-white bg-lime-600 rounded-xl px-4 py-2 font-semibold hover:bg-lime-700 transition-all disabled:opacity-40"
                         >
-                          残り全て登録
+                          {persisting ? '登録中…' : '残り全て登録'}
                         </button>
                         <button
                           onClick={() => setJournalSubView('execute')}
@@ -3151,14 +3165,14 @@ export default function Home() {
                       disabled={persisting || selectedVoucherIdx.size === 0}
                       className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2.5 font-semibold hover:bg-sky-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed tracking-wide"
                     >
-                      選択を登録（{selectedVoucherIdx.size}）
+                      {persisting ? '登録中…' : `選択を登録（${selectedVoucherIdx.size}）`}
                     </button>
                     <button
                       onClick={() => handlePersistSelected(false)}
                       disabled={persisting}
                       className="text-xs text-white bg-lime-600 rounded-xl px-4 py-2.5 font-semibold hover:bg-lime-700 transition-all disabled:opacity-40 tracking-wide"
                     >
-                      残り全て登録
+                      {persisting ? '登録中…' : '残り全て登録'}
                     </button>
                     <button
                       onClick={handleDownloadJournal}
@@ -5353,6 +5367,7 @@ function LedgerView({
   const confirm = useConfirm();
   const [closingInput, setClosingInput] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // パフォーマンス対策: 期間/科目/検索/件数を全てサーバ側に渡してフィルタ + LIMIT する
   const [ledgerStartDate, setLedgerStartDate] = useState<string>(''); // YYYY-MM-DD
@@ -5956,10 +5971,15 @@ function LedgerView({
 
   const handleBulk = async () => {
     const ids = Array.from(selectedIds);
-    if (ids.length === 0) return;
+    if (ids.length === 0 || bulkDeleting) return;
     if (!(await confirm({ message: `${ids.length} 件の仕訳を削除しますか？`, tone: 'danger' }))) return;
-    await onBulkDelete(ids);
-    setSelectedIds(new Set());
+    setBulkDeleting(true);
+    try {
+      await onBulkDelete(ids);
+      setSelectedIds(new Set());
+    } finally {
+      setBulkDeleting(false);
+    }
   };
 
   // 既存の手動仕訳に後から請求書を OCR して紐付ける（C7 / 24e9102a）
@@ -6055,9 +6075,10 @@ function LedgerView({
           {selectedIds.size > 0 && (
             <button
               onClick={handleBulk}
-              className="text-xs text-white bg-red-500 rounded-xl px-4 py-2 font-semibold hover:bg-red-600 transition-all"
+              disabled={bulkDeleting}
+              className="text-xs text-white bg-red-500 rounded-xl px-4 py-2 font-semibold hover:bg-red-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              選択削除（{selectedIds.size}）
+              {bulkDeleting ? '削除中…' : `選択削除（${selectedIds.size}）`}
             </button>
           )}
           <button
@@ -7308,6 +7329,9 @@ function BalanceView({
   const [recalcDialogMode, setRecalcDialogMode] = useState<'rewrite' | 'adjust'>('rewrite');
   const [recalcDialogBusy, setRecalcDialogBusy] = useState(false);
   const [recalcDialogResult, setRecalcDialogResult] = useState<string | null>(null);
+  const [depGenerating, setDepGenerating] = useState(false);
+  const [ruleSaving, setRuleSaving] = useState(false);
+  const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null);
 
   const fetchFixedAssets = async () => {
     const params = new URLSearchParams();
@@ -7330,30 +7354,36 @@ function BalanceView({
   }, [clientId]);
 
   const generateDepreciation = async () => {
+    if (depGenerating) return;
     if (!depPeriodStart || !depPeriodEnd) {
       setDepMsg('期間を指定してください');
       return;
     }
+    setDepGenerating(true);
     setDepMsg('生成中...');
-    const res = await fetch('/api/depreciation/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        clientId,
-        period_start: depPeriodStart,
-        period_end: depPeriodEnd,
-        mode: depMode,
-        timing: depTiming,
-      }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      setDepMsg(`エラー: ${json.error}`);
-      return;
+    try {
+      const res = await fetch('/api/depreciation/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId,
+          period_start: depPeriodStart,
+          period_end: depPeriodEnd,
+          mode: depMode,
+          timing: depTiming,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setDepMsg(`エラー: ${json.error}`);
+        return;
+      }
+      setDepMsg(`計上 ${json.inserted} 件 / スキップ ${json.skipped} 件`);
+      await fetchFixedAssets();
+      refreshAll();
+    } finally {
+      setDepGenerating(false);
     }
-    setDepMsg(`計上 ${json.inserted} 件 / スキップ ${json.skipped} 件`);
-    await fetchFixedAssets();
-    refreshAll();
   };
 
   const checkDepreciation = async () => {
@@ -7371,7 +7401,10 @@ function BalanceView({
   };
 
   const saveRule = async () => {
+    if (ruleSaving) return;
     if (!newRule.effective_from_date) { alert('有効開始日を指定してください'); return; }
+    setRuleSaving(true);
+    try {
     const res = await fetch('/api/accounting-rules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -7392,12 +7425,17 @@ function BalanceView({
     setRecalcDialogResult(null);
     setRecalcDialogBusy(false);
     setShowRecalcDialog(true);
+    } finally {
+      setRuleSaving(false);
+    }
   };
 
   const executeRecalcFromDialog = async () => {
+    if (recalcDialogBusy) return;
     if (!recalcDialogFrom || !recalcDialogTo) return;
     setRecalcDialogBusy(true);
     setRecalcDialogResult(null);
+    try {
     const res = await fetch('/api/depreciation/recalc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -7410,29 +7448,41 @@ function BalanceView({
       }),
     });
     const json = await res.json();
-    setRecalcDialogBusy(false);
     if (!res.ok) {
       setRecalcDialogResult(`エラー: ${json.error}`);
       return;
     }
     setRecalcDialogResult(`完了: 削除 ${json.deleted ?? 0} 件 / 計上 ${json.inserted} 件 / 調整額合計 ¥${(json.adjustment_total ?? 0).toLocaleString()}`);
     refreshAll();
+    } finally {
+      setRecalcDialogBusy(false);
+    }
   };
 
   const deleteRule = async (id: string) => {
+    if (deletingRuleId) return;
     if (!(await confirm({ message: 'このルールを削除しますか？', tone: 'danger' }))) return;
-    await fetch(`/api/accounting-rules?id=${id}`, { method: 'DELETE' });
-    await fetchRules();
+    setDeletingRuleId(id);
+    try {
+      await fetch(`/api/accounting-rules?id=${id}`, { method: 'DELETE' });
+      await fetchRules();
+    } finally {
+      setDeletingRuleId(null);
+    }
   };
 
   const [recalcMode, setRecalcMode] = useState<'rewrite' | 'adjust'>('rewrite');
   const [recalcFrom, setRecalcFrom] = useState<string>('');
   const [recalcTo, setRecalcTo] = useState<string>('');
   const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
+  const [recalcRunning, setRecalcRunning] = useState(false);
   const runRecalc = async () => {
+    if (recalcRunning) return;
     if (!recalcFrom || !recalcTo) { setRecalcMsg('期間を指定してください'); return; }
     if (!(await confirm(`${recalcMode === 'rewrite' ? '既存の償却仕訳を削除して再生成' : '差額を一括修正仕訳として計上'}します。よろしいですか?`))) return;
+    setRecalcRunning(true);
     setRecalcMsg('再計算中...');
+    try {
     const res = await fetch('/api/depreciation/recalc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -7448,6 +7498,9 @@ function BalanceView({
     if (!res.ok) { setRecalcMsg(`エラー: ${json.error}`); return; }
     setRecalcMsg(`完了: 削除 ${json.deleted ?? 0} 件 / 計上 ${json.inserted} 件 / 調整額合計 ¥${(json.adjustment_total ?? 0).toLocaleString()}`);
     refreshAll();
+    } finally {
+      setRecalcRunning(false);
+    }
   };
 
   const toYmd = (iso: string) => iso.replace(/-/g, ''); // YYYY-MM-DD → YYYYMMDD
@@ -7658,9 +7711,9 @@ function BalanceView({
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={generateDepreciation}
-              className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600">
-              減価償却仕訳を生成
+            <button onClick={generateDepreciation} disabled={depGenerating}
+              className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed">
+              {depGenerating ? '生成中…' : '減価償却仕訳を生成'}
             </button>
             <button onClick={checkDepreciation}
               className="text-xs text-lime-700 border border-lime-300 bg-lime-50 rounded-xl px-4 py-2 font-semibold hover:bg-lime-100">
@@ -7746,9 +7799,9 @@ function BalanceView({
               })}
             </div>
             <div className="flex justify-end">
-              <button onClick={saveRule}
-                className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600">
-                ルールを保存
+              <button onClick={saveRule} disabled={ruleSaving}
+                className="text-xs text-white bg-sky-500 rounded-xl px-4 py-2 font-semibold hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                {ruleSaving ? '保存中…' : 'ルールを保存'}
               </button>
             </div>
           </div>
@@ -7831,9 +7884,9 @@ function BalanceView({
                 <option value="adjust">差額を修正仕訳で計上</option>
               </select>
             </div>
-            <button onClick={runRecalc}
-              className="text-xs text-white bg-amber-500 rounded-xl px-4 py-2 font-semibold hover:bg-amber-600">
-              再計算を実行
+            <button onClick={runRecalc} disabled={recalcRunning}
+              className="text-xs text-white bg-amber-500 rounded-xl px-4 py-2 font-semibold hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
+              {recalcRunning ? '再計算中…' : '再計算を実行'}
             </button>
           </div>
           {recalcMsg && <p className="text-[11px] text-slate-600 font-mono mt-2">{recalcMsg}</p>}
@@ -7868,7 +7921,7 @@ function BalanceView({
                     <td className="px-3 py-2 text-slate-600">{r.depreciation_method_deferred === 'indirect' ? '間接法' : '直接法'}</td>
                     <td className="px-3 py-2 text-slate-600">{r.depreciation_timing === 'monthly' ? '月次' : '年次'}</td>
                     <td className="px-3 py-2 text-right">
-                      <button onClick={() => deleteRule(r.id)} className="text-[10px] text-red-400 hover:text-red-600">削除</button>
+                      <button onClick={() => deleteRule(r.id)} disabled={deletingRuleId === r.id} className="text-[10px] text-red-400 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed">{deletingRuleId === r.id ? '削除中…' : '削除'}</button>
                     </td>
                   </tr>
                 ))}
@@ -8245,6 +8298,8 @@ function FixedAssetSection({
     }
   };
   const [creating, setCreating] = useState(false);
+  const [savingNew, setSavingNew] = useState(false);
+  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const [form, setForm] = useState({
     category: 'tangible' as 'tangible' | 'intangible' | 'deferred',
     name: '',
@@ -8274,25 +8329,37 @@ function FixedAssetSection({
   for (const a of assets) grouped[a.category]?.push(a);
 
   const createNew = async () => {
-    const res = await fetch('/api/fixed-assets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_id: clientId, ...form }),
-    });
-    const json = await res.json();
-    if (!res.ok) { alert(json.error); return; }
-    setCreating(false);
-    setForm({ category: 'tangible', name: '', account_name: '', acquisition_cost: 0 });
-    await onRefresh();
-    if (json.asset?.id) window.open(`/fixed-assets/${json.asset.id}`, '_blank');
+    if (savingNew) return;
+    setSavingNew(true);
+    try {
+      const res = await fetch('/api/fixed-assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, ...form }),
+      });
+      const json = await res.json();
+      if (!res.ok) { alert(json.error); return; }
+      setCreating(false);
+      setForm({ category: 'tangible', name: '', account_name: '', acquisition_cost: 0 });
+      await onRefresh();
+      if (json.asset?.id) window.open(`/fixed-assets/${json.asset.id}`, '_blank');
+    } finally {
+      setSavingNew(false);
+    }
   };
 
   const deleteAsset = async (id: string) => {
+    if (deletingAssetId) return;
     if (!(await confirm({ message: 'この資産と紐付く償却仕訳を削除しますか？', tone: 'danger' }))) return;
-    const res = await fetch(`/api/fixed-assets/${id}`, { method: 'DELETE' });
-    const json = await res.json();
-    if (!res.ok) { alert(json.error); return; }
-    await onRefresh();
+    setDeletingAssetId(id);
+    try {
+      const res = await fetch(`/api/fixed-assets/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) { alert(json.error); return; }
+      await onRefresh();
+    } finally {
+      setDeletingAssetId(null);
+    }
   };
 
   const [cancellingId, setCancellingId] = useState<string | null>(null);
@@ -8366,9 +8433,9 @@ function FixedAssetSection({
             </div>
           )}
           <div className="flex justify-end">
-            <button onClick={createNew}
-              className="text-xs text-white bg-lime-500 rounded-xl px-4 py-2 font-semibold hover:bg-lime-600">
-              作成して詳細入力へ
+            <button onClick={createNew} disabled={savingNew}
+              className="text-xs text-white bg-lime-500 rounded-xl px-4 py-2 font-semibold hover:bg-lime-600 disabled:opacity-50 disabled:cursor-not-allowed">
+              {savingNew ? '作成中…' : '作成して詳細入力へ'}
             </button>
           </div>
         </div>
@@ -8441,7 +8508,7 @@ function FixedAssetSection({
                             ) : (
                               <button onClick={() => cancelDispose(a)} disabled={cancellingId === a.id} className="text-[10px] text-sky-600 hover:text-sky-700 mr-2 disabled:opacity-50">{cancellingId === a.id ? '取消中...' : '処分を取消'}</button>
                             )}
-                            <button onClick={() => deleteAsset(a.id)} className="text-[10px] text-red-400 hover:text-red-600">削除</button>
+                            <button onClick={() => deleteAsset(a.id)} disabled={deletingAssetId === a.id} className="text-[10px] text-red-400 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed">{deletingAssetId === a.id ? '削除中…' : '削除'}</button>
                           </td>
                         </tr>
                       );
@@ -8565,6 +8632,7 @@ function AccountCombobox({
   const [highlight, setHighlight] = useState(0);
   // 新規作成モード: 名前と読みの2段階入力
   const [creating, setCreating] = useState<{ name: string; reading: string; sub_category: string } | null>(null);
+  const [submittingCreate, setSubmittingCreate] = useState(false);
   const readingInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -8610,15 +8678,20 @@ function AccountCombobox({
   };
 
   const confirmCreate = async () => {
-    if (!creating || !onCreate) return;
+    if (!creating || !onCreate || submittingCreate) return;
     if (!creating.name.trim() || !creating.sub_category) return;
-    const acc = await Promise.resolve(onCreate(creating.name, creating.reading, creating.sub_category));
-    if (acc) {
-      onChange(acc.name);
-      onCommit?.(acc.name);
+    setSubmittingCreate(true);
+    try {
+      const acc = await Promise.resolve(onCreate(creating.name, creating.reading, creating.sub_category));
+      if (acc) {
+        onChange(acc.name);
+        onCommit?.(acc.name);
+      }
+      setCreating(null);
+      setOpen(false);
+    } finally {
+      setSubmittingCreate(false);
     }
-    setCreating(null);
-    setOpen(false);
   };
 
   return (
@@ -8754,10 +8827,10 @@ function AccountCombobox({
             <button
               type="button"
               onClick={confirmCreate}
-              disabled={!creating.name.trim() || !creating.sub_category}
+              disabled={!creating.name.trim() || !creating.sub_category || submittingCreate}
               className="text-[10px] text-white bg-lime-500 rounded-md px-3 py-1 font-semibold hover:bg-lime-600 disabled:opacity-50"
             >
-              追加
+              {submittingCreate ? '追加中…' : '追加'}
             </button>
           </div>
         </div>
@@ -8816,41 +8889,59 @@ function MasterView({
   );
 
   const mergeAccount = async (keepId: string, mergeId: string) => {
+    if (merging) return;
     if (!(await confirm({ message: 'この2件をマージします。マージ元の科目は削除され、仕訳の科目名はマージ先に統一されます。よろしいですか？', tone: 'danger', confirmLabel: 'マージする' }))) return;
-    const res = await fetch('/api/accounts/merge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keepId, mergeId }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      alert(data.error || 'マージに失敗しました');
-      return;
+    setMerging(true);
+    try {
+      const res = await fetch('/api/accounts/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepId, mergeId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'マージに失敗しました');
+        return;
+      }
+      onReloadAccounts();
+    } finally {
+      setMerging(false);
     }
-    onReloadAccounts();
   };
 
   const mergeVendor = async (keepId: string, mergeId: string) => {
+    if (merging) return;
     if (!(await confirm({ message: 'この2件をマージします。マージ元の取引先は削除され、仕訳の取引先名はマージ先に統一されます。よろしいですか？', tone: 'danger', confirmLabel: 'マージする' }))) return;
-    const res = await fetch('/api/vendors/merge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keepId, mergeId }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      alert(data.error || 'マージに失敗しました');
-      return;
+    setMerging(true);
+    try {
+      const res = await fetch('/api/vendors/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepId, mergeId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'マージに失敗しました');
+        return;
+      }
+      onReloadVendors();
+    } finally {
+      setMerging(false);
     }
-    onReloadVendors();
   };
   const [newRule, setNewRule] = useState<{ pattern_type: 'vendor' | 'description'; pattern: string; debit_account: string }>({
     pattern_type: 'vendor', pattern: '', debit_account: '',
   });
   const handleAddRule = async () => {
+    if (addingRule) return;
     if (!newRule.pattern.trim() || !newRule.debit_account.trim()) return;
-    await onCreateRule(newRule.pattern_type, newRule.pattern, newRule.debit_account);
-    setNewRule({ pattern_type: newRule.pattern_type, pattern: '', debit_account: '' });
+    setAddingRule(true);
+    try {
+      await onCreateRule(newRule.pattern_type, newRule.pattern, newRule.debit_account);
+      setNewRule({ pattern_type: newRule.pattern_type, pattern: '', debit_account: '' });
+    } finally {
+      setAddingRule(false);
+    }
   };
   const [newAcc, setNewAcc] = useState({ name: '', reading: '', sub_category: '' });
   const [newVen, setNewVen] = useState({ name: '', reading: '' });
@@ -8858,6 +8949,11 @@ function MasterView({
   const [venSearch, setVenSearch] = useState('');
   const [addingSubFor, setAddingSubFor] = useState<string | null>(null);
   const [subAccName, setSubAccName] = useState('');
+  const [merging, setMerging] = useState(false);
+  const [addingRule, setAddingRule] = useState(false);
+  const [addingAcc, setAddingAcc] = useState(false);
+  const [addingVen, setAddingVen] = useState(false);
+  const [addingSub, setAddingSub] = useState(false);
 
   const sortedAccounts = useMemo(() => {
     const order = new Map(SUB_CATEGORY_OPTIONS.map((o, i) => [o.value, i]));
@@ -8976,24 +9072,30 @@ function MasterView({
   };
 
   const handleAddSubAccount = async (parentId: string) => {
+    if (addingSub) return;
     if (!subAccName.trim()) return;
     const parent = accountsList.find((a) => a.id === parentId);
     if (!parent?.client_id) { alert('親科目に会社が紐付いていません'); return; }
-    const res = await fetch('/api/accounts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: subAccName.trim(),
-        parent_account_id: parentId,
-        sub_category: parent.sub_category ?? '',
-        category: parent.category ?? '',
-        client_id: parent.client_id,
-      }),
-    });
-    if (!res.ok) { const j = await res.json(); alert(j.error || '追加失敗'); return; }
-    setSubAccName('');
-    setAddingSubFor(null);
-    onReloadAccounts();
+    setAddingSub(true);
+    try {
+      const res = await fetch('/api/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: subAccName.trim(),
+          parent_account_id: parentId,
+          sub_category: parent.sub_category ?? '',
+          category: parent.category ?? '',
+          client_id: parent.client_id,
+        }),
+      });
+      if (!res.ok) { const j = await res.json(); alert(j.error || '追加失敗'); return; }
+      setSubAccName('');
+      setAddingSubFor(null);
+      onReloadAccounts();
+    } finally {
+      setAddingSub(false);
+    }
   };
 
   const patchVendor = async (id: string, patch: Partial<AccountOption>, previousName: string) => {
@@ -9022,26 +9124,38 @@ function MasterView({
   };
 
   const handleAddAcc = async () => {
+    if (addingAcc) return;
     if (!newAcc.name.trim() || !newAcc.sub_category) return;
-    const acc = await onCreateAccount(newAcc.name, newAcc.reading, newAcc.sub_category);
-    if (acc) {
-      // addAccountLocal は既存同名なら sub_category を更新しないので、確実に PATCH で揃える
-      if (acc.id) {
-        const cat = SUB_CATEGORY_OPTIONS.find((o) => o.value === newAcc.sub_category)?.category ?? '';
-        await fetch(`/api/accounts/${acc.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sub_category: newAcc.sub_category, category: cat }),
-        });
-        onReloadAccounts();
+    setAddingAcc(true);
+    try {
+      const acc = await onCreateAccount(newAcc.name, newAcc.reading, newAcc.sub_category);
+      if (acc) {
+        // addAccountLocal は既存同名なら sub_category を更新しないので、確実に PATCH で揃える
+        if (acc.id) {
+          const cat = SUB_CATEGORY_OPTIONS.find((o) => o.value === newAcc.sub_category)?.category ?? '';
+          await fetch(`/api/accounts/${acc.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sub_category: newAcc.sub_category, category: cat }),
+          });
+          onReloadAccounts();
+        }
+        setNewAcc({ name: '', reading: '', sub_category: '' });
       }
-      setNewAcc({ name: '', reading: '', sub_category: '' });
+    } finally {
+      setAddingAcc(false);
     }
   };
   const handleAddVen = async () => {
+    if (addingVen) return;
     if (!newVen.name.trim()) return;
-    const v = await onCreateVendor(newVen.name, newVen.reading);
-    if (v) setNewVen({ name: '', reading: '' });
+    setAddingVen(true);
+    try {
+      const v = await onCreateVendor(newVen.name, newVen.reading);
+      if (v) setNewVen({ name: '', reading: '' });
+    } finally {
+      setAddingVen(false);
+    }
   };
 
   return (
@@ -9111,10 +9225,10 @@ function MasterView({
             </select>
             <button
               onClick={handleAddAcc}
-              disabled={!newAcc.name.trim() || !newAcc.sub_category}
+              disabled={!newAcc.name.trim() || !newAcc.sub_category || addingAcc}
               className="text-xs text-white bg-sky-500 rounded-lg px-3 font-semibold hover:bg-sky-600 disabled:opacity-40"
             >
-              追加
+              {addingAcc ? '追加中…' : '追加'}
             </button>
           </div>
         </div>
@@ -9148,7 +9262,7 @@ function MasterView({
                             placeholder={`${a.name} の補助科目名`}
                             className="flex-1 text-xs border border-violet-300 rounded-lg px-2 py-1.5 focus:outline-none focus:border-violet-500"
                           />
-                          <button onClick={() => handleAddSubAccount(a.id!)} className="text-[10px] px-3 py-1.5 bg-violet-500 text-white rounded-lg hover:bg-violet-600 font-semibold">追加</button>
+                          <button onClick={() => handleAddSubAccount(a.id!)} disabled={addingSub} className="text-[10px] px-3 py-1.5 bg-violet-500 text-white rounded-lg hover:bg-violet-600 font-semibold disabled:opacity-50 disabled:cursor-not-allowed">{addingSub ? '追加中…' : '追加'}</button>
                           <button onClick={() => setAddingSubFor(null)} className="text-[10px] px-2 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">×</button>
                         </div>
                       </td>
@@ -9201,10 +9315,10 @@ function MasterView({
           />
           <button
             onClick={handleAddVen}
-            disabled={!newVen.name.trim()}
+            disabled={!newVen.name.trim() || addingVen}
             className="text-xs text-white bg-lime-500 rounded-lg px-3 font-semibold hover:bg-lime-600 disabled:opacity-40"
           >
-            追加
+            {addingVen ? '追加中…' : '追加'}
           </button>
           </div>
         </div>
@@ -9257,17 +9371,19 @@ function MasterView({
                   <span className="text-[9px] text-slate-400 shrink-0">距離 {p.distance}</span>
                   <button
                     onClick={() => p.a.id && p.b.id && mergeAccount(p.a.id, p.b.id)}
-                    className="text-[10px] text-sky-600 border border-sky-200 rounded px-1.5 py-0.5 hover:bg-sky-50 shrink-0"
+                    disabled={merging}
+                    className="text-[10px] text-sky-600 border border-sky-200 rounded px-1.5 py-0.5 hover:bg-sky-50 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     title={`「${p.a.name}」を残し、「${p.b.name}」を削除`}
                   >
-                    左に統合
+                    {merging ? '統合中…' : '左に統合'}
                   </button>
                   <button
                     onClick={() => p.a.id && p.b.id && mergeAccount(p.b.id, p.a.id)}
-                    className="text-[10px] text-sky-600 border border-sky-200 rounded px-1.5 py-0.5 hover:bg-sky-50 shrink-0"
+                    disabled={merging}
+                    className="text-[10px] text-sky-600 border border-sky-200 rounded px-1.5 py-0.5 hover:bg-sky-50 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     title={`「${p.b.name}」を残し、「${p.a.name}」を削除`}
                   >
-                    右に統合
+                    {merging ? '統合中…' : '右に統合'}
                   </button>
                 </div>
               ))}
@@ -9288,15 +9404,17 @@ function MasterView({
                   <span className="text-[9px] text-slate-400 shrink-0">距離 {p.distance}</span>
                   <button
                     onClick={() => p.a.id && p.b.id && mergeVendor(p.a.id, p.b.id)}
-                    className="text-[10px] text-lime-700 border border-lime-200 rounded px-1.5 py-0.5 hover:bg-lime-50 shrink-0"
+                    disabled={merging}
+                    className="text-[10px] text-lime-700 border border-lime-200 rounded px-1.5 py-0.5 hover:bg-lime-50 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    左に統合
+                    {merging ? '統合中…' : '左に統合'}
                   </button>
                   <button
                     onClick={() => p.a.id && p.b.id && mergeVendor(p.b.id, p.a.id)}
-                    className="text-[10px] text-lime-700 border border-lime-200 rounded px-1.5 py-0.5 hover:bg-lime-50 shrink-0"
+                    disabled={merging}
+                    className="text-[10px] text-lime-700 border border-lime-200 rounded px-1.5 py-0.5 hover:bg-lime-50 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    右に統合
+                    {merging ? '統合中…' : '右に統合'}
                   </button>
                 </div>
               ))}
@@ -9345,10 +9463,10 @@ function MasterView({
         </datalist>
         <button
           onClick={handleAddRule}
-          disabled={!newRule.pattern.trim() || !newRule.debit_account.trim()}
+          disabled={!newRule.pattern.trim() || !newRule.debit_account.trim() || addingRule}
           className="text-xs text-white bg-amber-500 rounded-lg px-3 py-1.5 font-semibold hover:bg-amber-600 disabled:opacity-40"
         >
-          追加
+          {addingRule ? '追加中…' : '追加'}
         </button>
       </div>
       <div className="max-h-[400px] overflow-y-auto">
@@ -9437,9 +9555,20 @@ function MasterRow({
   const [name, setName] = useState(item.name);
   const [reading, setReading] = useState(item.reading ?? '');
   const [subCategory, setSubCategory] = useState<string>(item.sub_category ?? '');
+  const [deleting, setDeleting] = useState(false);
   useEffect(() => {
     setSubCategory(item.sub_category ?? '');
   }, [item.sub_category]);
+
+  const handleDelete = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await Promise.resolve(onDelete());
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // 未確認: 自動登録された + 未確認の科目を強調
   const isUnconfirmed = item.auto_registered === true && item.confirmed === false;
@@ -9545,10 +9674,11 @@ function MasterRow({
             </button>
           )}
           <button
-            onClick={onDelete}
-            className="text-[10px] text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-[10px] text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            削除
+            {deleting ? '削除中…' : '削除'}
           </button>
         </div>
       </td>
@@ -9675,6 +9805,8 @@ function FinancialStatementView({
   });
   const [editSaving, setEditSaving] = useState(false);
   const [calcLoading, setCalcLoading] = useState(false);
+  const [addingPeriod, setAddingPeriod] = useState(false);
+  const [deletingPeriodId, setDeletingPeriodId] = useState<string | null>(null);
 
   // 新規科目追加モーダル
   const [showAddAccount, setShowAddAccount] = useState(false);
@@ -9750,30 +9882,42 @@ function FinancialStatementView({
   };
 
   const handleAddPeriod = async () => {
+    if (addingPeriod) return;
     if (!newPeriod.name.trim() || !newPeriod.start_date || !newPeriod.end_date) return;
-    const res = await fetch('/api/fiscal-periods', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...newPeriod, client_id: selectedClientId }),
-    });
-    const data = await res.json();
-    if (!res.ok) { alert(data.error || '追加失敗'); return; }
-    setPeriods((prev) => [data.period, ...prev]);
-    setSelectedPeriodId(data.period.id);
-    setNewPeriod({ name: '', start_date: '', end_date: '' });
-    setShowAddForm(false);
+    setAddingPeriod(true);
+    try {
+      const res = await fetch('/api/fiscal-periods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newPeriod, client_id: selectedClientId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || '追加失敗'); return; }
+      setPeriods((prev) => [data.period, ...prev]);
+      setSelectedPeriodId(data.period.id);
+      setNewPeriod({ name: '', start_date: '', end_date: '' });
+      setShowAddForm(false);
+    } finally {
+      setAddingPeriod(false);
+    }
   };
 
   const handleDeletePeriod = async (id: string) => {
+    if (deletingPeriodId) return;
     if (!(await confirm({ message: 'この会計期間を削除しますか？', tone: 'danger' }))) return;
-    const res = await fetch(`/api/fiscal-periods/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const data = await res.json();
-      alert(data.error || '削除失敗');
-      return;
+    setDeletingPeriodId(id);
+    try {
+      const res = await fetch(`/api/fiscal-periods/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || '削除失敗');
+        return;
+      }
+      setPeriods((prev) => prev.filter((p) => p.id !== id));
+      if (selectedPeriodId === id) setSelectedPeriodId('');
+    } finally {
+      setDeletingPeriodId(null);
     }
-    setPeriods((prev) => prev.filter((p) => p.id !== id));
-    if (selectedPeriodId === id) setSelectedPeriodId('');
   };
 
   const handleStartEdit = () => {
@@ -9930,9 +10074,10 @@ function FinancialStatementView({
               </button>
               <button
                 onClick={() => handleDeletePeriod(selectedPeriodId)}
-                className="text-xs text-red-500 border border-red-200 rounded-xl px-3 py-2 hover:bg-red-50 transition-all duration-200"
+                disabled={deletingPeriodId === selectedPeriodId}
+                className="text-xs text-red-500 border border-red-200 rounded-xl px-3 py-2 hover:bg-red-50 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                この期を削除
+                {deletingPeriodId === selectedPeriodId ? '削除中…' : 'この期を削除'}
               </button>
             </>
           )}
@@ -9981,10 +10126,10 @@ function FinancialStatementView({
             />
             <button
               onClick={handleAddPeriod}
-              disabled={!newPeriod.name.trim() || !newPeriod.start_date || !newPeriod.end_date}
+              disabled={!newPeriod.name.trim() || !newPeriod.start_date || !newPeriod.end_date || addingPeriod}
               className="text-xs text-white bg-sky-500 rounded-lg px-4 py-2 font-semibold hover:bg-sky-600 disabled:opacity-40"
             >
-              追加
+              {addingPeriod ? '追加中…' : '追加'}
             </button>
           </div>
         )}

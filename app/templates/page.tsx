@@ -52,6 +52,7 @@ function TemplatesInner() {
   const [applyForm, setApplyForm] = useState({ entry_date: '', amount: '', description: '' });
   const [applyResult, setApplyResult] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/clients').then(r => r.json()).then(j => setClients(j.clients ?? [])).catch(() => {});
@@ -100,8 +101,12 @@ function TemplatesInner() {
 
   const handleDelete = async (id: string) => {
     if (!(await confirm({ message: 'このテンプレートを削除しますか？', tone: 'danger' }))) return;
-    await fetch(`/api/journal-templates/${id}`, { method: 'DELETE' });
-    setTemplates(prev => prev.filter(t => t.id !== id));
+    setDeletingId(id);
+    try {
+      await fetch(`/api/journal-templates/${id}`, { method: 'DELETE' });
+      setTemplates(prev => prev.filter(t => t.id !== id));
+    } catch { alert('削除失敗'); }
+    finally { setDeletingId(null); }
   };
 
   const openApply = (tmpl: JournalTemplate) => {
@@ -321,8 +326,9 @@ function TemplatesInner() {
                     >起票</button>
                     <button
                       onClick={() => handleDelete(tmpl.id)}
-                      className="text-xs px-2 py-1.5 border border-red-200 text-red-500 rounded-xl hover:bg-red-50"
-                    >削除</button>
+                      disabled={deletingId === tmpl.id}
+                      className="text-xs px-2 py-1.5 border border-red-200 text-red-500 rounded-xl hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >{deletingId === tmpl.id ? '…' : '削除'}</button>
                   </div>
                 </div>
               ))}

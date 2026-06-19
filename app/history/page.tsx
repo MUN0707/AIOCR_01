@@ -105,6 +105,7 @@ export default function HistoryPage() {
   const [actionBusy, setActionBusy] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [modeFilter, setModeFilter] = useState<string>('all');
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -422,7 +423,9 @@ export default function HistoryPage() {
                         />
                         <button
                           type="button"
+                          disabled={downloadingPdf}
                           onClick={async () => {
+                            setDownloadingPdf(true);
                             try {
                               const res = await fetch(detail.pdfUrl!);
                               const blob = await res.blob();
@@ -436,12 +439,14 @@ export default function HistoryPage() {
                               URL.revokeObjectURL(url);
                             } catch {
                               window.open(detail.pdfUrl!, '_blank');
+                            } finally {
+                              setDownloadingPdf(false);
                             }
                           }}
-                          className="absolute top-3 right-3 inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-sky-500/90 hover:bg-sky-600 rounded-xl px-3 py-2 shadow-lg backdrop-blur transition-colors"
+                          className="absolute top-3 right-3 inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-sky-500/90 hover:bg-sky-600 rounded-xl px-3 py-2 shadow-lg backdrop-blur transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
-                          PDFをダウンロード
+                          {downloadingPdf ? 'ダウンロード中…' : 'PDFをダウンロード'}
                         </button>
                       </>
                     ) : (

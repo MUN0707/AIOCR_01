@@ -36,6 +36,7 @@ export default function ErrorReportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [siteFilter, setSiteFilter] = useState<string>('all');
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const siteNames = Array.from(new Set(reports.map((r) => r.site_name || '不明'))).sort();
   const filteredReports = siteFilter === 'all' ? reports : reports.filter((r) => (r.site_name || '不明') === siteFilter);
@@ -61,16 +62,23 @@ export default function ErrorReportsPage() {
   }, [router]);
 
   const handleStatusChange = async (id: string, status: ErrorReport['status']) => {
-    const res = await fetch('/api/admin/error-reports', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status }),
-    });
-    if (res.ok) {
-      setReports((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
-    } else {
-      const data = await res.json();
-      setError(data.error || '更新失敗');
+    setUpdatingId(id);
+    try {
+      const res = await fetch('/api/admin/error-reports', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      });
+      if (res.ok) {
+        setReports((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
+      } else {
+        const data = await res.json();
+        setError(data.error || '更新失敗');
+      }
+    } catch {
+      setError('更新失敗');
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -158,12 +166,12 @@ export default function ErrorReportsPage() {
                       <button
                         key={s}
                         onClick={() => handleStatusChange(r.id, s)}
-                        disabled={r.status === s}
-                        className={`text-xs px-3 py-1.5 rounded-full font-bold transition-colors ${
+                        disabled={r.status === s || updatingId === r.id}
+                        className={`text-xs px-3 py-1.5 rounded-full font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                           r.status === s ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}
                       >
-                        {STATUS_LABEL[s]}
+                        {updatingId === r.id && r.status !== s ? '…' : STATUS_LABEL[s]}
                       </button>
                     ))}
                   </div>

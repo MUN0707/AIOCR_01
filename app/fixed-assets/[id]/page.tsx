@@ -47,6 +47,7 @@ export default function FixedAssetDetailPage({ params }: { params: Promise<{ id:
   const [prodMonth, setProdMonth] = useState('');
   const [prodQty, setProdQty] = useState('');
   const [prodSaving, setProdSaving] = useState(false);
+  const [prodDeletingId, setProdDeletingId] = useState<string | null>(null);
 
   const loadProduction = async () => {
     try {
@@ -142,11 +143,14 @@ export default function FixedAssetDetailPage({ params }: { params: Promise<{ id:
   };
 
   const deleteProduction = async (rowId: string) => {
+    setProdDeletingId(rowId);
     try {
       const res = await fetch(`/api/fixed-assets/${id}/production?row_id=${rowId}`, { method: 'DELETE' });
       if (res.ok) await loadProduction();
     } catch {
       /* noop */
+    } finally {
+      setProdDeletingId(null);
     }
   };
 
@@ -397,9 +401,10 @@ export default function FixedAssetDetailPage({ params }: { params: Promise<{ id:
                         <button
                           type="button"
                           onClick={() => deleteProduction(r.id)}
-                          className="text-slate-400 hover:text-red-500"
+                          disabled={prodDeletingId === r.id}
+                          className="text-slate-400 hover:text-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          削除
+                          {prodDeletingId === r.id ? '…' : '削除'}
                         </button>
                       </div>
                     ))}

@@ -46,20 +46,29 @@ export default function InviteAcceptPage() {
   const handleAccept = async () => {
     setAccepting(true);
     setResult(null);
-    const res = await fetch('/api/client-members/accept', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    });
-    const data = await res.json();
-    setAccepting(false);
-    if (res.ok) {
-      setResultOk(true);
-      setResult('招待を承諾しました。トップ画面に移動します。');
-      setTimeout(() => router.push('/'), 1500);
-    } else {
+    let succeeded = false;
+    try {
+      const res = await fetch('/api/client-members/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        succeeded = true;
+        setResultOk(true);
+        setResult('招待を承諾しました。トップ画面に移動します。');
+        setTimeout(() => router.push('/'), 1500);
+      } else {
+        setResultOk(false);
+        setResult(data.error || '承諾に失敗しました');
+      }
+    } catch {
       setResultOk(false);
-      setResult(data.error || '承諾に失敗しました');
+      setResult('承諾に失敗しました');
+    } finally {
+      // 成功時はリダイレクトするため再有効化しない（二重承諾防止）
+      if (!succeeded) setAccepting(false);
     }
   };
 
