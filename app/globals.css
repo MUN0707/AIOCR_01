@@ -24,6 +24,48 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 英字エブロー（Inter・大文字・字間広め・アクセント色）。和文見出しの上に置く二段構え */
+.eyebrow {
+  font-family: var(--font-inter), system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #0ea5e9; /* sky-500 */
+  display: block;
+}
+
+/* カード hover lift */
+.lift {
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 34px rgba(2, 132, 199, 0.12);
+  border-color: #7dd3fc; /* sky-300 */
+}
+
+/* スクロール reveal（RevealInit が is-visible を付与） */
+.reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none;
+  }
+  .lift:hover {
+    transform: none;
+  }
+}
+
 /* カスタムスクロールバー */
 ::-webkit-scrollbar {
   width: 5px;

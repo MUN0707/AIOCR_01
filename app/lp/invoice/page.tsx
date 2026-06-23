@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import ConsultationForm from './ConsultationForm';
+import RevealInit from './RevealInit';
 
 // YouTube動画ID。空文字の間はプレースホルダー表示。
 const YOUTUBE_VIDEO_ID = 'OVIZsnFJz9Q';
@@ -13,6 +14,7 @@ const OTHER_LPS: { label: string; href: string | null }[] = [
 export default function InvoiceLpPage() {
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #f0f9ff 0%, #f7fee7 100%)' }}>
+      <RevealInit />
       {/* ヘッダー */}
       <header className="bg-white/80 backdrop-blur border-b border-sky-100 px-6 py-4 shadow-sm sticky top-0 z-10">
         <div className="max-w-[900px] mx-auto flex items-center justify-between">
@@ -37,15 +39,16 @@ export default function InvoiceLpPage() {
       <main className="max-w-[900px] mx-auto px-6 py-16 space-y-20">
 
         {/* ヒーロー */}
-        <section className="text-center space-y-6">
+        <section className="reveal text-center space-y-6">
+          <span className="eyebrow">AI Invoice OCR</span>
           <div className="inline-flex items-center gap-2 bg-lime-100 text-lime-700 text-sm font-semibold px-4 py-2 rounded-full border border-lime-200">
             税理士事務所向け AI OCRツール
           </div>
-          <h1 className="text-5xl font-extrabold text-sky-900 leading-tight">
+          <h1 className="text-5xl font-extrabold text-sky-900 leading-tight tracking-tight">
             法人請求書の仕分け、<br />
             <span className="text-sky-500">AIに任せてみませんか？</span>
           </h1>
-          <p className="text-sky-600 text-xl max-w-2xl mx-auto leading-relaxed">
+          <p className="text-slate-600 text-xl max-w-2xl mx-auto leading-relaxed">
             複数の請求書が混在したPDFを1クリックで自動分割・命名。<br />
             月50〜200件の処理が、わずか数分で完了します。
           </p>
@@ -63,13 +66,16 @@ export default function InvoiceLpPage() {
               料金プランを見る
             </Link>
           </div>
-          <p className="text-sky-400 text-sm">ログイン不要・カード登録不要</p>
+          <p className="text-slate-400 text-sm">ログイン不要・カード登録不要</p>
         </section>
 
         {/* 動作動画 */}
-        <section className="space-y-4">
-          <h2 className="text-2xl font-extrabold text-sky-900 text-center">実際の動作を見る</h2>
-          <p className="text-center text-sky-500 text-sm">PDFアップロードから分割完了まで数十秒</p>
+        <section className="reveal space-y-4">
+          <div className="text-center space-y-1">
+            <span className="eyebrow">Demo</span>
+            <h2 className="text-2xl font-extrabold text-sky-900">実際の動作を見る</h2>
+          </div>
+          <p className="text-center text-slate-500 text-sm">PDFアップロードから分割完了まで数十秒</p>
           <div className="bg-white rounded-2xl shadow-sm border border-sky-100 overflow-hidden">
             {YOUTUBE_VIDEO_ID ? (
               <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
@@ -90,8 +96,11 @@ export default function InvoiceLpPage() {
         </section>
 
         {/* 課題提起 */}
-        <section className="bg-white rounded-2xl shadow-sm border border-sky-100 p-8 space-y-6">
-          <h2 className="text-2xl font-extrabold text-sky-900 text-center">こんなお悩みありませんか？</h2>
+        <section className="reveal bg-white rounded-2xl shadow-sm border border-sky-100 p-8 space-y-6">
+          <div className="text-center space-y-1">
+            <span className="eyebrow">Challenges</span>
+            <h2 className="text-2xl font-extrabold text-sky-900">こんなお悩みありませんか？</h2>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[
               '毎月の請求書仕分けに何時間もかかっている',
@@ -100,16 +109,19 @@ export default function InvoiceLpPage() {
               'AI導入が怖い（情報漏えいが心配）',
             ].map((item) => (
               <div key={item} className="flex items-start gap-3 bg-sky-50 rounded-xl p-4">
-                <span className="text-sky-400 font-bold text-xl flex-shrink-0">…</span>
-                <p className="text-sky-700 text-sm font-medium leading-relaxed">{item}</p>
+                <svg className="flex-shrink-0 mt-0.5 text-sky-400" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <p className="text-slate-700 text-sm font-medium leading-relaxed">{item}</p>
               </div>
             ))}
           </div>
         </section>
 
         {/* 特長 */}
-        <section className="space-y-6">
-          <h2 className="text-2xl font-extrabold text-sky-900 text-center">Invoice OCR が解決します</h2>
+        <section className="reveal space-y-6">
+          <div className="text-center space-y-1">
+            <span className="eyebrow">Solution</span>
+            <h2 className="text-2xl font-extrabold text-sky-900">Invoice OCR が解決します</h2>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
               {
@@ -128,25 +140,25 @@ export default function InvoiceLpPage() {
                 body: '「日付_請求元_金額」で自動命名。スタッフのスキルに依存しないファイル管理を実現。',
               },
             ].map((item) => (
-              <div key={item.title} className="bg-white rounded-2xl shadow-sm border border-sky-100 p-6 space-y-4">
+              <div key={item.title} className="lift bg-white rounded-2xl shadow-sm border border-sky-100 p-6 space-y-4">
                 <div className="w-12 h-12 bg-sky-50 rounded-xl flex items-center justify-center">
                   {item.icon}
                 </div>
                 <h3 className="font-bold text-sky-900">{item.title}</h3>
-                <p className="text-sky-600 text-sm leading-relaxed">{item.body}</p>
+                <p className="text-slate-600 text-sm leading-relaxed">{item.body}</p>
               </div>
             ))}
           </div>
         </section>
 
         {/* 通帳OCR (銀行API連携 代替訴求) */}
-        <section className="bg-white rounded-2xl shadow-sm border border-sky-100 p-8 space-y-5">
+        <section className="reveal bg-white rounded-2xl shadow-sm border border-sky-100 p-8 space-y-5">
           <div className="text-center space-y-2">
             <div className="inline-flex items-center gap-2 bg-lime-100 text-lime-700 text-xs font-semibold px-3 py-1 rounded-full border border-lime-200">
               通帳もOCRで自動取込
             </div>
             <h2 className="text-2xl font-extrabold text-sky-900">銀行API連携の設定は不要</h2>
-            <p className="text-sky-600 text-sm">通帳PDFをアップするだけ。地方銀行・信用金庫・ネット銀行、すべて対応</p>
+            <p className="text-slate-600 text-sm">通帳PDFをアップするだけ。地方銀行・信用金庫・ネット銀行、すべて対応</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
@@ -165,28 +177,31 @@ export default function InvoiceLpPage() {
             ].map((item) => (
               <div key={item.title} className="bg-sky-50 rounded-xl p-5 space-y-2 border border-sky-100">
                 <h3 className="font-bold text-sky-900 text-sm">{item.title}</h3>
-                <p className="text-sky-700 text-xs leading-relaxed">{item.body}</p>
+                <p className="text-slate-700 text-xs leading-relaxed">{item.body}</p>
               </div>
             ))}
           </div>
-          <p className="text-sky-400 text-xs text-center">
+          <p className="text-slate-400 text-xs text-center">
             ※ 銀行API直結による完全自動仕訳は freee／マネーフォワード が業界最強領域です。それらを併用しても問題ありません。
           </p>
         </section>
 
         {/* 動作環境（PC前提の明示） */}
-        <section className="bg-sky-50/60 rounded-2xl border border-sky-100 p-6 space-y-2">
+        <section className="reveal bg-sky-50/60 rounded-2xl border border-sky-100 p-6 space-y-2">
           <h3 className="font-bold text-sky-900 text-base text-center">動作環境</h3>
-          <p className="text-sky-700 text-sm leading-relaxed text-center max-w-2xl mx-auto">
+          <p className="text-slate-700 text-sm leading-relaxed text-center max-w-2xl mx-auto">
             税理士事務所側は <span className="font-bold">PC ブラウザ（Chrome／Edge／Safari 最新版）</span>を推奨します。
             スマートフォン・タブレットからも閲覧・最小限の操作は可能ですが、本格運用は PC をご用意ください。
           </p>
         </section>
 
         {/* 他サービスへのクロスナビ */}
-        <section className="space-y-4">
-          <h2 className="text-2xl font-extrabold text-sky-900 text-center">他にもこんなAI OCRがあります</h2>
-          <p className="text-center text-sky-500 text-sm">税理士業務の他の困りごとも自動化できます</p>
+        <section className="reveal space-y-4">
+          <div className="text-center space-y-1">
+            <span className="eyebrow">More Tools</span>
+            <h2 className="text-2xl font-extrabold text-sky-900">他にもこんなAI OCRがあります</h2>
+          </div>
+          <p className="text-center text-slate-500 text-sm">税理士業務の他の困りごとも自動化できます</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {OTHER_LPS.map((lp) =>
               lp.href ? (
@@ -211,13 +226,13 @@ export default function InvoiceLpPage() {
         </section>
 
         {/* 無料オンライン相談（面談予約） */}
-        <section id="consultation" className="scroll-mt-24 space-y-5">
+        <section id="consultation" className="reveal scroll-mt-24 space-y-5">
           <div className="text-center space-y-2">
             <div className="inline-flex items-center gap-2 bg-lime-100 text-lime-700 text-xs font-semibold px-3 py-1 rounded-full border border-lime-200">
               担当者と直接お話しできます
             </div>
             <h2 className="text-2xl font-extrabold text-sky-900">無料オンライン相談（Google Meet・30分）</h2>
-            <p className="text-sky-600 text-sm leading-relaxed max-w-2xl mx-auto">
+            <p className="text-slate-600 text-sm leading-relaxed max-w-2xl mx-auto">
               「自分の事務所の運用で使えるか」「料金や導入の流れを詳しく知りたい」など、
               気になる点を画面共有しながらその場でご説明します。無理な勧誘は一切いたしません。
             </p>
@@ -226,7 +241,7 @@ export default function InvoiceLpPage() {
         </section>
 
         {/* 最終CTA */}
-        <section className="bg-sky-500 rounded-2xl p-12 text-center space-y-6">
+        <section className="reveal bg-sky-500 rounded-2xl p-12 text-center space-y-6">
           <h2 className="text-3xl font-extrabold text-white">まずは無料で20回、お試しください</h2>
           <p className="text-sky-100 text-lg">ログイン不要・カード登録不要</p>
           <Link
