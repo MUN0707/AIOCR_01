@@ -57,23 +57,24 @@ export async function POST(request: NextRequest) {
       `,
     });
 
-    // 2) 申込者へ自動返信（受付確認）
-    await getResend().emails.send({
-      from,
-      to: email,
-      replyTo: adminEmail,
-      subject: '【Invoice OCR】無料オンライン相談のお申し込みを受け付けました',
-      html: `
-        <p>${esc(name)} 様</p>
-        <p>この度は Invoice OCR の無料オンライン相談にお申し込みいただき、誠にありがとうございます。</p>
-        <p>担当者より、いただいた希望日時をもとに Google Meet のURLと確定日時を追ってご連絡いたします。</p>
-        <p style="margin-top:16px;"><strong>ご記入内容</strong><br>
-        希望日時: ${esc(preferredTimes) || '（未入力）'}<br>
-        ご相談内容: ${esc(message) || '（未入力）'}</p>
-        <hr>
-        <p style="color:#64748b;font-size:13px;">Invoice OCR / 運営: 村田 尚優<br>本メールに心当たりがない場合は破棄してください。</p>
-      `,
-    });
+    // 2) 申込者へ自動返信（受付確認） — 2026-09-09 品質が低いとの指摘で一旦停止。
+    //    管理者通知（上の1)）は生きているので予約自体は届く。再開する場合はこのブロックを戻す。
+    // await getResend().emails.send({
+    //   from,
+    //   to: email,
+    //   replyTo: adminEmail,
+    //   subject: '【Invoice OCR】無料オンライン相談のお申し込みを受け付けました',
+    //   html: `
+    //     <p>${esc(name)} 様</p>
+    //     <p>この度は Invoice OCR の無料オンライン相談にお申し込みいただき、誠にありがとうございます。</p>
+    //     <p>担当者より、いただいた希望日時をもとに Google Meet のURLと確定日時を追ってご連絡いたします。</p>
+    //     <p style="margin-top:16px;"><strong>ご記入内容</strong><br>
+    //     希望日時: ${esc(preferredTimes) || '（未入力）'}<br>
+    //     ご相談内容: ${esc(message) || '（未入力）'}</p>
+    //     <hr>
+    //     <p style="color:#64748b;font-size:13px;">Invoice OCR / 運営: 村田 尚優<br>本メールに心当たりがない場合は破棄してください。</p>
+    //   `,
+    // });
 
     return NextResponse.json({ success: true });
   } catch (error) {
