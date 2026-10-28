@@ -53,3 +53,6 @@ __pycache__/
 
 # Playwright MCP outputs
 /.playwright-mcp/
+
+# Project-local Claude Code rules (public repo; not for deploy)
+/CLAUDE.md
