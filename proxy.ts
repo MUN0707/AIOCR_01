@@ -151,6 +151,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/denied') ||
     pathname.startsWith('/lp') ||
     pathname.startsWith('/pricing') ||
+    pathname === '/sitemap.xml' ||
+    pathname === '/robots.txt' ||
     pathname.startsWith('/api/subscribe') ||
     pathname.startsWith('/api/auth/signout')
   ) {
