@@ -1,4 +1,11 @@
 import Link from 'next/link';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: '料金プラン｜請求書OCR・PDF分割 Invoice OCR（月額1,500円〜・3日間無料）',
+  description:
+    '請求書OCR・PDF分割ツールの料金プラン。月額1,500円から、3日間の無料お試しあり。請求書ごとのPDF分割・ファイル命名・ZIP一括ダウンロードを全プランで利用できます。',
+};
 
 export default function PricingPage() {
   const plans = [
@@ -107,6 +114,11 @@ export default function PricingPage() {
           <h1 className="text-4xl font-extrabold text-sky-900">料金プラン</h1>
           <p className="text-sky-600 text-lg max-w-xl mx-auto">
             事務所の規模に合わせて選べる4プラン。すべて銀行振込に対応。
+          </p>
+          <h2 className="text-xl font-bold text-sky-800 pt-2">請求書OCR・PDF分割は全プランで使えます</h2>
+          <p className="text-sky-600 text-base max-w-2xl mx-auto">
+            請求書が混在したPDFを、請求書ごとに自動でPDF分割（ページ分割）して命名。分割したPDFはZIPで一括ダウンロードできます。
+            無料でPDF分割を試せる3日間のお試しつきです。
           </p>
         </div>
 

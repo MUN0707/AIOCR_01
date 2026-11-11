@@ -1,6 +1,13 @@
 import Link from 'next/link';
 import ConsultationForm from './ConsultationForm';
 import RevealInit from './RevealInit';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: '請求書OCR・PDF分割を自動化｜Invoice OCR（無料で20回お試し）',
+  description:
+    '請求書が混在したPDFを、請求書ごとにAIが自動で分割・命名。PDFのページ分割のしかたも解説。請求書の読み取り（OCR）から仕訳まで、税理士事務所向け。無料で20回試せます。',
+};
 
 // YouTube動画ID。空文字の間はプレースホルダー表示。
 const YOUTUBE_VIDEO_ID = 'OVIZsnFJz9Q';
@@ -67,6 +74,34 @@ export default function InvoiceLpPage() {
             </Link>
           </div>
           <p className="text-slate-400 text-sm">ログイン不要・カード登録不要</p>
+        </section>
+
+        {/* PDF分割・請求書OCR（検索ワード是正 2026-11-11） */}
+        <section className="reveal space-y-4">
+          <div className="text-center space-y-1">
+            <span className="eyebrow">PDF Split</span>
+            <h2 className="text-2xl font-extrabold text-sky-900">請求書OCRでPDF分割。分割方法はアップロードするだけ</h2>
+          </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-sky-100 p-6 space-y-3 text-slate-600 leading-relaxed">
+            <p>
+              複数の請求書をまとめてスキャンしたPDFは、請求書OCRがページの内容を読み取り、請求書ごとにPDFを分割します。
+              PDFを分割する作業は、ファイルをアップロードするだけです。
+            </p>
+            <h3 className="text-lg font-bold text-sky-800">PDFの分割方法（3ステップ）</h3>
+            <ol className="list-decimal pl-6 space-y-1">
+              <li>請求書が混在したPDF（またはPNG・JPEG・HEIC画像）をアップロード</li>
+              <li>AIが請求書の切れ目を判定し、PDFをページごとに請求書単位で分割・命名</li>
+              <li>分割したPDFをZIPでまとめてダウンロード</li>
+            </ol>
+            <p>
+              PDFページ分割にも対応しています。PDFページを分割する位置はAIが判定するため、PDF分割ページ数を指定する必要はありません。
+              PDFページの分割結果は、請求書ごとのページ分割PDFとして保存されます。
+            </p>
+            <p>
+              無料PDF分割として試せます。PDF分割無料お試し（20回・カード登録不要）で、PDF無料分割の使い心地を確かめてください。
+              請求書の読み取りは、取引先・日付・金額まで自動で行います。
+            </p>
+          </div>
         </section>
 
         {/* 動作動画 */}
