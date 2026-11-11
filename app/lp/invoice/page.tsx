@@ -85,7 +85,7 @@ export default function InvoiceLpPage() {
           <div className="bg-white rounded-2xl shadow-sm border border-sky-100 p-6 space-y-3 text-slate-600 leading-relaxed">
             <p>
               複数の請求書をまとめてスキャンしたPDFは、請求書OCRがページの内容を読み取り、請求書ごとにPDFを分割します。
-              PDFを分割する作業は、ファイルをアップロードするだけです。
+              PDF分割方法は、ファイルをアップロードするだけです。
             </p>
             <h3 className="text-lg font-bold text-sky-800">PDFの分割方法（3ステップ）</h3>
             <ol className="list-decimal pl-6 space-y-1">
